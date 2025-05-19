@@ -71,7 +71,7 @@ export default function AddClientPage() {
       notas: '',
       dominioWeb: '',
       tipoServicioWeb: '',
-      // vencimientoWeb is a Date, can be undefined
+      // vencimientoWeb is a Date, can be undefined initially but schema handles optionality
       plataformasRedesSociales: '',
       detallesRedesSociales: '',
       serviciosContratadosAdicionales: '',
@@ -85,11 +85,31 @@ export default function AddClientPage() {
     form.clearErrors(); // Clear previous errors
     try {
       // Add a timestamp for when the client was created
-      const clientData = {
+      const clientData: any = { // Use 'any' temporarily or create a more specific type for Firestore
         ...data,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+
+      // Firestore does not support 'undefined' values.
+      // Remove optional fields if they are undefined.
+      if (clientData.vencimientoWeb === undefined) {
+        delete clientData.vencimientoWeb;
+      }
+      if (clientData.clinica === undefined) delete clientData.clinica;
+      if (clientData.telefono === undefined) delete clientData.telefono;
+      if (clientData.profileSummary === undefined) delete clientData.profileSummary;
+      if (clientData.serviciosActivosGeneral === undefined) delete clientData.serviciosActivosGeneral;
+      if (clientData.notas === undefined) delete clientData.notas;
+      if (clientData.dominioWeb === undefined) delete clientData.dominioWeb;
+      if (clientData.tipoServicioWeb === undefined) delete clientData.tipoServicioWeb;
+      if (clientData.plataformasRedesSociales === undefined) delete clientData.plataformasRedesSociales;
+      if (clientData.detallesRedesSociales === undefined) delete clientData.detallesRedesSociales;
+      if (clientData.serviciosContratadosAdicionales === undefined) delete clientData.serviciosContratadosAdicionales;
+      if (clientData.configuracionRedesSociales === undefined) delete clientData.configuracionRedesSociales;
+      if (clientData.credencialesRedesUsuario === undefined) delete clientData.credencialesRedesUsuario;
+      if (clientData.credencialesRedesContrasena === undefined) delete clientData.credencialesRedesContrasena;
+
 
       const docRef = await addDoc(collection(db, 'clients'), clientData);
       console.log('Nuevo cliente guardado con ID: ', docRef.id);
@@ -479,3 +499,4 @@ export default function AddClientPage() {
     </div>
   );
 }
+
