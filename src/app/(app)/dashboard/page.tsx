@@ -1,16 +1,24 @@
+
+'use client';
+
 import { SummaryCard } from "@/components/dashboard/summary-card";
 import { Users, Briefcase, ListTodo, DollarSign } from "lucide-react";
 import { mockClients, mockTasks, mockInvoices } from "@/lib/data";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 
 export default function DashboardPage() {
-  const totalClients = mockClients.length;
-  const activeServicesCount = mockClients.reduce((acc, client) => acc + client.services.length, 0);
-  const pendingTasks = mockTasks.filter(task => task.status === 'Pendiente').length;
-  const revenueThisMonth = mockInvoices
-    .filter(invoice => invoice.status === 'Pagada' && new Date(invoice.issuedDate).getMonth() === new Date().getMonth())
-    .reduce((sum, inv) => sum + inv.amount, 0)
-    .toLocaleString('es-ES', { style: 'currency', currency: 'USD' }); // Assuming USD, adjust if needed
+  const safeMockClients = mockClients || [];
+  const safeMockTasks = mockTasks || [];
+  const safeMockInvoices = mockInvoices || [];
+
+  const totalClients = safeMockClients.length;
+  const activeServicesCount = safeMockClients.reduce((acc, client) => acc + (client && client.services ? client.services.length : 0), 0);
+  const pendingTasks = safeMockTasks.filter(task => task.status === 'Pendiente').length;
+  
+  const revenueThisMonth = safeMockInvoices
+    .filter(invoice => invoice.status === 'Pagada' && invoice.issuedDate && new Date(invoice.issuedDate).getMonth() === new Date().getMonth())
+    .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0) 
+    .toLocaleString('es-ES', { style: 'currency', currency: 'USD' });
 
   return (
     <div className="space-y-8">
@@ -28,14 +36,14 @@ export default function DashboardPage() {
           value={activeServicesCount} 
           icon={Briefcase}
           description="Total servicios proporcionados"
-          iconColorClass="text-green-500" // Consider using theme colors
+          iconColorClass="text-green-500"
         />
         <SummaryCard 
           title="Tareas Pendientes" 
           value={pendingTasks} 
           icon={ListTodo}
           description="Tareas que requieren atención"
-          iconColorClass="text-orange-500" // Consider using theme colors
+          iconColorClass="text-orange-500"
         />
         <SummaryCard 
           title="Ingresos Este Mes" 
@@ -54,12 +62,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <ul className="space-y-3">
-              {mockTasks.slice(0, 3).map(task => (
+              {(safeMockTasks || []).slice(0, 3).map(task => (
                 <li key={task.id} className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">{task.name}</span> - {task.status}
                 </li>
               ))}
-               {mockInvoices.slice(0,2).map(invoice => (
+               {(safeMockInvoices || []).slice(0,2).map(invoice => (
                  <li key={invoice.id} className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">Factura {invoice.id.toUpperCase()} para {invoice.clientName}</span> - {invoice.status}
                 </li>
@@ -74,12 +82,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
            <ul className="space-y-3">
-              {mockTasks.filter(t => t.status !== 'Completada' && new Date(t.dueDate) > new Date()).slice(0, 3).map(task => (
+              {(safeMockTasks || []).filter(t => t.status !== 'Completada' && t.dueDate && new Date(t.dueDate) > new Date()).slice(0, 3).map(task => (
                 <li key={task.id} className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">{task.name}</span> - Vence el {new Date(task.dueDate).toLocaleDateString('es-ES')}
                 </li>
               ))}
-               {mockInvoices.filter(i => i.status === 'No Pagada').slice(0,2).map(invoice => (
+               {(safeMockInvoices || []).filter(i => i.status === 'No Pagada' && i.dueDate).slice(0,2).map(invoice => (
                  <li key={invoice.id} className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">Factura {invoice.id.toUpperCase()} para {invoice.clientName}</span> - Vence el {new Date(invoice.dueDate).toLocaleDateString('es-ES')}
                 </li>

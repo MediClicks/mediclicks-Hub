@@ -1,13 +1,13 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -24,9 +24,10 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { mockClients } from '@/lib/data'; // For client selection
+import { mockClients } from '@/lib/data'; // For client selection - TODO: Replace with Firestore fetch
 import type { InvoiceStatus, InvoiceItem } from '@/types';
-import { useEffect } from 'react';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const invoiceStatuses: InvoiceStatus[] = ['No Pagada', 'Pagada', 'Vencida'];
 
@@ -71,17 +72,36 @@ export default function AddInvoicePage() {
   const totalAmount = watchItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
 
 
-  function onSubmit(data: InvoiceFormValues) {
-    console.log('Nueva factura:', data);
-    const clientName = mockClients.find(c => c.id === data.clientId)?.name;
-    
-    toast({
-      title: 'Factura Creada',
-      description: `La factura para ${clientName || 'el cliente seleccionado'} ha sido creada.`,
-    });
-    // This is where you'd typically save to a DB
-    // For mock: mockInvoices.push({ id: `inv${mockInvoices.length + 1}`, clientName: clientName!, amount: totalAmount, ...data });
-    router.push('/billing');
+  async function onSubmit(data: InvoiceFormValues) {
+    form.clearErrors();
+    try {
+      const clientName = mockClients.find(c => c.id === data.clientId)?.name;
+      
+      const invoiceData = {
+        ...data,
+        clientName: clientName, // Denormalized client name
+        totalAmount: totalAmount, // Store calculated total
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
+      console.log('Nueva factura guardada en Firestore con ID: ', docRef.id);
+      
+      toast({
+        title: 'Factura Creada',
+        description: `La factura para ${clientName || 'el cliente seleccionado'} ha sido creada.`,
+      });
+      router.push('/billing');
+
+    } catch (e) {
+      console.error('Error al agregar factura a Firestore: ', e);
+      toast({
+        title: 'Error al Guardar Factura',
+        description: 'Hubo un problema al guardar la factura. Por favor, intenta de nuevo.',
+        variant: 'destructive',
+      });
+    }
   }
 
   return (
@@ -96,7 +116,7 @@ export default function AddInvoicePage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Cliente</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar un cliente" />
@@ -118,7 +138,7 @@ export default function AddInvoicePage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Estado</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar estado" />
@@ -212,7 +232,7 @@ export default function AddInvoicePage() {
                     <FormItem className="md:col-span-2">
                        {index === 0 && <FormLabel>Cantidad</FormLabel>}
                       <FormControl>
-                        <Input type="number" placeholder="1" {...field} />
+                        <Input type="number" placeholder="1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -225,7 +245,7 @@ export default function AddInvoicePage() {
                     <FormItem className="md:col-span-3">
                        {index === 0 && <FormLabel>Precio Unit.</FormLabel>}
                       <FormControl>
-                        <Input type="number" placeholder="0.00" {...field} />
+                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -268,7 +288,7 @@ export default function AddInvoicePage() {
             )}
           />
           <Button type="submit" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting ? 'Guardando...' : 'Guardar Factura'}
+            {form.formState.isSubmitting ? 'Guardando Factura...' : 'Guardar Factura'}
           </Button>
         </form>
       </Form>

@@ -1,15 +1,35 @@
+
 import Image from 'next/image';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import type { Client } from "@/types";
+import type { Client, WithConvertedDates } from "@/types"; // Adjusted type import
 import { Briefcase, CalendarDays, Mail, Phone, Building } from 'lucide-react';
 
 interface ClientCardProps {
-  client: Client;
+  client: WithConvertedDates<Client>; // Use the converted type
 }
 
 export function ClientCard({ client }: ClientCardProps) {
+  // Helper function to safely format dates that might be undefined
+  const formatDate = (dateInput: Date | string | undefined) => {
+    if (!dateInput) return 'N/A';
+    try {
+      return new Date(dateInput).toLocaleDateString('es-ES');
+    } catch (e) {
+      return 'Fecha inválida';
+    }
+  };
+
+  const getYear = (dateInput: Date | string | undefined) => {
+    if (!dateInput) return '';
+    try {
+      return new Date(dateInput).getFullYear();
+    } catch (e) {
+      return '';
+    }
+  }
+
   return (
     <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden flex flex-col">
       <CardHeader className="flex flex-row items-start gap-4 p-4 bg-secondary/30">
@@ -17,7 +37,7 @@ export function ClientCard({ client }: ClientCardProps) {
           {client.avatarUrl ? (
             <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="company logo" />
           ) : (
-            <AvatarFallback>{client.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+            <AvatarFallback>{client.name ? client.name.substring(0, 2).toUpperCase() : 'CL'}</AvatarFallback>
           )}
         </Avatar>
         <div className="flex-1">
@@ -43,10 +63,10 @@ export function ClientCard({ client }: ClientCardProps) {
             <Briefcase className="mr-2 h-4 w-4" /> Servicios Principales
           </h4>
           <div className="flex flex-wrap gap-1">
-            {client.services.map(service => (
+            {client.services && client.services.map(service => (
               <Badge key={service.id} variant="secondary" className="font-normal text-xs px-1.5 py-0.5">{service.name}</Badge>
             ))}
-             {client.services.length === 0 && <p className="text-xs text-muted-foreground">Ninguno</p>}
+             {(!client.services || client.services.length === 0) && <p className="text-xs text-muted-foreground">Ninguno</p>}
           </div>
         </div>
          {client.serviciosActivosGeneral && (
@@ -61,13 +81,13 @@ export function ClientCard({ client }: ClientCardProps) {
             <h4 className="text-xs font-medium text-muted-foreground mb-0.5 flex items-center">
               <CalendarDays className="mr-1 h-3 w-3" /> Inicio Contrato
             </h4>
-            <p>{new Date(client.contractStartDate).toLocaleDateString('es-ES')}</p>
+            <p>{formatDate(client.contractStartDate)}</p>
           </div>
           <div>
             <h4 className="text-xs font-medium text-muted-foreground mb-0.5 flex items-center">
               <CalendarDays className="mr-1 h-3 w-3" /> Próx. Factura
             </h4>
-            <p>{new Date(client.nextBillingDate).toLocaleDateString('es-ES')}</p>
+            <p>{formatDate(client.nextBillingDate)}</p>
           </div>
         </div>
 
@@ -75,13 +95,13 @@ export function ClientCard({ client }: ClientCardProps) {
            <div>
             <h4 className="text-xs font-medium text-muted-foreground mb-0.5">Dominio Web</h4>
             <p className="text-sm">{client.dominioWeb}</p>
-            {client.vencimientoWeb && <p className="text-xs text-muted-foreground">Vence: {new Date(client.vencimientoWeb).toLocaleDateString('es-ES')}</p>}
+            {client.vencimientoWeb && <p className="text-xs text-muted-foreground">Vence: {formatDate(client.vencimientoWeb)}</p>}
           </div>
         )}
        
       </CardContent>
       <CardFooter className="p-4 border-t flex justify-between items-center">
-        <p className="text-xs text-muted-foreground">Cliente desde {new Date(client.contractStartDate).getFullYear()}</p>
+        <p className="text-xs text-muted-foreground">Cliente desde {getYear(client.contractStartDate)}</p>
         {typeof client.pagado !== 'undefined' && (
             <Badge variant={client.pagado ? "default" : "destructive"} className="text-xs px-1.5 py-0.5 bg-opacity-70">
                 {client.pagado ? "Al día" : "Pago Pendiente"}

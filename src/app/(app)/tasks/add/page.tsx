@@ -25,8 +25,10 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { mockClients } from '@/lib/data'; // For client selection
+import { mockClients } from '@/lib/data'; // For client selection - TODO: Replace with Firestore fetch
 import type { TaskPriority, TaskStatus } from '@/types';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -35,7 +37,8 @@ const taskFormSchema = z.object({
   name: z.string().min(3, { message: 'El nombre de la tarea debe tener al menos 3 caracteres.' }),
   description: z.string().optional(),
   assignedTo: z.string().min(2, { message: 'Debe asignar la tarea a alguien.' }),
-  clientId: z.string().optional(),
+  clientId: z.string().optional(), // This will store the client document ID
+  // clientName is not part of the form, but will be added to the DB record if clientId is present
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   priority: z.enum(taskPriorities, { required_error: 'La prioridad es obligatoria.' }),
   status: z.enum(taskStatuses, { required_error: 'El estado es obligatorio.' }),
@@ -43,7 +46,7 @@ const taskFormSchema = z.object({
 
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
-const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__"; // Unique value for the "None" option
+const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
 
 export default function AddTaskPage() {
   const router = useRouter();
@@ -56,20 +59,44 @@ export default function AddTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
-      // clientId is undefined by default due to .optional()
     },
   });
 
-  function onSubmit(data: TaskFormValues) {
-    console.log('Nueva tarea:', data);
-    const clientName = data.clientId ? mockClients.find(c => c.id === data.clientId)?.name : undefined;
-    // Here you would typically send data to your backend
-    toast({
-      title: 'Tarea Creada',
-      description: `La tarea "${data.name}" ha sido agregada exitosamente.`,
-    });
-    // mockTasks.push({ id: `t${mockTasks.length + 1}`, ...data, clientName }); // Example
-    router.push('/tasks');
+  async function onSubmit(data: TaskFormValues) {
+    form.clearErrors();
+    try {
+      const clientName = data.clientId ? mockClients.find(c => c.id === data.clientId)?.name : undefined;
+      
+      const taskData = {
+        ...data,
+        clientName: clientName, // Store client name for easier display, consider if always needed
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      // If clientId is TASK_CLIENT_SELECT_NONE_VALUE or undefined, remove it
+      if (!taskData.clientId || taskData.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
+        delete taskData.clientId;
+        delete taskData.clientName;
+      }
+
+
+      const docRef = await addDoc(collection(db, 'tasks'), taskData);
+      console.log('Nueva tarea guardada en Firestore con ID: ', docRef.id);
+
+      toast({
+        title: 'Tarea Creada',
+        description: `La tarea "${data.name}" ha sido agregada exitosamente.`,
+      });
+      router.push('/tasks');
+    } catch (e) {
+      console.error('Error al agregar tarea a Firestore: ', e);
+      toast({
+        title: 'Error al Guardar Tarea',
+        description: 'Hubo un problema al guardar la tarea. Por favor, intenta de nuevo.',
+        variant: 'destructive',
+      });
+    }
   }
 
   return (
@@ -124,10 +151,10 @@ export default function AddTaskPage() {
                 <FormItem>
                   <FormLabel>Cliente (Opcional)</FormLabel>
                   <Select
-                    value={field.value} // Use value for controlled component
+                    value={field.value || TASK_CLIENT_SELECT_NONE_VALUE} 
                     onValueChange={(selectedValue) => {
                       if (selectedValue === TASK_CLIENT_SELECT_NONE_VALUE) {
-                        field.onChange(undefined); // Set to undefined for "None"
+                        field.onChange(undefined); 
                       } else {
                         field.onChange(selectedValue);
                       }
@@ -236,11 +263,10 @@ export default function AddTaskPage() {
             />
           </div>
           <Button type="submit" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting ? 'Guardando...' : 'Guardar Tarea'}
+            {form.formState.isSubmitting ? 'Guardando Tarea...' : 'Guardar Tarea'}
           </Button>
         </form>
       </Form>
     </div>
   );
 }
-    
