@@ -1,13 +1,13 @@
 
+import Image from 'next/image';
 import {
   LayoutDashboard,
   Users,
   ListChecks,
   Receipt,
   Lightbulb,
-  Blend,
   Settings,
-  LifeBuoy
+  // LifeBuoy // Removed as Support page is deleted
 } from "lucide-react";
 
 export type NavItem = {
@@ -16,25 +16,33 @@ export type NavItem = {
   icon: React.ElementType;
   tooltip?: string;
   subItems?: NavItem[];
-  active?: boolean; // Added for explicit active state management if needed outside path matching
+  active?: boolean;
 };
 
 export const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, tooltip: "Dashboard Overview" },
-  { href: "/clients", label: "Clients", icon: Users, tooltip: "Manage Clients" },
-  { href: "/tasks", label: "Tasks", icon: ListChecks, tooltip: "Track Tasks" },
-  { href: "/billing", label: "Billing", icon: Receipt, tooltip: "Invoices & Payments" },
-  { href: "/content-suggestions", label: "AI Suggestions", icon: Lightbulb, tooltip: "Content Ideas" },
+  { href: "/dashboard", label: "Panel Principal", icon: LayoutDashboard, tooltip: "Vista General" },
+  { href: "/clients", label: "Clientes", icon: Users, tooltip: "Gestionar Clientes" },
+  { href: "/tasks", label: "Tareas", icon: ListChecks, tooltip: "Seguimiento de Tareas" },
+  { href: "/billing", label: "Facturación", icon: Receipt, tooltip: "Facturas y Pagos" },
+  { href: "/content-suggestions", label: "Sugerencias IA", icon: Lightbulb, tooltip: "Ideas de Contenido" },
 ];
 
 export const bottomNavItems: NavItem[] = [
-  { href: "/settings", label: "Settings", icon: Settings, tooltip: "App Settings" },
-  { href: "/support", label: "Support", icon: LifeBuoy, tooltip: "Help & Support" },
+  { href: "/settings", label: "Configuración", icon: Settings, tooltip: "Ajustes de la App" },
+  // { href: "/support", label: "Soporte", icon: LifeBuoy, tooltip: "Ayuda y Soporte" }, // Removed
 ];
 
 export const AppLogo = ({ collapsed }: { collapsed?: boolean }) => (
   <div className="flex items-center gap-2 px-2 py-1">
-    <Blend className="h-8 w-8 text-sidebar-primary" />
+    {/* Assuming logo-mediclicks.png is in public/images/ */}
+    <Image 
+      src="/images/logo-mediclicks.png" 
+      alt="MediClicks Hub Logo" 
+      width={collapsed ? 32 : 32} // Adjust size as needed
+      height={collapsed ? 32 : 32} // Adjust size as needed
+      className="object-contain"
+      data-ai-hint="company logo"
+    />
     {!collapsed && <span className="text-xl font-semibold text-sidebar-foreground">MediClicks Hub</span>}
   </div>
 );

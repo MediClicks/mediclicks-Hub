@@ -1,3 +1,5 @@
+
+import Link from "next/link";
 import { ClientCard } from "@/components/clients/client-card";
 import { mockClients } from "@/lib/data";
 import { Button } from "@/components/ui/button";
@@ -7,9 +9,11 @@ export default function ClientsPage() {
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Clients</h1>
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" /> Add New Client
+        <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
+        <Button asChild>
+          <Link href="/clients/add">
+            <PlusCircle className="mr-2 h-4 w-4" /> Agregar Nuevo Cliente
+          </Link>
         </Button>
       </div>
       
@@ -21,8 +25,10 @@ export default function ClientsPage() {
         </div>
       ) : (
         <div className="text-center py-12">
-          <p className="text-lg text-muted-foreground">No clients found.</p>
-          <Button variant="link" className="mt-2">Add your first client</Button>
+          <p className="text-lg text-muted-foreground">No se encontraron clientes.</p>
+          <Button variant="link" className="mt-2" asChild>
+            <Link href="/clients/add">Agrega tu primer cliente</Link>
+          </Button>
         </div>
       )}
     </div>

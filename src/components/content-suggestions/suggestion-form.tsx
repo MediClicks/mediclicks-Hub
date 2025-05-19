@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -23,12 +24,12 @@ import { useToast } from '@/hooks/use-toast';
 import { mockClients } from '@/lib/data';
 
 const formSchema = z.object({
-  clientId: z.string().min(1, { message: 'Please select a client.' }),
+  clientId: z.string().min(1, { message: 'Por favor, selecciona un cliente.' }),
   clientProfile: z.string().min(50, {
-    message: 'Client profile must be at least 50 characters.',
+    message: 'El perfil del cliente debe tener al menos 50 caracteres.',
   }),
-  contentType: z.string().min(1, { message: 'Please select a content type.' }),
-  tone: z.string().min(1, {message: 'Please select a tone.'}),
+  contentType: z.string().min(1, { message: 'Por favor, selecciona un tipo de contenido.' }),
+  tone: z.string().min(1, {message: 'Por favor, selecciona un tono.'}),
 });
 
 type SuggestionFormValues = z.infer<typeof formSchema>;
@@ -44,7 +45,7 @@ export function SuggestionForm() {
       clientId: '',
       clientProfile: '',
       contentType: '',
-      tone: 'Professional',
+      tone: 'Profesional',
     },
   });
   
@@ -67,20 +68,20 @@ export function SuggestionForm() {
     setSuggestedPost(null);
     try {
       const input: SuggestSocialMediaPostInput = {
-        clientProfile: `${values.clientProfile} Desired tone: ${values.tone}.`,
+        clientProfile: `${values.clientProfile} Tono deseado: ${values.tone}.`,
         contentType: values.contentType,
       };
       const result = await suggestSocialMediaPost(input);
       setSuggestedPost(result.suggestedPost);
       toast({
-        title: "Suggestion Generated!",
-        description: "Your new social media post idea is ready.",
+        title: "¡Sugerencia Generada!",
+        description: "Tu nueva idea para redes sociales está lista.",
       });
     } catch (error) {
-      console.error('Error generating suggestion:', error);
+      console.error('Error generando sugerencia:', error);
       toast({
         title: "Error",
-        description: "Failed to generate suggestion. Please try again.",
+        description: "No se pudo generar la sugerencia. Por favor, inténtalo de nuevo.",
         variant: "destructive",
       });
     } finally {
@@ -92,8 +93,8 @@ export function SuggestionForm() {
     if (suggestedPost) {
       navigator.clipboard.writeText(suggestedPost);
       toast({
-        title: "Copied to Clipboard!",
-        description: "The suggested post has been copied.",
+        title: "¡Copiado al Portapapeles!",
+        description: "La publicación sugerida ha sido copiada.",
       });
     }
   };
@@ -103,10 +104,10 @@ export function SuggestionForm() {
       <CardHeader>
         <CardTitle className="flex items-center text-2xl">
           <Sparkles className="mr-2 h-6 w-6 text-accent" />
-          AI Content Suggestions
+          Sugerencias de Contenido IA
         </CardTitle>
         <CardDescription>
-          Generate social media post ideas tailored to your clients.
+          Genera ideas para publicaciones en redes sociales adaptadas a tus clientes.
         </CardDescription>
       </CardHeader>
       <Form {...form}>
@@ -117,11 +118,11 @@ export function SuggestionForm() {
               name="clientId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Select Client</FormLabel>
+                  <FormLabel>Seleccionar Cliente</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a client" />
+                        <SelectValue placeholder="Selecciona un cliente" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -139,16 +140,16 @@ export function SuggestionForm() {
               name="clientProfile"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Client Profile</FormLabel>
+                  <FormLabel>Perfil del Cliente</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Enter client brand, values, target audience, etc."
+                      placeholder="Introduce la marca del cliente, valores, público objetivo, etc."
                       className="resize-y min-h-[120px]"
                       {...field}
                     />
                   </FormControl>
                   <FormDescription>
-                    Provide a detailed profile for better suggestions. This will be auto-filled when you select a client.
+                    Proporciona un perfil detallado para mejores sugerencias. Se rellenará automáticamente al seleccionar un cliente.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -160,19 +161,19 @@ export function SuggestionForm() {
                 name="contentType"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Content Type</FormLabel>
+                    <FormLabel>Tipo de Contenido</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select content type" />
+                          <SelectValue placeholder="Selecciona tipo de contenido" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="Instagram Post">Instagram Post</SelectItem>
-                        <SelectItem value="Facebook Update">Facebook Update</SelectItem>
-                        <SelectItem value="Tweet / X Post">Tweet / X Post</SelectItem>
-                        <SelectItem value="LinkedIn Article Snippet">LinkedIn Article Snippet</SelectItem>
-                        <SelectItem value="Short Blog Idea">Short Blog Idea</SelectItem>
+                        <SelectItem value="Publicación para Instagram">Publicación para Instagram</SelectItem>
+                        <SelectItem value="Actualización para Facebook">Actualización para Facebook</SelectItem>
+                        <SelectItem value="Tweet / Publicación para X">Tweet / Publicación para X</SelectItem>
+                        <SelectItem value="Extracto Artículo LinkedIn">Extracto Artículo LinkedIn</SelectItem>
+                        <SelectItem value="Idea Corta para Blog">Idea Corta para Blog</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -184,20 +185,20 @@ export function SuggestionForm() {
                 name="tone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Desired Tone</FormLabel>
+                    <FormLabel>Tono Deseado</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select desired tone" />
+                          <SelectValue placeholder="Selecciona tono deseado" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="Professional">Professional</SelectItem>
+                        <SelectItem value="Profesional">Profesional</SelectItem>
                         <SelectItem value="Casual">Casual</SelectItem>
-                        <SelectItem value="Witty">Witty</SelectItem>
-                        <SelectItem value="Informative">Informative</SelectItem>
-                        <SelectItem value="Friendly">Friendly</SelectItem>
-                        <SelectItem value="Urgent">Urgent</SelectItem>
+                        <SelectItem value="Ingenioso">Ingenioso</SelectItem>
+                        <SelectItem value="Informativo">Informativo</SelectItem>
+                        <SelectItem value="Amigable">Amigable</SelectItem>
+                        <SelectItem value="Urgente">Urgente</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -213,15 +214,15 @@ export function SuggestionForm() {
               ) : (
                 <Sparkles className="mr-2 h-4 w-4" />
               )}
-              Generate Suggestion
+              Generar Sugerencia
             </Button>
 
             {suggestedPost && (
               <div className="mt-6 p-4 border rounded-md bg-secondary/50 space-y-3">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold">Suggested Post:</h3>
+                  <h3 className="text-lg font-semibold">Publicación Sugerida:</h3>
                   <Button variant="ghost" size="sm" onClick={copyToClipboard}>
-                    <Copy className="mr-2 h-4 w-4"/> Copy
+                    <Copy className="mr-2 h-4 w-4"/> Copiar
                   </Button>
                 </div>
                 <p className="text-sm whitespace-pre-line">{suggestedPost}</p>
