@@ -9,7 +9,7 @@ export const commonServices: Service[] = [
   { id: 's4', name: 'Gestión de Campañas PPC', price: 600 },
 ];
 
-// mockClients is now primarily for populating dropdowns in forms, 
+// mockClients is now primarily for populating dropdowns in forms,
 // until those dropdowns also fetch data from Firestore.
 // The actual client list page will fetch from Firestore.
 export const mockClients: Partial<Client>[] = [ // Using Partial<Client> as some fields might not be needed for dropdowns
@@ -18,8 +18,11 @@ export const mockClients: Partial<Client>[] = [ // Using Partial<Client> as some
     name: 'Innovatech Solutions',
     email: 'contact@innovatech.com',
     profileSummary: 'Innovatech Solutions es una empresa tecnológica B2B especializada en analítica impulsada por IA. Público objetivo: CTOs, científicos de datos. Valores: Innovación, eficiencia, seguridad de datos. Tono: Profesional, vanguardista.',
-    // contractStartDate, nextBillingDate, etc. are omitted as they are Date objects and
-    // mock data is simpler with strings. These would be populated if this mock data was used for ClientCard.
+    // contractStartDate, nextBillingDate, etc. would be Date objects if fully populated.
+    // For mock dropdowns, only id and name might be strictly necessary.
+    // Example if dates were needed for full mock client cards:
+    // contractStartDate: new Date(Date.UTC(2023, 0, 15)), // Jan 15, 2023
+    // nextBillingDate: new Date(Date.UTC(2024, 7, 15)), // Aug 15, 2024
   },
   {
     id: 'client_greenleaf_mock',
@@ -41,16 +44,16 @@ export const mockTasks: Task[] = [
     id: 't1_mock',
     name: 'Borrador calendario redes Q3 para Innovatech',
     assignedTo: 'Alicia Pérez',
-    dueDate: new Date('2024-07-10'),
+    dueDate: new Date(Date.UTC(2024, 6, 10)), // July 10th, 2024 UTC
     status: 'En Progreso',
     priority: 'Alta',
     clientId: 'client_innovatech_mock',
     clientName: 'Innovatech Solutions',
     description: 'Planificar contenido para LinkedIn y Twitter para el tercer trimestre.',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date(Date.UTC(2024, 6, 1, 10, 0, 0)), // Static UTC date
+    updatedAt: new Date(Date.UTC(2024, 6, 1, 10, 5, 0)), // Static UTC date
   },
-  // ... other mock tasks can be removed or updated if needed for other parts not yet migrated
+  // ... other mock tasks
 ];
 
 // mockInvoices will be replaced by Firestore data on the billing list page.
@@ -60,16 +63,16 @@ export const mockInvoices: Invoice[] = [
     clientName: 'Innovatech Solutions',
     clientId: 'client_innovatech_mock',
     totalAmount: 1250,
-    dueDate: new Date('2024-07-15'),
-    issuedDate: new Date('2024-07-01'),
+    dueDate: new Date(Date.UTC(2024, 6, 15)), // July 15th, 2024 UTC
+    issuedDate: new Date(Date.UTC(2024, 6, 1)), // July 1st, 2024 UTC
     status: 'No Pagada',
     items: [
       { id: 'item1', description: 'Gestión de Redes Sociales', quantity: 1, unitPrice: 500 },
       { id: 'item2', description: 'Optimización SEO', quantity: 1, unitPrice: 750 },
     ],
     notes: 'Servicios correspondientes al mes de Julio.',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date(Date.UTC(2024, 5, 28, 14, 30, 0)), // Static UTC date
+    updatedAt: new Date(Date.UTC(2024, 5, 28, 14, 35, 0)), // Static UTC date
   },
-    // ... other mock invoices can be removed or updated
+    // ... other mock invoices
 ];
