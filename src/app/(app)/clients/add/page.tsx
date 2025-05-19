@@ -62,8 +62,22 @@ export default function AddClientPage() {
     defaultValues: {
       name: '',
       email: '',
+      clinica: '',
+      telefono: '',
+      // contractStartDate and nextBillingDate will be Date objects, react-hook-form handles undefined for these with date pickers
+      profileSummary: '',
+      serviciosActivosGeneral: '',
       pagado: false,
-      // contractStartDate and nextBillingDate will be Date objects
+      notas: '',
+      dominioWeb: '',
+      tipoServicioWeb: '',
+      // vencimientoWeb is a Date, can be undefined
+      plataformasRedesSociales: '',
+      detallesRedesSociales: '',
+      serviciosContratadosAdicionales: '',
+      configuracionRedesSociales: '',
+      credencialesRedesUsuario: '',
+      credencialesRedesContrasena: '',
     },
   });
 
@@ -92,8 +106,6 @@ export default function AddClientPage() {
         description: 'Hubo un problema al guardar el cliente. Por favor, intenta de nuevo.',
         variant: 'destructive',
       });
-      // Optionally, set a general form error if the error is not field-specific
-      // form.setError("root.serverError", { type: "manual", message: "Error del servidor al guardar cliente." });
     }
   }
 
@@ -102,7 +114,6 @@ export default function AddClientPage() {
       <h1 className="text-3xl font-bold tracking-tight">Agregar Nuevo Cliente</h1>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          {/* Display root form error if any */}
           {form.formState.errors.root?.serverError && (
             <FormMessage className="text-destructive">
               {form.formState.errors.root.serverError.message}
@@ -468,5 +479,3 @@ export default function AddClientPage() {
     </div>
   );
 }
-
-    
