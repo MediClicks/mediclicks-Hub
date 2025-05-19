@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -24,8 +25,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-// import { mockClients, commonServices } from '@/lib/data'; // To add a new client, not needed here for now
-// import type { Client, Service } from '@/types';
+import { db } from '@/lib/firebase'; // Import Firestore instance
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'; // Import Firestore functions
 
 // Define Zod schema for client form validation
 const clientFormSchema = z.object({
@@ -48,7 +49,6 @@ const clientFormSchema = z.object({
   configuracionRedesSociales: z.string().optional(),
   credencialesRedesUsuario: z.string().optional(),
   credencialesRedesContrasena: z.string().optional(),
-  // services: z.array(z.string()).optional(), // For structured services if using multi-select
 });
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
@@ -67,16 +67,34 @@ export default function AddClientPage() {
     },
   });
 
-  function onSubmit(data: ClientFormValues) {
-    console.log('Nuevo cliente:', data);
-    // Here you would typically send data to your backend
-    // For demo, we'll just show a toast and redirect
-    toast({
-      title: 'Cliente Creado',
-      description: `El cliente ${data.name} ha sido agregado exitosamente.`,
-    });
-    // mockClients.push({ id: `c${mockClients.length + 1}`, ...data, services: [] }); // Example, adapt properly
-    router.push('/clients');
+  async function onSubmit(data: ClientFormValues) {
+    form.clearErrors(); // Clear previous errors
+    try {
+      // Add a timestamp for when the client was created
+      const clientData = {
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const docRef = await addDoc(collection(db, 'clients'), clientData);
+      console.log('Nuevo cliente guardado con ID: ', docRef.id);
+
+      toast({
+        title: 'Cliente Creado',
+        description: `El cliente ${data.name} ha sido agregado exitosamente a Firestore.`,
+      });
+      router.push('/clients');
+    } catch (e) {
+      console.error('Error al agregar cliente a Firestore: ', e);
+      toast({
+        title: 'Error al Guardar',
+        description: 'Hubo un problema al guardar el cliente. Por favor, intenta de nuevo.',
+        variant: 'destructive',
+      });
+      // Optionally, set a general form error if the error is not field-specific
+      // form.setError("root.serverError", { type: "manual", message: "Error del servidor al guardar cliente." });
+    }
   }
 
   return (
@@ -84,6 +102,12 @@ export default function AddClientPage() {
       <h1 className="text-3xl font-bold tracking-tight">Agregar Nuevo Cliente</h1>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+          {/* Display root form error if any */}
+          {form.formState.errors.root?.serverError && (
+            <FormMessage className="text-destructive">
+              {form.formState.errors.root.serverError.message}
+            </FormMessage>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
@@ -437,10 +461,12 @@ export default function AddClientPage() {
             )}
           />
           <Button type="submit" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting ? 'Guardando...' : 'Guardar Cliente'}
+            {form.formState.isSubmitting ? 'Guardando en Firestore...' : 'Guardar Cliente'}
           </Button>
         </form>
       </Form>
     </div>
   );
 }
+
+    
