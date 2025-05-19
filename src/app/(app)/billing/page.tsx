@@ -21,6 +21,35 @@ const statusColors: Record<InvoiceStatus, string> = {
 };
 
 export default function BillingPage() {
+  // TODO: Replace mockInvoices with data fetched from Firestore
+  // const [invoices, setInvoices] = useState<Invoice[]>([]);
+  // const [isLoading, setIsLoading] = useState(true);
+  // const [error, setError] = useState<string | null>(null);
+
+  // useEffect(() => {
+  //   const fetchInvoices = async () => {
+  //     setIsLoading(true);
+  //     setError(null);
+  //     try {
+  //       const invoicesCollection = collection(db, "invoices");
+  //       const q = query(invoicesCollection, orderBy("createdAt", "desc"));
+  //       const querySnapshot = await getDocs(q);
+  //       const invoicesData = querySnapshot.docs.map(doc => {
+  //         const data = doc.data();
+  //         const convertedData = convertTimestampsToDates(data); // Assuming you have this helper
+  //         return { id: doc.id, ...convertedData } as WithConvertedDates<Invoice>;
+  //       });
+  //       setInvoices(invoicesData);
+  //     } catch (err) {
+  //       console.error("Error fetching invoices: ", err);
+  //       setError("No se pudieron cargar las facturas.");
+  //     } finally {
+  //       setIsLoading(false);
+  //     }
+  //   };
+  //   fetchInvoices();
+  // }, []);
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -31,6 +60,8 @@ export default function BillingPage() {
           </Link>
         </Button>
       </div>
+
+      {/* TODO: Add loading and error states similar to clients page */}
 
       <div className="rounded-lg border shadow-sm bg-card">
         <Table>
@@ -50,7 +81,7 @@ export default function BillingPage() {
               <TableRow key={invoice.id} className="hover:bg-muted/50">
                 <TableCell className="font-medium">{invoice.id.toUpperCase()}</TableCell>
                 <TableCell>{invoice.clientName}</TableCell>
-                <TableCell>{invoice.amount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
+                <TableCell>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                 <TableCell>{new Date(invoice.issuedDate).toLocaleDateString('es-ES')}</TableCell>
                 <TableCell>{new Date(invoice.dueDate).toLocaleDateString('es-ES')}</TableCell>
                 <TableCell>
