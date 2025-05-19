@@ -1,9 +1,10 @@
+
 import Link from 'next/link';
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // Avatar imports will no longer be strictly needed here but can remain for now.
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { User, LogOut, Settings as SettingsIcon } from "lucide-react"; // Renamed Settings to SettingsIcon to avoid conflict
+import { User, LogOut, Settings as SettingsIcon } from "lucide-react";
 
 interface AppHeaderProps {
   pageTitle: string;
@@ -19,11 +20,8 @@ export function AppHeader({ pageTitle }: AppHeaderProps) {
       <div className="ml-auto flex items-center gap-4">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-9 w-9 rounded-full">
-              <Avatar className="h-9 w-9">
-                <AvatarImage src="https://placehold.co/100x100.png" alt="Avatar de Usuario" data-ai-hint="user avatar" />
-                <AvatarFallback>U</AvatarFallback>
-              </Avatar>
+            <Button variant="ghost" size="icon">
+              <User className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="end" forceMount>
