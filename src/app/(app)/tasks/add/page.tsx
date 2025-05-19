@@ -1,6 +1,7 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -8,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -25,10 +25,9 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { mockClients } from '@/lib/data'; // For client selection - TODO: Replace with Firestore fetch
-import type { TaskPriority, TaskStatus } from '@/types';
+import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -37,8 +36,7 @@ const taskFormSchema = z.object({
   name: z.string().min(3, { message: 'El nombre de la tarea debe tener al menos 3 caracteres.' }),
   description: z.string().optional(),
   assignedTo: z.string().min(2, { message: 'Debe asignar la tarea a alguien.' }),
-  clientId: z.string().optional(), // This will store the client document ID
-  // clientName is not part of the form, but will be added to the DB record if clientId is present
+  clientId: z.string().optional(),
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   priority: z.enum(taskPriorities, { required_error: 'La prioridad es obligatoria.' }),
   status: z.enum(taskStatuses, { required_error: 'El estado es obligatorio.' }),
@@ -48,9 +46,50 @@ type TaskFormValues = z.infer<typeof taskFormSchema>;
 
 const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
 
+// Function to convert Firestore Timestamps to JS Date objects for clients
+function convertClientTimestampsToDates(docData: any): any {
+  const data = { ...docData };
+  for (const key in data) {
+    if (data[key] instanceof Timestamp) {
+      data[key] = data[key].toDate();
+    }
+  }
+  return data;
+}
+
+
 export default function AddTaskPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
+  const [isLoadingClients, setIsLoadingClients] = useState(true);
+
+  useEffect(() => {
+    const fetchClients = async () => {
+      setIsLoadingClients(true);
+      try {
+        const clientsCollection = collection(db, "clients");
+        const q = query(clientsCollection, orderBy("name", "asc"));
+        const querySnapshot = await getDocs(q);
+        const fetchedClients = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          const convertedData = convertClientTimestampsToDates(data);
+          return { id: doc.id, ...convertedData } as WithConvertedDates<Client>;
+        });
+        setClientsList(fetchedClients);
+      } catch (err) {
+        console.error("Error fetching clients for dropdown: ", err);
+        toast({
+          title: 'Error al Cargar Clientes',
+          description: 'No se pudieron cargar los clientes para el selector.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoadingClients(false);
+      }
+    };
+    fetchClients();
+  }, [toast]);
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
@@ -59,26 +98,30 @@ export default function AddTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
+      clientId: TASK_CLIENT_SELECT_NONE_VALUE, // Default to "Ninguno"
     },
   });
 
   async function onSubmit(data: TaskFormValues) {
     form.clearErrors();
     try {
-      const clientName = data.clientId ? mockClients.find(c => c.id === data.clientId)?.name : undefined;
+      let clientName: string | undefined = undefined;
+      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
+        clientName = clientsList.find(c => c.id === data.clientId)?.name;
+      }
       
-      const taskData = {
+      const taskData: any = {
         ...data,
-        clientName: clientName, // Store client name for easier display, consider if always needed
+        clientName: clientName,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 
-      // If clientId is TASK_CLIENT_SELECT_NONE_VALUE or undefined, remove it
       if (!taskData.clientId || taskData.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
         delete taskData.clientId;
         delete taskData.clientName;
       }
+      if (taskData.description === undefined) delete taskData.description;
 
 
       const docRef = await addDoc(collection(db, 'tasks'), taskData);
@@ -159,15 +202,16 @@ export default function AddTaskPage() {
                         field.onChange(selectedValue);
                       }
                     }}
+                    disabled={isLoadingClients}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar un cliente" />
+                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : "Seleccionar un cliente"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       <SelectItem value={TASK_CLIENT_SELECT_NONE_VALUE}>Ninguno</SelectItem>
-                      {mockClients.map(client => (
+                      {!isLoadingClients && clientsList.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -262,7 +306,7 @@ export default function AddTaskPage() {
               )}
             />
           </div>
-          <Button type="submit" disabled={form.formState.isSubmitting}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients}>
             {form.formState.isSubmitting ? 'Guardando Tarea...' : 'Guardar Tarea'}
           </Button>
         </form>

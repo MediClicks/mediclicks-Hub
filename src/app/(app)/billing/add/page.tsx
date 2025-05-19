@@ -1,6 +1,7 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
@@ -24,22 +25,21 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { mockClients } from '@/lib/data'; // For client selection - TODO: Replace with Firestore fetch
-import type { InvoiceStatus, InvoiceItem } from '@/types';
+import type { InvoiceStatus, InvoiceItem, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 
 const invoiceStatuses: InvoiceStatus[] = ['No Pagada', 'Pagada', 'Vencida'];
 
 const invoiceItemSchema = z.object({
-  id: z.string(), // for field array key
+  id: z.string(), 
   description: z.string().min(1, { message: 'La descripción es obligatoria.' }),
   quantity: z.coerce.number().min(1, { message: 'Cantidad debe ser al menos 1.' }),
   unitPrice: z.coerce.number().min(0, { message: 'El precio no puede ser negativo.' }),
 });
 
 const invoiceFormSchema = z.object({
-  clientId: z.string({ required_error: 'Debe seleccionar un cliente.' }),
+  clientId: z.string({ required_error: 'Debe seleccionar un cliente.' }).min(1, "Debe seleccionar un cliente."),
   issuedDate: z.date({ required_error: 'La fecha de emisión es obligatoria.' }),
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   status: z.enum(invoiceStatuses, { required_error: 'El estado es obligatorio.' }),
@@ -51,15 +51,58 @@ type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 let itemIdCounter = 0;
 
+// Function to convert Firestore Timestamps to JS Date objects for clients
+function convertClientTimestampsToDates(docData: any): any {
+  const data = { ...docData };
+  for (const key in data) {
+    if (data[key] instanceof Timestamp) {
+      data[key] = data[key].toDate();
+    }
+  }
+  return data;
+}
+
 export default function AddInvoicePage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
+  const [isLoadingClients, setIsLoadingClients] = useState(true);
+
+  useEffect(() => {
+    const fetchClients = async () => {
+      setIsLoadingClients(true);
+      try {
+        const clientsCollection = collection(db, "clients");
+        const q = query(clientsCollection, orderBy("name", "asc"));
+        const querySnapshot = await getDocs(q);
+        const fetchedClients = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          const convertedData = convertClientTimestampsToDates(data);
+          return { id: doc.id, ...convertedData } as WithConvertedDates<Client>;
+        });
+        setClientsList(fetchedClients);
+      } catch (err) {
+        console.error("Error fetching clients for dropdown: ", err);
+        toast({
+          title: 'Error al Cargar Clientes',
+          description: 'No se pudieron cargar los clientes para el selector.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoadingClients(false);
+      }
+    };
+    fetchClients();
+  }, [toast]);
+
 
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: {
       status: 'No Pagada',
       items: [{ id: `item-${itemIdCounter++}`, description: '', quantity: 1, unitPrice: 0 }],
+      clientId: '',
+      notes: '',
     },
   });
 
@@ -75,15 +118,17 @@ export default function AddInvoicePage() {
   async function onSubmit(data: InvoiceFormValues) {
     form.clearErrors();
     try {
-      const clientName = mockClients.find(c => c.id === data.clientId)?.name;
+      const clientName = clientsList.find(c => c.id === data.clientId)?.name;
       
-      const invoiceData = {
+      const invoiceData: any = {
         ...data,
-        clientName: clientName, // Denormalized client name
-        totalAmount: totalAmount, // Store calculated total
+        clientName: clientName, 
+        totalAmount: totalAmount,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+      if (invoiceData.notes === undefined) delete invoiceData.notes;
+
 
       const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
       console.log('Nueva factura guardada en Firestore con ID: ', docRef.id);
@@ -116,14 +161,18 @@ export default function AddInvoicePage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Cliente</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select 
+                    onValueChange={field.onChange} 
+                    value={field.value}
+                    disabled={isLoadingClients}
+                  >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar un cliente" />
+                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : "Seleccionar un cliente"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {mockClients.map(client => (
+                      {!isLoadingClients && clientsList.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -287,7 +336,7 @@ export default function AddInvoicePage() {
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={form.formState.isSubmitting}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients}>
             {form.formState.isSubmitting ? 'Guardando Factura...' : 'Guardar Factura'}
           </Button>
         </form>
@@ -295,3 +344,4 @@ export default function AddInvoicePage() {
     </div>
   );
 }
+
