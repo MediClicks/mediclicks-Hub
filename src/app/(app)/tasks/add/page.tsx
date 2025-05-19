@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -42,6 +43,8 @@ const taskFormSchema = z.object({
 
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
+const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__"; // Unique value for the "None" option
+
 export default function AddTaskPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -53,12 +56,13 @@ export default function AddTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
+      // clientId is undefined by default due to .optional()
     },
   });
 
   function onSubmit(data: TaskFormValues) {
     console.log('Nueva tarea:', data);
-    const clientName = mockClients.find(c => c.id === data.clientId)?.name;
+    const clientName = data.clientId ? mockClients.find(c => c.id === data.clientId)?.name : undefined;
     // Here you would typically send data to your backend
     toast({
       title: 'Tarea Creada',
@@ -119,14 +123,23 @@ export default function AddTaskPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Cliente (Opcional)</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select
+                    value={field.value} // Use value for controlled component
+                    onValueChange={(selectedValue) => {
+                      if (selectedValue === TASK_CLIENT_SELECT_NONE_VALUE) {
+                        field.onChange(undefined); // Set to undefined for "None"
+                      } else {
+                        field.onChange(selectedValue);
+                      }
+                    }}
+                  >
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar un cliente" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="">Ninguno</SelectItem>
+                      <SelectItem value={TASK_CLIENT_SELECT_NONE_VALUE}>Ninguno</SelectItem>
                       {mockClients.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
@@ -183,7 +196,7 @@ export default function AddTaskPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Prioridad</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar prioridad" />
@@ -205,7 +218,7 @@ export default function AddTaskPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Estado</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar estado" />
@@ -230,3 +243,4 @@ export default function AddTaskPage() {
     </div>
   );
 }
+    
