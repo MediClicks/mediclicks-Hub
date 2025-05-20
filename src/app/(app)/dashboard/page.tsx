@@ -3,11 +3,13 @@
 
 import * as React from 'react';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore';
-import type { Task, Invoice, WithConvertedDates } from '@/types';
+import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus } from '@/types';
+import { cn } from '@/lib/utils';
 
 interface DashboardStats {
   totalClients: number;
@@ -22,6 +24,7 @@ interface RecentActivityItem {
   name: string;
   statusOrClient: string; // Status for tasks, ClientName for invoices
   date: Date;
+  statusType?: TaskStatus | InvoiceStatus;
 }
 
 interface UpcomingItem {
@@ -50,6 +53,25 @@ function convertFirestoreTimestamps<T extends Record<string, any>>(data: T): Wit
   return convertedData as WithConvertedDates<T>;
 }
 
+const taskStatusColors: Record<TaskStatus, string> = {
+  Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600",
+  "En Progreso": "bg-sky-500 border-sky-600 hover:bg-sky-600",
+  Completada: "bg-green-500 border-green-600 hover:bg-green-600",
+};
+
+const invoiceStatusColors: Record<InvoiceStatus, string> = {
+  Pagada: "bg-green-500 border-green-600 hover:bg-green-600",
+  "No Pagada": "bg-yellow-500 border-yellow-600 hover:bg-yellow-600",
+  Vencida: "bg-red-500 border-red-600 hover:bg-red-600",
+};
+
+const getStatusColor = (status: TaskStatus | InvoiceStatus, type: 'task' | 'invoice') => {
+  if (type === 'task') {
+    return taskStatusColors[status as TaskStatus] || 'bg-gray-400 border-gray-500';
+  }
+  return invoiceStatusColors[status as InvoiceStatus] || 'bg-gray-400 border-gray-500';
+};
+
 
 export default function DashboardPage() {
   const [stats, setStats] = React.useState<DashboardStats | null>(null);
@@ -76,14 +98,16 @@ export default function DashboardPage() {
         const pendingTasks = pendingTasksSnapshot.data().count;
 
         // Fetch Invoices for revenue
-        const now = new Date(); // Client-side new Date()
         let revenue = 0;
         let firstDayOfMonth: Date | null = null;
         let lastDayOfMonth: Date | null = null;
-
+        
         // Ensure date calculations happen client-side to avoid hydration mismatch
+        // This useEffect runs only on the client.
+        const now = new Date(); 
         firstDayOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
         lastDayOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999));
+
 
         const invoicesCollection = collection(db, "invoices");
         const paidInvoicesQuery = query(invoicesCollection, 
@@ -114,21 +138,35 @@ export default function DashboardPage() {
         const fetchedRecentActivity: RecentActivityItem[] = [];
         recentTasksSnap.docs.forEach(doc => {
           const task = convertFirestoreTimestamps(doc.data() as Task);
-          fetchedRecentActivity.push({ id: doc.id, type: 'task', name: task.name, statusOrClient: task.status, date: task.createdAt! });
+          fetchedRecentActivity.push({ 
+            id: doc.id, 
+            type: 'task', 
+            name: task.name, 
+            statusOrClient: task.status, 
+            date: task.createdAt!,
+            statusType: task.status,
+          });
         });
         recentInvoicesSnap.docs.forEach(doc => {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
-          fetchedRecentActivity.push({ id: doc.id, type: 'invoice', name: `Factura para ${invoice.clientName || 'N/A'}`, statusOrClient: invoice.status, date: invoice.createdAt! });
+          fetchedRecentActivity.push({ 
+            id: doc.id, 
+            type: 'invoice', 
+            name: `Factura para ${invoice.clientName || 'N/A'}`, 
+            statusOrClient: invoice.status, 
+            date: invoice.createdAt!,
+            statusType: invoice.status,
+          });
         });
         fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
         setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
 
         // Fetch Upcoming Items (tasks not completed, invoices not paid, due in future)
-        const upcomingCutoffDate = Timestamp.fromDate(now); // Use client-side now
+        const upcomingCutoffDate = Timestamp.fromDate(now); 
 
         const upcomingTasksQuery = query(collection(db, "tasks"), 
-          where("status", "in", ["Pendiente", "En Progreso"]), // Changed from "!=" to "in"
+          where("status", "in", ["Pendiente", "En Progreso"]), 
           where("dueDate", ">", upcomingCutoffDate),
           orderBy("dueDate", "asc"),
           limit(3)
@@ -164,6 +202,7 @@ export default function DashboardPage() {
             dueDateFormatted: invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'
           });
         });
+        // Sort combined upcoming items by due date
         fetchedUpcomingItems.sort((a, b) => {
             const dateA = new Date(a.dueDateFormatted.split('/').reverse().join('-'));
             const dateB = new Date(b.dueDateFormatted.split('/').reverse().join('-'));
@@ -176,6 +215,8 @@ export default function DashboardPage() {
         setError("No se pudieron cargar los datos del panel. Intenta de nuevo más tarde.");
         if (err instanceof Error && err.message.includes("indexes?create_composite")) {
             setError(`Se requiere un índice de Firestore. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
+        } else if (err instanceof Error) {
+           setError(`Error al cargar datos: ${err.message}`);
         }
       } finally {
         setIsLoading(false);
@@ -197,7 +238,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
-        <AlertTriangle className="mx-auto h-12 w-12 mb-4" />
+        <AlertTriangle className="mx-auto h-12 w-12 mb-4 text-destructive" />
         <p className="text-lg font-semibold">Error al Cargar el Panel</p>
         <p className="text-sm whitespace-pre-wrap">{error}</p>
       </div>
@@ -219,34 +260,47 @@ export default function DashboardPage() {
           value={stats?.tasksInProgress ?? 0} 
           icon={Briefcase}
           description="Tareas actualmente en desarrollo"
+          className="bg-sky-600 border-sky-500"
         />
         <SummaryCard 
           title="Tareas Pendientes" 
           value={stats?.pendingTasks ?? 0} 
           icon={ListTodo}
           description="Tareas que requieren atención"
+          className="bg-amber-600 border-amber-500"
         />
         <SummaryCard 
           title="Ingresos Este Mes" 
           value={stats?.revenueThisMonth ?? 'Calculando...'} 
           icon={DollarSign}
           description="Basado en facturas pagadas"
+          className="bg-green-600 border-green-500"
         />
       </div>
       
       <div className="grid gap-6 md:grid-cols-2">
-        <Card className="shadow-lg">
+        <Card className="shadow-lg border-l-4 border-primary">
           <CardHeader>
-            <CardTitle className="text-xl">Actividad Reciente</CardTitle>
+            <CardTitle className="text-xl flex items-center">
+              <FileText className="mr-2 h-5 w-5 text-primary" />
+              Actividad Reciente
+            </CardTitle>
             <CardDescription>Resumen de las últimas tareas y facturas creadas.</CardDescription>
           </CardHeader>
           <CardContent>
             {recentActivity.length > 0 ? (
               <ul className="space-y-3">
                 {recentActivity.map(item => (
-                  <li key={item.id} className="text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">{item.name}</span> - {item.statusOrClient}
-                    <span className="text-xs ml-2">({new Date(item.date).toLocaleDateString('es-ES')})</span>
+                  <li key={item.id} className="text-sm text-muted-foreground flex justify-between items-center">
+                    <div>
+                      <span className="font-medium text-foreground">{item.name}</span>
+                      <span className="text-xs ml-2">({new Date(item.date).toLocaleDateString('es-ES')})</span>
+                    </div>
+                    {item.statusType && (
+                       <Badge className={cn("text-white text-xs border", getStatusColor(item.statusType, item.type))}>
+                         {item.statusOrClient}
+                       </Badge>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -255,9 +309,12 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
-        <Card className="shadow-lg">
+        <Card className="shadow-lg border-l-4 border-accent">
           <CardHeader>
-            <CardTitle className="text-xl">Próximos Vencimientos</CardTitle>
+            <CardTitle className="text-xl flex items-center">
+              <Clock className="mr-2 h-5 w-5 text-accent" />
+              Próximos Vencimientos
+            </CardTitle>
             <CardDescription>Tareas y facturas con vencimiento próximo.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -276,7 +333,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Placeholder for charts - you can add actual chart components here later */}
+      {/* Placeholder for charts */}
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="shadow-lg">
           <CardHeader>
@@ -286,7 +343,7 @@ export default function DashboardPage() {
             </CardTitle>
             <CardDescription>Visualización de métricas clave.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground">
+          <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground bg-secondary/30 rounded-b-lg">
             <p>Gráficos de rendimiento se mostrarán aquí.</p>
           </CardContent>
         </Card>
@@ -298,7 +355,7 @@ export default function DashboardPage() {
             </CardTitle>
             <CardDescription>Desglose de ingresos y gastos.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground">
+          <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground bg-secondary/30 rounded-b-lg">
             <p>Gráficos financieros se mostrarán aquí.</p>
           </CardContent>
         </Card>
@@ -307,5 +364,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    

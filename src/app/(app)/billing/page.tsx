@@ -14,31 +14,32 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Invoice, InvoiceStatus, WithConvertedDates } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2 } from "lucide-react";
+import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle } from "lucide-react";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { cn } from '@/lib/utils';
 
 const statusColors: Record<InvoiceStatus, string> = {
-  Pagada: "bg-green-500 hover:bg-green-600",
-  "No Pagada": "bg-yellow-500 hover:bg-yellow-600",
-  Vencida: "bg-red-500 hover:bg-red-600",
+  Pagada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
+  "No Pagada": "bg-yellow-500 border-yellow-600 hover:bg-yellow-600 text-white",
+  Vencida: "bg-red-500 border-red-600 hover:bg-red-600 text-white",
 };
 
 // Function to convert Firestore Timestamps to JS Date objects
-function convertTimestampsToDates(docData: any): any {
-  const data = { ...docData };
+function convertTimestampsToDates(docData: any): WithConvertedDates<Invoice> {
+  const data = { ...docData } as Partial<WithConvertedDates<Invoice>>;
   for (const key in data) {
-    if (data[key] instanceof Timestamp) {
-      data[key] = data[key].toDate();
-    } else if (Array.isArray(data[key])) { // Handle arrays of objects (e.g., invoice items)
-        data[key] = data[key].map(item => 
+    if (data[key as keyof Invoice] instanceof Timestamp) {
+      data[key as keyof Invoice] = (data[key as keyof Invoice] as Timestamp).toDate() as any;
+    } else if (Array.isArray(data[key as keyof Invoice])) { 
+        (data[key as keyof Invoice] as any) = (data[key as keyof Invoice] as any[]).map(item => 
             typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
         );
-    } else if (typeof data[key] === 'object' && data[key] !== null && !(data[key] instanceof Date)) { // Handle nested objects
-        data[key] = convertTimestampsToDates(data[key]);
+    } else if (typeof data[key as keyof Invoice] === 'object' && data[key as keyof Invoice] !== null && !((data[key as keyof Invoice]) instanceof Date)) { 
+        (data[key as keyof Invoice] as any) = convertTimestampsToDates(data[key as keyof Invoice] as any);
     }
   }
-  return data;
+  return data as WithConvertedDates<Invoice>;
 }
 
 
@@ -57,9 +58,8 @@ export default function BillingPage() {
         const querySnapshot = await getDocs(q);
         const invoicesData = querySnapshot.docs.map(doc => {
           const data = doc.data();
-          // Ensure all date fields from Firestore (Timestamps) are converted to JS Date objects
-          const convertedData = convertTimestampsToDates(data);
-          return { id: doc.id, ...convertedData } as WithConvertedDates<Invoice>;
+          const convertedData = convertTimestampsToDates(data as Invoice);
+          return { id: doc.id, ...convertedData };
         });
         setInvoices(invoicesData);
       } catch (err) {
@@ -79,7 +79,7 @@ export default function BillingPage() {
         <h1 className="text-3xl font-bold tracking-tight">Facturación y Cobros</h1>
         <Button asChild>
           <Link href="/billing/add">
-            <PlusCircle className="mr-2 h-4 w-4" /> Crear Nueva Factura
+            <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Crear Nueva Factura
           </Link>
         </Button>
       </div>
@@ -92,7 +92,8 @@ export default function BillingPage() {
       )}
 
       {error && !isLoading && (
-        <div className="text-center py-12 text-destructive">
+        <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
+          <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
         </div>
       )}
@@ -114,20 +115,19 @@ export default function BillingPage() {
             <TableBody>
               {invoices.map(invoice => (
                 <TableRow key={invoice.id} className="hover:bg-muted/50">
-                  <TableCell className="font-medium">{invoice.id.toUpperCase()}</TableCell>
+                  <TableCell className="font-medium">{invoice.id.substring(0, 8).toUpperCase()}</TableCell>
                   <TableCell>{invoice.clientName}</TableCell>
                   <TableCell>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                   <TableCell>{invoice.issuedDate ? new Date(invoice.issuedDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
                   <TableCell>{invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
                   <TableCell>
-                    <Badge className={`${statusColors[invoice.status]} text-white`}>{invoice.status}</Badge>
+                    <Badge className={cn("border text-xs", statusColors[invoice.status])}>{invoice.status}</Badge>
                   </TableCell>
                   <TableCell className="text-right space-x-1">
-                    {/* TODO: Implement View, Edit, and Download functionality */}
                     <Button variant="ghost" size="icon" className="hover:text-primary" title="Ver Factura" disabled>
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-primary" title="Editar Factura" disabled>
+                    <Button variant="ghost" size="icon" className="hover:text-yellow-500" title="Editar Factura" disabled>
                       <Edit2 className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled>
@@ -143,6 +143,7 @@ export default function BillingPage() {
       
       {!isLoading && !error && invoices.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
+          <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />
           <p className="text-lg">No se encontraron facturas.</p>
            <Button variant="link" className="mt-2" asChild>
             <Link href="/billing/add">Crea tu primera factura</Link>

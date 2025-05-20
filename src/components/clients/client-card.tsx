@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates } from "@/types"; 
-import { Briefcase, CalendarDays, Mail, Phone, Building, Edit, Trash2 } from 'lucide-react';
+import { Briefcase, CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -23,6 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 
 interface ClientCardProps {
   client: WithConvertedDates<Client>;
@@ -68,17 +69,17 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
 
   return (
     <>
-      <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden flex flex-col">
-        <CardHeader className="flex flex-row items-start gap-4 p-4 bg-secondary/30">
+      <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden flex flex-col bg-card">
+        <CardHeader className="flex flex-row items-start gap-4 p-4 bg-card-foreground/5">
           <Avatar className="h-16 w-16 border-2 border-primary">
             {client.avatarUrl ? (
               <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="company logo" />
             ) : (
-              <AvatarFallback>{client.name ? client.name.substring(0, 2).toUpperCase() : 'CL'}</AvatarFallback>
+              <AvatarFallback className="bg-primary/20 text-primary font-semibold">{client.name ? client.name.substring(0, 2).toUpperCase() : 'CL'}</AvatarFallback>
             )}
           </Avatar>
           <div className="flex-1">
-            <CardTitle className="text-xl mb-1">{client.name}</CardTitle>
+            <CardTitle className="text-xl mb-1 text-foreground">{client.name}</CardTitle>
             <CardDescription className="flex items-center text-sm mb-1">
               <Mail className="mr-2 h-4 w-4 text-muted-foreground" /> {client.email}
             </CardDescription>
@@ -97,7 +98,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         <CardContent className="p-4 space-y-3 flex-grow">
           <div>
             <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-              <Briefcase className="mr-2 h-4 w-4" /> Servicios Activos Generales
+              <Briefcase className="mr-2 h-4 w-4 text-primary" /> Servicios Activos Generales
             </h4>
              <p className="text-xs text-foreground line-clamp-2">{client.serviciosActivosGeneral || 'No especificado'}</p>
           </div>
@@ -105,13 +106,13 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-0.5 flex items-center">
-                <CalendarDays className="mr-1 h-3 w-3" /> Inicio Contrato
+                <CalendarDays className="mr-1 h-3 w-3 text-primary/80" /> Inicio Contrato
               </h4>
               <p>{formatDate(client.contractStartDate)}</p>
             </div>
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-0.5 flex items-center">
-                <CalendarDays className="mr-1 h-3 w-3" /> Próx. Factura
+                <CalendarDays className="mr-1 h-3 w-3 text-primary/80" /> Próx. Factura
               </h4>
               <p>{formatDate(client.nextBillingDate)}</p>
             </div>
@@ -126,22 +127,29 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           )}
         
         </CardContent>
-        <CardFooter className="p-4 border-t flex justify-between items-center">
+        <CardFooter className="p-4 border-t flex justify-between items-center bg-card-foreground/5">
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-7 w-7" asChild>
+            <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-yellow-400/20 hover:border-yellow-500" asChild>
               <Link href={`/clients/${client.id}/edit`}> 
-                <Edit className="h-4 w-4" />
+                <Edit className="h-4 w-4 text-yellow-600" />
                 <span className="sr-only">Editar Cliente</span>
               </Link>
             </Button>
-            <Button variant="destructive" size="icon" className="h-7 w-7" onClick={() => setShowDeleteDialog(true)} disabled={isDeleting}>
-              <Trash2 className="h-4 w-4" />
+            <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-red-400/20 hover:border-red-500" onClick={() => setShowDeleteDialog(true)} disabled={isDeleting}>
+              <Trash2 className="h-4 w-4 text-red-600" />
               <span className="sr-only">Eliminar Cliente</span>
             </Button>
           </div>
           {typeof client.pagado !== 'undefined' && (
-              <Badge variant={client.pagado ? "default" : "destructive"} className="text-xs px-1.5 py-0.5 bg-opacity-70">
-                  {client.pagado ? "Al día" : "Pago Pendiente"}
+              <Badge 
+                variant={client.pagado ? "default" : "destructive"} 
+                className={cn(
+                  "text-xs px-2 py-1 flex items-center",
+                  client.pagado ? "bg-green-500 border-green-600 text-white" : "bg-red-500 border-red-600 text-white"
+                )}
+              >
+                {client.pagado ? <CheckCircle className="mr-1 h-3 w-3" /> : <XCircle className="mr-1 h-3 w-3" />}
+                {client.pagado ? "Al día" : "Pago Pendiente"}
               </Badge>
           )}
         </CardFooter>
@@ -157,7 +165,11 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteClient} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
+            <AlertDialogAction 
+              onClick={handleDeleteClient} 
+              disabled={isDeleting} 
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
               {isDeleting ? "Eliminando..." : "Sí, eliminar cliente"}
             </AlertDialogAction>
           </AlertDialogFooter>

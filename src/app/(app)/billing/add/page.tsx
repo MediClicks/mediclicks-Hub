@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Trash2 } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -52,14 +52,14 @@ type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 let itemIdCounter = 0;
 
 // Function to convert Firestore Timestamps to JS Date objects for clients
-function convertClientTimestampsToDates(docData: any): any {
-  const data = { ...docData };
+function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
+   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
-    if (data[key] instanceof Timestamp) {
-      data[key] = data[key].toDate();
+    if (data[key as keyof Client] instanceof Timestamp) {
+      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
     }
   }
-  return data;
+  return data as WithConvertedDates<Client>;
 }
 
 export default function AddInvoicePage() {
@@ -67,25 +67,28 @@ export default function AddInvoicePage() {
   const { toast } = useToast();
   const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
+  const [clientError, setClientError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchClients = async () => {
       setIsLoadingClients(true);
+      setClientError(null);
       try {
         const clientsCollection = collection(db, "clients");
         const q = query(clientsCollection, orderBy("name", "asc"));
         const querySnapshot = await getDocs(q);
         const fetchedClients = querySnapshot.docs.map(doc => {
           const data = doc.data();
-          const convertedData = convertClientTimestampsToDates(data);
-          return { id: doc.id, ...convertedData } as WithConvertedDates<Client>;
+          const convertedData = convertClientTimestampsToDates(data as Client);
+          return { id: doc.id, ...convertedData };
         });
         setClientsList(fetchedClients);
       } catch (err) {
         console.error("Error fetching clients for dropdown: ", err);
+        setClientError('No se pudieron cargar los clientes para el selector.');
         toast({
           title: 'Error al Cargar Clientes',
-          description: 'No se pudieron cargar los clientes para el selector.',
+          description: 'No se pudieron cargar los clientes. Intenta recargar.',
           variant: 'destructive',
         });
       } finally {
@@ -101,7 +104,7 @@ export default function AddInvoicePage() {
     defaultValues: {
       status: 'No Pagada',
       items: [{ id: `item-${itemIdCounter++}`, description: '', quantity: 1, unitPrice: 0 }],
-      clientId: '',
+      clientId: '', // Will be set by Select
       notes: '',
     },
   });
@@ -127,7 +130,7 @@ export default function AddInvoicePage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      if (invoiceData.notes === undefined) delete invoiceData.notes;
+      if (invoiceData.notes === undefined || invoiceData.notes === '') delete invoiceData.notes;
 
 
       const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
@@ -164,15 +167,16 @@ export default function AddInvoicePage() {
                   <Select 
                     onValueChange={field.onChange} 
                     value={field.value}
-                    disabled={isLoadingClients}
+                    disabled={isLoadingClients || !!clientError}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : "Seleccionar un cliente"} />
+                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : "Seleccionar un cliente")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {!isLoadingClients && clientsList.map(client => (
+                       {clientError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {clientError}</div>}
+                      {!isLoadingClients && !clientError && clientsList.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -217,7 +221,7 @@ export default function AddInvoicePage() {
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
                         </Button>
                       </FormControl>
                     </PopoverTrigger>
@@ -243,7 +247,7 @@ export default function AddInvoicePage() {
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
                         </Button>
                       </FormControl>
                     </PopoverTrigger>
@@ -260,7 +264,7 @@ export default function AddInvoicePage() {
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">Ítems de la Factura</h2>
             {fields.map((item, index) => (
-              <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-2 items-end p-3 border rounded-md">
+              <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-2 items-end p-3 border rounded-md bg-secondary/30">
                 <FormField
                   control={form.control}
                   name={`items.${index}.description`}
@@ -300,10 +304,10 @@ export default function AddInvoicePage() {
                     </FormItem>
                   )}
                 />
-                 <div className="md:col-span-2 flex items-end space-x-2">
+                 <div className="md:col-span-2 flex items-end justify-end">
                     {fields.length > 1 && (
                     <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4 text-destructive-foreground" />
                     </Button>
                     )}
                  </div>
@@ -315,7 +319,7 @@ export default function AddInvoicePage() {
               size="sm"
               onClick={() => append({ id: `item-${itemIdCounter++}`, description: '', quantity: 1, unitPrice: 0 })}
             >
-              <PlusCircle className="mr-2 h-4 w-4" /> Agregar Ítem
+              <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem
             </Button>
           </div>
           
@@ -344,4 +348,3 @@ export default function AddInvoicePage() {
     </div>
   );
 }
-

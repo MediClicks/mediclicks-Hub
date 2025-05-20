@@ -25,28 +25,29 @@ import {
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 import type { Task, TaskStatus, TaskPriority, WithConvertedDates } from '@/types';
+import { cn } from '@/lib/utils';
 
 const statusColors: Record<TaskStatus, string> = {
-  Pendiente: "bg-yellow-500 hover:bg-yellow-600",
-  "En Progreso": "bg-blue-500 hover:bg-blue-600",
-  Completada: "bg-green-500 hover:bg-green-600",
+  Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600 text-white",
+  "En Progreso": "bg-sky-500 border-sky-600 hover:bg-sky-600 text-white",
+  Completada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
 };
 
 const priorityColors: Record<TaskPriority, string> = {
-  Baja: "bg-gray-400 hover:bg-gray-500",
-  Media: "bg-orange-400 hover:bg-orange-500",
-  Alta: "bg-red-500 hover:bg-red-600",
+  Baja: "bg-slate-400 border-slate-500 hover:bg-slate-500 text-white",
+  Media: "bg-orange-400 border-orange-500 hover:bg-orange-500 text-white",
+  Alta: "bg-red-500 border-red-600 hover:bg-red-600 text-white",
 };
 
 // Function to convert Firestore Timestamps to JS Date objects
-function convertTimestampsToDates(docData: any): any {
-  const data = { ...docData };
+function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
+  const data = { ...docData } as Partial<WithConvertedDates<Task>>;
   for (const key in data) {
-    if (data[key] instanceof Timestamp) {
-      data[key] = data[key].toDate();
+    if (data[key as keyof Task] instanceof Timestamp) {
+      data[key as keyof Task] = (data[key as keyof Task] as Timestamp).toDate() as any;
     }
   }
-  return data;
+  return data as WithConvertedDates<Task>;
 }
 
 
@@ -68,8 +69,8 @@ export default function TasksPage() {
         const querySnapshot = await getDocs(q);
         const tasksData = querySnapshot.docs.map(doc => {
           const data = doc.data();
-          const convertedData = convertTimestampsToDates(data);
-          return { id: doc.id, ...convertedData } as WithConvertedDates<Task>;
+          const convertedData = convertTimestampsToDates(data as Task);
+          return { id: doc.id, ...convertedData };
         });
         setTasks(tasksData);
       } catch (err) {
@@ -91,7 +92,7 @@ export default function TasksPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
-                <Filter className="mr-2 h-4 w-4" /> Filtrar
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56">
@@ -105,7 +106,7 @@ export default function TasksPage() {
           </DropdownMenu>
           <Button asChild>
             <Link href="/tasks/add">
-              <PlusCircle className="mr-2 h-4 w-4" /> Agregar Nueva Tarea
+              <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Agregar Nueva Tarea
             </Link>
           </Button>
         </div>
@@ -119,7 +120,8 @@ export default function TasksPage() {
       )}
 
       {error && !isLoading && (
-        <div className="text-center py-12 text-destructive">
+        <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
+          <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
         </div>
       )}
@@ -146,12 +148,12 @@ export default function TasksPage() {
                   <TableCell>{task.clientName || 'N/A'}</TableCell>
                   <TableCell>{task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
                   <TableCell>
-                    <Badge className={`${priorityColors[task.priority]} text-white`}>{task.priority}</Badge>
+                    <Badge className={cn("border text-xs", priorityColors[task.priority])}>{task.priority}</Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge className={`${statusColors[task.status]} text-white`}>{task.status}</Badge>
+                    <Badge className={cn("border text-xs", statusColors[task.status])}>{task.status}</Badge>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right space-x-1">
                     {/* TODO: Implement Edit and Delete functionality */}
                     <Button variant="ghost" size="icon" className="hover:text-primary" title="Editar Tarea" disabled>
                       <Edit2 className="h-4 w-4" />
@@ -169,6 +171,7 @@ export default function TasksPage() {
       
       {!isLoading && !error && tasks.length === 0 && (
          <div className="text-center py-12 text-muted-foreground">
+          <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />
           <p className="text-lg">No se encontraron tareas.</p>
           <Button variant="link" className="mt-2" asChild>
             <Link href="/tasks/add">Agrega tu primera tarea</Link>

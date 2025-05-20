@@ -2,26 +2,58 @@
 import Link from 'next/link';
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // Avatar imports will no longer be strictly needed here but can remain for now.
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { User, LogOut, Settings as SettingsIcon } from "lucide-react";
+import { User, LogOut, Settings as SettingsIcon, Sun, Moon } from "lucide-react";
+import * as React from 'react'; // Import React for useEffect and useState
 
 interface AppHeaderProps {
   pageTitle: string;
 }
 
 export function AppHeader({ pageTitle }: AppHeaderProps) {
+  const [isDark, setIsDark] = React.useState(false);
+
+  React.useEffect(() => {
+    // Check initial theme from localStorage or system preference
+    const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      setIsDark(true);
+    } else {
+      document.documentElement.classList.remove('dark');
+      setIsDark(false);
+    }
+  }, []);
+
+  const toggleDarkMode = () => {
+    if (isDark) {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+      setIsDark(false);
+    } else {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+      setIsDark(true);
+    }
+  };
+
+
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background/80 backdrop-blur-md px-4 sm:h-16 sm:px-6">
       <div className="md:hidden">
         <SidebarTrigger />
       </div>
       <h1 className="text-lg font-semibold sm:text-xl md:text-2xl whitespace-nowrap">{pageTitle}</h1>
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={toggleDarkMode} title={isDark ? "Activar modo claro" : "Activar modo oscuro"}>
+          {isDark ? <Sun className="h-5 w-5 text-yellow-400" /> : <Moon className="h-5 w-5 text-primary" />}
+          <span className="sr-only">Cambiar Tema</span>
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <User className="h-5 w-5" />
+            <Button variant="ghost" size="icon" className="relative">
+              <User className="h-5 w-5 text-primary" />
+               <span className="sr-only">Menú de Usuario</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="end" forceMount>
@@ -35,20 +67,20 @@ export function AppHeader({ pageTitle }: AppHeaderProps) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/settings"> {/* Assuming profile settings are part of general settings for now */}
-                <User className="mr-2 h-4 w-4" />
+              <Link href="/settings"> 
+                <User className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Perfil</span>
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href="/settings">
-                <SettingsIcon className="mr-2 h-4 w-4" />
+                <SettingsIcon className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Configuración</span>
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <LogOut className="mr-2 h-4 w-4" />
+            <DropdownMenuItem disabled> {/* Lógica de logout a implementar */}
+              <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />
               <span>Cerrar Sesión</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

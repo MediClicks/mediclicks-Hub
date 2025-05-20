@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, AlertTriangle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -36,7 +36,7 @@ const taskFormSchema = z.object({
   name: z.string().min(3, { message: 'El nombre de la tarea debe tener al menos 3 caracteres.' }),
   description: z.string().optional(),
   assignedTo: z.string().min(2, { message: 'Debe asignar la tarea a alguien.' }),
-  clientId: z.string().optional(),
+  clientId: z.string().optional(), // No será TASK_CLIENT_SELECT_NONE_VALUE aquí, será undefined o el ID real
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   priority: z.enum(taskPriorities, { required_error: 'La prioridad es obligatoria.' }),
   status: z.enum(taskStatuses, { required_error: 'El estado es obligatorio.' }),
@@ -44,17 +44,15 @@ const taskFormSchema = z.object({
 
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
-const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
-
 // Function to convert Firestore Timestamps to JS Date objects for clients
-function convertClientTimestampsToDates(docData: any): any {
-  const data = { ...docData };
+function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
+  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
-    if (data[key] instanceof Timestamp) {
-      data[key] = data[key].toDate();
+    if (data[key as keyof Client] instanceof Timestamp) {
+      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
     }
   }
-  return data;
+  return data as WithConvertedDates<Client>;
 }
 
 
@@ -63,25 +61,30 @@ export default function AddTaskPage() {
   const { toast } = useToast();
   const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
+  const [clientError, setClientError] = useState<string | null>(null);
+
+  const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
 
   useEffect(() => {
     const fetchClients = async () => {
       setIsLoadingClients(true);
+      setClientError(null);
       try {
         const clientsCollection = collection(db, "clients");
         const q = query(clientsCollection, orderBy("name", "asc"));
         const querySnapshot = await getDocs(q);
         const fetchedClients = querySnapshot.docs.map(doc => {
           const data = doc.data();
-          const convertedData = convertClientTimestampsToDates(data);
-          return { id: doc.id, ...convertedData } as WithConvertedDates<Client>;
+          const convertedData = convertClientTimestampsToDates(data as Client);
+          return { id: doc.id, ...convertedData };
         });
         setClientsList(fetchedClients);
       } catch (err) {
         console.error("Error fetching clients for dropdown: ", err);
+        setClientError('No se pudieron cargar los clientes para el selector.');
         toast({
           title: 'Error al Cargar Clientes',
-          description: 'No se pudieron cargar los clientes para el selector.',
+          description: 'No se pudieron cargar los clientes. Intenta recargar.',
           variant: 'destructive',
         });
       } finally {
@@ -98,7 +101,8 @@ export default function AddTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
-      clientId: TASK_CLIENT_SELECT_NONE_VALUE, // Default to "Ninguno"
+      clientId: undefined, // Initialize as undefined for controlled component
+      description: '',
     },
   });
 
@@ -106,7 +110,7 @@ export default function AddTaskPage() {
     form.clearErrors();
     try {
       let clientName: string | undefined = undefined;
-      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
+      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) { // TASK_CLIENT_SELECT_NONE_VALUE might still be used if it's set by Select
         clientName = clientsList.find(c => c.id === data.clientId)?.name;
       }
       
@@ -118,10 +122,10 @@ export default function AddTaskPage() {
       };
 
       if (!taskData.clientId || taskData.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
-        delete taskData.clientId;
+        delete taskData.clientId; // Ensure clientId is removed if it's the placeholder
         delete taskData.clientName;
       }
-      if (taskData.description === undefined) delete taskData.description;
+      if (taskData.description === undefined || taskData.description === '') delete taskData.description;
 
 
       const docRef = await addDoc(collection(db, 'tasks'), taskData);
@@ -196,22 +200,19 @@ export default function AddTaskPage() {
                   <Select
                     value={field.value || TASK_CLIENT_SELECT_NONE_VALUE} 
                     onValueChange={(selectedValue) => {
-                      if (selectedValue === TASK_CLIENT_SELECT_NONE_VALUE) {
-                        field.onChange(undefined); 
-                      } else {
-                        field.onChange(selectedValue);
-                      }
+                      field.onChange(selectedValue === TASK_CLIENT_SELECT_NONE_VALUE ? undefined : selectedValue);
                     }}
-                    disabled={isLoadingClients}
+                    disabled={isLoadingClients || !!clientError}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : "Seleccionar un cliente"} />
+                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : "Seleccionar un cliente")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value={TASK_CLIENT_SELECT_NONE_VALUE}>Ninguno</SelectItem>
-                      {!isLoadingClients && clientsList.map(client => (
+                      {clientError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {clientError}</div>}
+                      {!clientError && <SelectItem value={TASK_CLIENT_SELECT_NONE_VALUE}>Ninguno</SelectItem>}
+                      {!isLoadingClients && !clientError && clientsList.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -243,7 +244,7 @@ export default function AddTaskPage() {
                           ) : (
                             <span>Seleccionar fecha</span>
                           )}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
                         </Button>
                       </FormControl>
                     </PopoverTrigger>
