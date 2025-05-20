@@ -107,7 +107,6 @@ export default function BillingPage() {
       setClientsForFilter(clientsData);
     } catch (err) {
       console.error("Error fetching clients for filter: ", err);
-      // Non-critical error, so don't block UI, but maybe log or show small warning
       toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
     } finally {
       setIsLoadingClients(false);
@@ -359,3 +358,4 @@ export default function BillingPage() {
     </div>
   );
 }
+

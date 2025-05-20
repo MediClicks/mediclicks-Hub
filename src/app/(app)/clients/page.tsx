@@ -16,7 +16,6 @@ function convertTimestampsToDates(docData: any): any {
     if (data[key] instanceof Timestamp) {
       data[key] = data[key].toDate();
     } else if (typeof data[key] === 'object' && data[key] !== null && !(data[key] instanceof Date) && !Array.isArray(data[key])) {
-        // Recursively convert nested objects, but not arrays directly here
         data[key] = convertTimestampsToDates(data[key]);
     }
   }
@@ -37,15 +36,14 @@ export default function ClientsPage() {
       const querySnapshot = await getDocs(q);
       const clientsData = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        const convertedData = convertTimestampsToDates(data) as Omit<Client, 'id' | 'services'> & { services?: any[] }; // Handle services potentially not being an array for conversion
+        const convertedData = convertTimestampsToDates(data) as Omit<Client, 'id' | 'services'> & { services?: any[] };
         
-        // Ensure services is an array, even if undefined or null in Firestore
         const servicesArray = Array.isArray(convertedData.services) ? convertedData.services : [];
 
         return { 
           id: doc.id, 
           ...convertedData,
-          services: servicesArray // Ensure services is always an array
+          services: servicesArray
         } as WithConvertedDates<Client>;
       });
       setClients(clientsData);
@@ -115,3 +113,4 @@ export default function ClientsPage() {
     </div>
   );
 }
+
