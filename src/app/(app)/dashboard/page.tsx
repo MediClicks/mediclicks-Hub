@@ -6,8 +6,8 @@ import { SummaryCard } from "@/components/dashboard/summary-card";
 import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, Timestamp, orderBy, limit,getCountFromServer } from 'firebase/firestore';
-import type { Task, Invoice, Client, WithConvertedDates } from '@/types';
+import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore';
+import type { Task, Invoice, WithConvertedDates } from '@/types';
 
 interface DashboardStats {
   totalClients: number;
@@ -76,11 +76,14 @@ export default function DashboardPage() {
         const pendingTasks = pendingTasksSnapshot.data().count;
 
         // Fetch Invoices for revenue
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-        const firstDayOfMonth = new Date(Date.UTC(currentYear, currentMonth, 1));
-        const lastDayOfMonth = new Date(Date.UTC(currentYear, currentMonth + 1, 0, 23, 59, 59, 999));
+        const now = new Date(); // Client-side new Date()
+        let revenue = 0;
+        let firstDayOfMonth: Date | null = null;
+        let lastDayOfMonth: Date | null = null;
+
+        // Ensure date calculations happen client-side to avoid hydration mismatch
+        firstDayOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+        lastDayOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999));
 
         const invoicesCollection = collection(db, "invoices");
         const paidInvoicesQuery = query(invoicesCollection, 
@@ -89,7 +92,7 @@ export default function DashboardPage() {
           where("issuedDate", "<=", Timestamp.fromDate(lastDayOfMonth))
         );
         const paidInvoicesSnapshot = await getDocs(paidInvoicesQuery);
-        const revenue = paidInvoicesSnapshot.docs
+        revenue = paidInvoicesSnapshot.docs
           .reduce((sum, doc) => sum + (doc.data().totalAmount || 0), 0);
         
         setStats({
@@ -117,16 +120,15 @@ export default function DashboardPage() {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
           fetchedRecentActivity.push({ id: doc.id, type: 'invoice', name: `Factura para ${invoice.clientName || 'N/A'}`, statusOrClient: invoice.status, date: invoice.createdAt! });
         });
-        // Sort combined recent activity by date
         fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
-        setRecentActivity(fetchedRecentActivity.slice(0, 5)); // Show top 5 recent items overall
+        setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
 
         // Fetch Upcoming Items (tasks not completed, invoices not paid, due in future)
-        const upcomingCutoffDate = Timestamp.fromDate(now);
+        const upcomingCutoffDate = Timestamp.fromDate(now); // Use client-side now
 
         const upcomingTasksQuery = query(collection(db, "tasks"), 
-          where("status", "!=", "Completada"), 
+          where("status", "in", ["Pendiente", "En Progreso"]), // Changed from "!=" to "in"
           where("dueDate", ">", upcomingCutoffDate),
           orderBy("dueDate", "asc"),
           limit(3)
@@ -162,7 +164,6 @@ export default function DashboardPage() {
             dueDateFormatted: invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'
           });
         });
-         // Sort combined upcoming items by due date
         fetchedUpcomingItems.sort((a, b) => {
             const dateA = new Date(a.dueDateFormatted.split('/').reverse().join('-'));
             const dateB = new Date(b.dueDateFormatted.split('/').reverse().join('-'));
@@ -170,10 +171,12 @@ export default function DashboardPage() {
         });
         setUpcomingItems(fetchedUpcomingItems.slice(0,5));
 
-
       } catch (err) {
         console.error("Error fetching dashboard data: ", err);
         setError("No se pudieron cargar los datos del panel. Intenta de nuevo más tarde.");
+        if (err instanceof Error && err.message.includes("indexes?create_composite")) {
+            setError(`Se requiere un índice de Firestore. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -193,10 +196,10 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="text-center py-12 text-destructive">
+      <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
         <AlertTriangle className="mx-auto h-12 w-12 mb-4" />
         <p className="text-lg font-semibold">Error al Cargar el Panel</p>
-        <p>{error}</p>
+        <p className="text-sm whitespace-pre-wrap">{error}</p>
       </div>
     );
   }
@@ -225,7 +228,7 @@ export default function DashboardPage() {
         />
         <SummaryCard 
           title="Ingresos Este Mes" 
-          value={stats?.revenueThisMonth ?? '€0,00'} 
+          value={stats?.revenueThisMonth ?? 'Calculando...'} 
           icon={DollarSign}
           description="Basado en facturas pagadas"
         />
@@ -304,3 +307,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
