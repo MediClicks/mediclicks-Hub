@@ -13,8 +13,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Invoice, InvoiceStatus, WithConvertedDates } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter } from "lucide-react";
+import type { Invoice, InvoiceStatus, WithConvertedDates, Client } from "@/types";
+import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle, CheckSquare, Clock } from "lucide-react";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
@@ -35,6 +35,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 
@@ -44,36 +46,73 @@ const statusColors: Record<InvoiceStatus, string> = {
   Vencida: "bg-red-500 border-red-600 hover:bg-red-600 text-white",
 };
 
-// Function to convert Firestore Timestamps to JS Date objects
-function convertTimestampsToDates(docData: any): WithConvertedDates<Invoice> {
+function convertInvoiceTimestamps(docData: any): WithConvertedDates<Invoice> {
   const data = { ...docData } as Partial<WithConvertedDates<Invoice>>;
   for (const key in data) {
     if (data[key as keyof Invoice] instanceof Timestamp) {
       data[key as keyof Invoice] = (data[key as keyof Invoice] as Timestamp).toDate() as any;
     } else if (Array.isArray(data[key as keyof Invoice])) {
       (data[key as keyof Invoice] as any) = (data[key as keyof Invoice] as any[]).map(item =>
-        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
+        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertInvoiceTimestamps(item) : item
       );
     } else if (typeof data[key as keyof Invoice] === 'object' && data[key as keyof Invoice] !== null && !((data[key as keyof Invoice]) instanceof Date)) {
-      (data[key as keyof Invoice] as any) = convertTimestampsToDates(data[key as keyof Invoice] as any);
+      (data[key as keyof Invoice] as any) = convertInvoiceTimestamps(data[key as keyof Invoice] as any);
     }
   }
   return data as WithConvertedDates<Invoice>;
 }
 
-const ALL_STATUSES = 'All';
-type StatusFilterType = InvoiceStatus | typeof ALL_STATUSES;
+function convertClientTimestamps(docData: any): WithConvertedDates<Client> {
+  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
+  for (const key in data) {
+    if (data[key as keyof Client] instanceof Timestamp) {
+      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
+    }
+  }
+  return data as WithConvertedDates<Client>;
+}
+
+
+const ALL_FILTER_VALUE = 'All';
+type StatusFilterType = InvoiceStatus | typeof ALL_FILTER_VALUE;
+type ClientFilterType = string | typeof ALL_FILTER_VALUE;
+
 
 const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Vencida'];
 
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
+  const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_STATUSES);
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
+  const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
+
+
+  const fetchClientsForFilter = useCallback(async () => {
+    setIsLoadingClients(true);
+    try {
+      const clientsCollection = collection(db, "clients");
+      const q = query(clientsCollection, orderBy("name", "asc"));
+      const querySnapshot = await getDocs(q);
+      const clientsData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const convertedData = convertClientTimestamps(data as Client);
+        return { id: doc.id, ...convertedData };
+      });
+      setClientsForFilter(clientsData);
+    } catch (err) {
+      console.error("Error fetching clients for filter: ", err);
+      // Non-critical error, so don't block UI, but maybe log or show small warning
+      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
+    } finally {
+      setIsLoadingClients(false);
+    }
+  }, [toast]);
 
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true);
@@ -82,15 +121,18 @@ export default function BillingPage() {
       const invoicesCollection = collection(db, "invoices");
       const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
 
-      if (statusFilter !== ALL_STATUSES) {
+      if (statusFilter !== ALL_FILTER_VALUE) {
         queryConstraints.unshift(where("status", "==", statusFilter));
+      }
+      if (clientFilter !== ALL_FILTER_VALUE) {
+        queryConstraints.unshift(where("clientId", "==", clientFilter));
       }
 
       const q = query(invoicesCollection, ...queryConstraints);
       const querySnapshot = await getDocs(q);
       const invoicesData = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        const convertedData = convertTimestampsToDates(data as Invoice);
+        const convertedData = convertInvoiceTimestamps(data as Invoice);
         return { id: doc.id, ...convertedData };
       });
       setInvoices(invoicesData);
@@ -104,11 +146,12 @@ export default function BillingPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]); // statusFilter is now a dependency
+  }, [statusFilter, clientFilter]);
 
   useEffect(() => {
+    fetchClientsForFilter();
     fetchInvoices();
-  }, [fetchInvoices]);
+  }, [fetchClientsForFilter, fetchInvoices]);
 
   const handleDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
@@ -133,11 +176,33 @@ export default function BillingPage() {
     }
   };
 
+  const getEmptyStateIcon = () => {
+    if (statusFilter === 'Pagada') return <CheckSquare className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    if (statusFilter === 'No Pagada' || statusFilter === 'Vencida') return <Clock className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    return <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+  };
+
+  const getEmptyStateMessage = () => {
+    let message = "No se encontraron facturas";
+    const clientName = clientFilter !== ALL_FILTER_VALUE ? clientsForFilter.find(c => c.id === clientFilter)?.name : null;
+
+    if (statusFilter !== ALL_FILTER_VALUE && clientFilter !== ALL_FILTER_VALUE && clientName) {
+      message += ` con estado "${statusFilter}" para el cliente "${clientName}".`;
+    } else if (statusFilter !== ALL_FILTER_VALUE) {
+      message += ` con estado "${statusFilter}".`;
+    } else if (clientFilter !== ALL_FILTER_VALUE && clientName) {
+      message += ` para el cliente "${clientName}".`;
+    } else {
+      message += ".";
+    }
+    return message;
+  };
+
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Facturación y Cobros</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
@@ -148,8 +213,8 @@ export default function BillingPage() {
               <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuCheckboxItem
-                checked={statusFilter === ALL_STATUSES}
-                onCheckedChange={() => setStatusFilter(ALL_STATUSES)}
+                checked={statusFilter === ALL_FILTER_VALUE}
+                onCheckedChange={() => setStatusFilter(ALL_FILTER_VALUE)}
               >
                 Todas
               </DropdownMenuCheckboxItem>
@@ -157,13 +222,37 @@ export default function BillingPage() {
                 <DropdownMenuCheckboxItem
                   key={status}
                   checked={statusFilter === status}
-                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_STATUSES : status)}
+                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_FILTER_VALUE : status)}
                 >
                   {status}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={isLoadingClients}>
+                <UserCircle className="mr-2 h-4 w-4 text-muted-foreground" /> 
+                {isLoadingClients ? "Cargando clientes..." : "Filtrar por Cliente"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-64 max-h-72 overflow-y-auto">
+              <DropdownMenuLabel>Seleccionar Cliente</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={clientFilter} onValueChange={setClientFilter}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>
+                  Todos los Clientes
+                </DropdownMenuRadioItem>
+                {clientsForFilter.map(client => (
+                  <DropdownMenuRadioItem key={client.id} value={client.id}>
+                    {client.name}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button asChild>
             <Link href="/billing/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Crear Nueva Factura
@@ -213,8 +302,10 @@ export default function BillingPage() {
                     <Badge className={cn("border text-xs", statusColors[invoice.status])}>{invoice.status}</Badge>
                   </TableCell>
                   <TableCell className="text-right space-x-1">
-                    <Button variant="ghost" size="icon" className="hover:text-primary" title="Ver Factura" disabled>
-                      <Eye className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="hover:text-primary" title="Ver Factura" asChild>
+                       <Link href={`/billing/${invoice.id}/view`}>
+                        <Eye className="h-4 w-4 text-sky-600" />
+                       </Link>
                     </Button>
                     <Button variant="ghost" size="icon" className="hover:text-yellow-500" title="Editar Factura" asChild>
                       <Link href={`/billing/${invoice.id}/edit`}>
@@ -237,8 +328,8 @@ export default function BillingPage() {
 
       {!isLoading && !error && invoices.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
-          <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />
-          <p className="text-lg">{statusFilter === ALL_STATUSES ? "No se encontraron facturas." : `No se encontraron facturas con estado "${statusFilter}".`}</p>
+          {getEmptyStateIcon()}
+          <p className="text-lg">{getEmptyStateMessage()}</p>
           <Button variant="link" className="mt-2" asChild>
             <Link href="/billing/add">Crea tu primera factura</Link>
           </Button>
@@ -260,7 +351,7 @@ export default function BillingPage() {
               disabled={isDeleting}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
-              {isDeleting ? "Eliminando..." : "Sí, eliminar factura"}
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar factura"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

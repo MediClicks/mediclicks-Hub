@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle } from "lucide-react";
+import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -50,7 +50,6 @@ const priorityColors: Record<TaskPriority, string> = {
   Alta: "bg-red-500 border-red-600 hover:bg-red-600 text-white",
 };
 
-// Function to convert Firestore Timestamps to JS Date objects
 function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   const data = { ...docData } as Partial<WithConvertedDates<Task>>;
   for (const key in data) {
@@ -61,8 +60,12 @@ function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   return data as WithConvertedDates<Task>;
 }
 
-const ALL_STATUSES = 'All';
-type StatusFilterType = TaskStatus | typeof ALL_STATUSES;
+const ALL_FILTER_VALUE = 'All';
+type StatusFilterType = TaskStatus | typeof ALL_FILTER_VALUE;
+type PriorityFilterType = TaskPriority | typeof ALL_FILTER_VALUE;
+
+const taskStatusesForFilter: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
+const taskPrioritiesForFilter: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<WithConvertedDates<Task>[]>([]);
@@ -71,7 +74,8 @@ export default function TasksPage() {
   const [taskToDelete, setTaskToDelete] = useState<WithConvertedDates<Task> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_STATUSES);
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilterType>(ALL_FILTER_VALUE);
 
   const fetchTasks = useCallback(async () => {
     setIsLoading(true);
@@ -80,8 +84,11 @@ export default function TasksPage() {
       const tasksCollection = collection(db, "tasks");
       const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
 
-      if (statusFilter !== ALL_STATUSES) {
+      if (statusFilter !== ALL_FILTER_VALUE) {
         queryConstraints.unshift(where("status", "==", statusFilter));
+      }
+      if (priorityFilter !== ALL_FILTER_VALUE) {
+        queryConstraints.unshift(where("priority", "==", priorityFilter));
       }
       
       const q = query(tasksCollection, ...queryConstraints);
@@ -102,11 +109,11 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]); // statusFilter is now a dependency
+  }, [statusFilter, priorityFilter]); 
 
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]); // fetchTasks will change if statusFilter changes, triggering re-fetch
+  }, [fetchTasks]);
 
   const handleDeleteTask = async () => {
     if (!taskToDelete) return;
@@ -131,13 +138,33 @@ export default function TasksPage() {
     }
   };
 
-  const taskStatusesForFilter: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
+  const getEmptyStateIcon = () => {
+    if (statusFilter === 'Pendiente') return <Clock className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    if (statusFilter === 'En Progreso') return <ListTodo className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    if (statusFilter === 'Completada') return <CheckSquare className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    return <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+  };
+
+  const getEmptyStateMessage = () => {
+    let message = "No se encontraron tareas";
+    if (statusFilter !== ALL_FILTER_VALUE && priorityFilter !== ALL_FILTER_VALUE) {
+      message += ` con estado "${statusFilter}" y prioridad "${priorityFilter}".`;
+    } else if (statusFilter !== ALL_FILTER_VALUE) {
+      message += ` con estado "${statusFilter}".`;
+    } else if (priorityFilter !== ALL_FILTER_VALUE) {
+      message += ` con prioridad "${priorityFilter}".`;
+    } else {
+      message += ".";
+    }
+    return message;
+  };
+
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tareas</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
@@ -148,8 +175,8 @@ export default function TasksPage() {
               <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuCheckboxItem
-                checked={statusFilter === ALL_STATUSES}
-                onCheckedChange={() => setStatusFilter(ALL_STATUSES)}
+                checked={statusFilter === ALL_FILTER_VALUE}
+                onCheckedChange={() => setStatusFilter(ALL_FILTER_VALUE)}
               >
                 Todas
               </DropdownMenuCheckboxItem>
@@ -157,13 +184,41 @@ export default function TasksPage() {
                 <DropdownMenuCheckboxItem
                   key={status}
                   checked={statusFilter === status}
-                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_STATUSES : status)}
+                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_FILTER_VALUE : status)}
                 >
                   {status}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar por Prioridad
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56">
+              <DropdownMenuLabel>Seleccionar Prioridad</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={priorityFilter === ALL_FILTER_VALUE}
+                onCheckedChange={() => setPriorityFilter(ALL_FILTER_VALUE)}
+              >
+                Todas
+              </DropdownMenuCheckboxItem>
+              {taskPrioritiesForFilter.map(priority => (
+                <DropdownMenuCheckboxItem
+                  key={priority}
+                  checked={priorityFilter === priority}
+                  onCheckedChange={() => setPriorityFilter(priorityFilter === priority ? ALL_FILTER_VALUE : priority)}
+                >
+                  {priority}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button asChild>
             <Link href="/tasks/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Agregar Nueva Tarea
@@ -233,8 +288,8 @@ export default function TasksPage() {
       
       {!isLoading && !error && tasks.length === 0 && (
          <div className="text-center py-12 text-muted-foreground">
-          <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />
-          <p className="text-lg">{statusFilter === ALL_STATUSES ? "No se encontraron tareas." : `No se encontraron tareas con estado "${statusFilter}".`}</p>
+          {getEmptyStateIcon()}
+          <p className="text-lg">{getEmptyStateMessage()}</p>
           <Button variant="link" className="mt-2" asChild>
             <Link href="/tasks/add">Agrega tu primera tarea</Link>
           </Button>
@@ -256,7 +311,7 @@ export default function TasksPage() {
               disabled={isDeleting} 
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
-              {isDeleting ? "Eliminando..." : "Sí, eliminar tarea"}
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar tarea"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
