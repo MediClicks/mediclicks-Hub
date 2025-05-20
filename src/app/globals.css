@@ -3,59 +3,64 @@
 @tailwind utilities;
 
 body {
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif; /* Clean sans-serif font for body text */
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: Georgia, 'Times New Roman', Times, serif; /* Elegant serif font for headings */
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif; /* Updated to sans-serif */
 }
 
 @layer base {
   :root {
-    --background: 240 100% 99%; /* Ghost White */
-    --foreground: 220 20% 25%; /* Dark Slate Gray - for text on light background */
+    --background: 220 25% 97%; /* Very light grey-blue */
+    --foreground: 220 15% 25%; /* Dark charcoal */
 
     --card: 0 0% 100%; /* White */
-    --card-foreground: 220 20% 25%; /* Dark Slate Gray */
+    --card-foreground: 220 15% 25%; /* Dark charcoal for text on white cards */
 
     --popover: 0 0% 100%; /* White */
-    --popover-foreground: 220 20% 25%; /* Dark Slate Gray */
+    --popover-foreground: 220 15% 25%;
 
-    --primary: 229 44% 21%; /* New: #1e274e */
-    --primary-foreground: 229 20% 95%; /* Light color for text on new primary */
+    --primary: 225 73% 56%; /* Bright Blue (#4A69FF) */
+    --primary-foreground: 0 0% 100%; /* White */
 
-    --secondary: 220 15% 96%; /* Light Gray - subtle secondary elements */
+    --secondary: 220 15% 90%; /* Light Gray - for less prominent elements */
     --secondary-foreground: 220 10% 30%; /* Darker Gray - for text on secondary */
 
-    --muted: 220 15% 94%; /* Lighter Gray - for muted text or elements */
-    --muted-foreground: 220 10% 55%; /* Medium Gray - for text on muted */
+    --muted: 220 20% 90%; /* Light grey for muted elements */
+    --muted-foreground: 220 10% 45%; /* Medium Gray - for text on muted */
 
-    --accent: 43 90% 38%; /* Muted Gold */
-    --accent-foreground: 43 30% 95%; /* Very light gold/almost white - for text on accent */
+    --accent: 180 70% 50%; /* Teal/Cyan for chart accents or other highlights */
+    --accent-foreground: 180 30% 15%; /* Dark text for on-teal accent */
 
     --destructive: 0 84.2% 60.2%; /* Default destructive red */
     --destructive-foreground: 0 0% 98%; /* Default light text for destructive */
 
-    --border: 220 15% 90%; /* Slightly darker than muted for borders */
+    --border: 220 15% 88%; /* Slightly darker than muted for borders */
     --input: 220 15% 94%; /* Input background, light gray */
-    --ring: 229 44% 31%; /* Ring color, related to new primary */
+    --ring: 225 73% 66%; /* Ring color, related to new primary */
     
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    --chart-1: 225 73% 56%; /* Primary Blue */
+    --chart-2: 180 70% 50%; /* Teal/Cyan */
+    --chart-3: 250 60% 65%; /* Lavender */
+    --chart-4: 43 74% 66%;  /* Muted Gold - keeping some variety */
+    --chart-5: 27 87% 67%;  /* Orange/Coral - keeping some variety */
     --radius: 0.5rem;
 
     /* Sidebar specific theme */
-    --sidebar-background: 229 44% 18%; /* Darker version of new primary for sidebar */
-    --sidebar-foreground: 229 20% 90%; /* Light text for sidebar */
-    --sidebar-primary: 43 90% 45%; /* Muted Gold for primary actions/highlights in sidebar (Kept Gold) */
-    --sidebar-primary-foreground: 0 0% 100%; /* White for text on sidebar primary (Kept White) */
-    --sidebar-accent: 229 44% 30%; /* Lighter version of new sidebar background for hover/active */
-    --sidebar-accent-foreground: 0 0% 100%; /* White for text on sidebar accent (Kept White) */
-    --sidebar-border: 229 44% 25%; /* Border color within sidebar (related to new sidebar bg) */
-    --sidebar-ring: 43 90% 50%; /* Ring for focus in sidebar - Muted Gold (Kept Gold) */
+    --sidebar-background: 258 36% 21%; /* Dark Indigo/Purple (#2A2047) */
+    --sidebar-foreground: 255 20% 80%; /* Light lavender for inactive text/icons (#C4B8DD) */
+    
+    /* Active/Hovered sidebar item: background subtle, text/icon uses main primary blue */
+    --sidebar-accent: 258 36% 25%; /* Subtle highlight for active item background */
+    --sidebar-accent-foreground: 225 73% 56%; /* Main Primary Blue for active item text/icon */
+    
+    /* Keeping these distinct in case we need a different "primary" action within the sidebar itself vs active navigation */
+    --sidebar-primary: 225 73% 56%; /* Main Primary Blue */
+    --sidebar-primary-foreground: 0 0% 100%; /* White */
+    
+    --sidebar-border: 258 36% 28%; /* Border color within sidebar */
+    --sidebar-ring: 225 73% 66%; /* Ring for focus in sidebar - related to new primary */
   }
 
   .dark {
@@ -68,8 +73,8 @@ h1, h2, h3, h4, h5, h6 {
     --popover: 220 15% 12%;
     --popover-foreground: 220 15% 90%;
 
-    --primary: 229 44% 31%; /* Lighter version of new primary for dark mode */
-    --primary-foreground: 229 20% 95%;
+    --primary: 225 73% 60%; /* Slightly lighter Bright Blue for dark mode */
+    --primary-foreground: 0 0% 100%; /* White */
 
     --secondary: 220 10% 20%; /* Dark Gray */
     --secondary-foreground: 220 10% 80%;
@@ -77,31 +82,34 @@ h1, h2, h3, h4, h5, h6 {
     --muted: 220 10% 25%;
     --muted-foreground: 220 10% 65%;
 
-    --accent: 43 90% 48%; /* Muted Gold - slightly lighter/brighter for dark mode */
-    --accent-foreground: 43 30% 15%; /* Dark text for gold accent in dark mode */
+    --accent: 180 70% 55%; /* Slightly lighter Teal/Cyan for dark mode */
+    --accent-foreground: 180 30% 90%; /* Light text for on-teal accent in dark mode */
 
     --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 98%;
 
     --border: 220 10% 30%;
     --input: 220 10% 25%;
-    --ring: 229 44% 41%; /* Ring color for dark mode, related to new primary */
+    --ring: 225 73% 70%; /* Ring color for dark mode, related to new primary */
     
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --chart-1: 225 73% 60%;
+    --chart-2: 180 70% 55%;
+    --chart-3: 250 60% 70%;
+    --chart-4: 43 74% 70%;
+    --chart-5: 27 87% 70%;
 
     /* Sidebar specific theme for dark mode */
-    --sidebar-background: 229 44% 12%; /* Even darker new primary for sidebar dark mode */
-    --sidebar-foreground: 229 20% 85%;
-    --sidebar-primary: 43 90% 55%; /* Muted Gold for primary actions/highlights in sidebar (Kept Gold) */
+    --sidebar-background: 258 36% 18%; /* Even darker Indigo for sidebar dark mode */
+    --sidebar-foreground: 255 20% 75%; /* Slightly less bright lavender */
+    
+    --sidebar-accent: 258 36% 22%; 
+    --sidebar-accent-foreground: 225 73% 60%; /* Main Primary Blue (dark mode version) */
+    
+    --sidebar-primary: 225 73% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 229 44% 25%; /* Lighter version of new sidebar background for hover/active dark mode */
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 229 44% 20%; /* Border color within sidebar dark mode */
-    --sidebar-ring: 43 90% 60%; /* Ring for focus in sidebar - Muted Gold (Kept Gold) */
+    
+    --sidebar-border: 258 36% 24%; 
+    --sidebar-ring: 225 73% 70%;
   }
 }
 
