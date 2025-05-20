@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
 import type { Task, TaskStatus, TaskPriority, WithConvertedDates } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -61,6 +61,8 @@ function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   return data as WithConvertedDates<Task>;
 }
 
+const ALL_STATUSES = 'All';
+type StatusFilterType = TaskStatus | typeof ALL_STATUSES;
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<WithConvertedDates<Task>[]>([]);
@@ -69,17 +71,20 @@ export default function TasksPage() {
   const [taskToDelete, setTaskToDelete] = useState<WithConvertedDates<Task> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-
-  // TODO: Implement filter state and logic
-  // const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_STATUSES);
 
   const fetchTasks = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const tasksCollection = collection(db, "tasks");
-      // Add filtering here later if statusFilter is implemented
-      const q = query(tasksCollection, orderBy("createdAt", "desc"));
+      const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
+
+      if (statusFilter !== ALL_STATUSES) {
+        queryConstraints.unshift(where("status", "==", statusFilter));
+      }
+      
+      const q = query(tasksCollection, ...queryConstraints);
       const querySnapshot = await getDocs(q);
       const tasksData = querySnapshot.docs.map(doc => {
         const data = doc.data();
@@ -87,17 +92,21 @@ export default function TasksPage() {
         return { id: doc.id, ...convertedData };
       });
       setTasks(tasksData);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching tasks: ", err);
-      setError("No se pudieron cargar las tareas. Intenta de nuevo más tarde.");
+      if (err.message && err.message.includes("index")) {
+        setError(`Se requiere un índice de Firestore para esta consulta. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
+      } else {
+        setError("No se pudieron cargar las tareas. Intenta de nuevo más tarde.");
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [statusFilter]); // statusFilter is now a dependency
 
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+  }, [fetchTasks]); // fetchTasks will change if statusFilter changes, triggering re-fetch
 
   const handleDeleteTask = async () => {
     if (!taskToDelete) return;
@@ -122,6 +131,8 @@ export default function TasksPage() {
     }
   };
 
+  const taskStatusesForFilter: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -130,16 +141,27 @@ export default function TasksPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar por Estado
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel>Filtrar por Estado</DropdownMenuLabel>
+              <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {/* TODO: Connect these to state and filtering logic */}
-              <DropdownMenuCheckboxItem disabled>Pendiente</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem disabled>En Progreso</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem disabled>Completada</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={statusFilter === ALL_STATUSES}
+                onCheckedChange={() => setStatusFilter(ALL_STATUSES)}
+              >
+                Todas
+              </DropdownMenuCheckboxItem>
+              {taskStatusesForFilter.map(status => (
+                <DropdownMenuCheckboxItem
+                  key={status}
+                  checked={statusFilter === status}
+                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_STATUSES : status)}
+                >
+                  {status}
+                </DropdownMenuCheckboxItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
           <Button asChild>
@@ -158,7 +180,7 @@ export default function TasksPage() {
       )}
 
       {error && !isLoading && (
-        <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
+        <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md whitespace-pre-wrap">
           <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
            <Button variant="link" onClick={fetchTasks} className="mt-2">Reintentar Carga</Button>
@@ -212,7 +234,7 @@ export default function TasksPage() {
       {!isLoading && !error && tasks.length === 0 && (
          <div className="text-center py-12 text-muted-foreground">
           <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />
-          <p className="text-lg">No se encontraron tareas.</p>
+          <p className="text-lg">{statusFilter === ALL_STATUSES ? "No se encontraron tareas." : `No se encontraron tareas con estado "${statusFilter}".`}</p>
           <Button variant="link" className="mt-2" asChild>
             <Link href="/tasks/add">Agrega tu primera tarea</Link>
           </Button>
