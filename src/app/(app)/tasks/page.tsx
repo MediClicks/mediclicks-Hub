@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
 import {
   Table,
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Filter, Edit2, Trash2, Loader2 } from "lucide-react";
+import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -22,8 +22,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore';
 import type { Task, TaskStatus, TaskPriority, WithConvertedDates } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -55,34 +66,61 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<WithConvertedDates<Task>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<WithConvertedDates<Task> | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { toast } = useToast();
+
   // TODO: Implement filter state and logic
   // const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
 
-  useEffect(() => {
-    const fetchTasks = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const tasksCollection = collection(db, "tasks");
-        // Add filtering here later if statusFilter is implemented
-        const q = query(tasksCollection, orderBy("createdAt", "desc"));
-        const querySnapshot = await getDocs(q);
-        const tasksData = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          const convertedData = convertTimestampsToDates(data as Task);
-          return { id: doc.id, ...convertedData };
-        });
-        setTasks(tasksData);
-      } catch (err) {
-        console.error("Error fetching tasks: ", err);
-        setError("No se pudieron cargar las tareas. Intenta de nuevo más tarde.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const fetchTasks = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const tasksCollection = collection(db, "tasks");
+      // Add filtering here later if statusFilter is implemented
+      const q = query(tasksCollection, orderBy("createdAt", "desc"));
+      const querySnapshot = await getDocs(q);
+      const tasksData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const convertedData = convertTimestampsToDates(data as Task);
+        return { id: doc.id, ...convertedData };
+      });
+      setTasks(tasksData);
+    } catch (err) {
+      console.error("Error fetching tasks: ", err);
+      setError("No se pudieron cargar las tareas. Intenta de nuevo más tarde.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
+  useEffect(() => {
     fetchTasks();
-  }, []); // Add statusFilter to dependency array if implemented
+  }, [fetchTasks]);
+
+  const handleDeleteTask = async () => {
+    if (!taskToDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, "tasks", taskToDelete.id));
+      toast({
+        title: "Tarea Eliminada",
+        description: `La tarea "${taskToDelete.name}" ha sido eliminada correctamente.`,
+      });
+      setTasks(prevTasks => prevTasks.filter(task => task.id !== taskToDelete.id));
+      setTaskToDelete(null);
+    } catch (error) {
+      console.error("Error eliminando tarea: ", error);
+      toast({
+        title: "Error al Eliminar",
+        description: "No se pudo eliminar la tarea. Inténtalo de nuevo.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -99,9 +137,9 @@ export default function TasksPage() {
               <DropdownMenuLabel>Filtrar por Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {/* TODO: Connect these to state and filtering logic */}
-              <DropdownMenuCheckboxItem>Pendiente</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem>En Progreso</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem>Completada</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem disabled>Pendiente</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem disabled>En Progreso</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem disabled>Completada</DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button asChild>
@@ -123,6 +161,7 @@ export default function TasksPage() {
         <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
           <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
+           <Button variant="link" onClick={fetchTasks} className="mt-2">Reintentar Carga</Button>
         </div>
       )}
 
@@ -154,12 +193,13 @@ export default function TasksPage() {
                     <Badge className={cn("border text-xs", statusColors[task.status])}>{task.status}</Badge>
                   </TableCell>
                   <TableCell className="text-right space-x-1">
-                    {/* TODO: Implement Edit and Delete functionality */}
-                    <Button variant="ghost" size="icon" className="hover:text-primary" title="Editar Tarea" disabled>
-                      <Edit2 className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="hover:text-primary" title="Editar Tarea" asChild>
+                      <Link href={`/tasks/${task.id}/edit`}>
+                        <Edit2 className="h-4 w-4 text-yellow-600" />
+                      </Link>
                     </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Tarea" disabled>
-                      <Trash2 className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Tarea" onClick={() => setTaskToDelete(task)}>
+                      <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -178,6 +218,27 @@ export default function TasksPage() {
           </Button>
         </div>
       )}
+
+      <AlertDialog open={!!taskToDelete} onOpenChange={(open) => !open && setTaskToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Estás seguro de eliminar esta tarea?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará permanentemente la tarea "{taskToDelete?.name}".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting} onClick={() => setTaskToDelete(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteTask} 
+              disabled={isDeleting} 
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              {isDeleting ? "Eliminando..." : "Sí, eliminar tarea"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
