@@ -2,7 +2,7 @@
 'use client';
 
 import Image from 'next/image';
-import React, { useState } from 'react'; // Import useState
+import React, { useState } from 'react'; 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,7 @@ import Link from 'next/link';
 
 interface ClientCardProps {
   client: WithConvertedDates<Client>;
-  onClientDeleted: (clientId: string) => void; // Callback to update parent state
+  onClientDeleted: (clientId: string) => void; 
 }
 
 export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
@@ -37,20 +37,12 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
   const formatDate = (dateInput: Date | string | undefined) => {
     if (!dateInput) return 'N/A';
     try {
-      return new Date(dateInput).toLocaleDateString('es-ES');
+      const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+      return date.toLocaleDateString('es-ES');
     } catch (e) {
       return 'Fecha inválida';
     }
   };
-
-  const getYear = (dateInput: Date | string | undefined) => {
-    if (!dateInput) return '';
-    try {
-      return new Date(dateInput).getFullYear();
-    } catch (e) {
-      return '';
-    }
-  }
 
   const handleDeleteClient = async () => {
     setIsDeleting(true);
@@ -60,7 +52,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         title: "Cliente Eliminado",
         description: `El cliente ${client.name} ha sido eliminado correctamente.`,
       });
-      onClientDeleted(client.id); // Notify parent to update UI
+      onClientDeleted(client.id); 
     } catch (error) {
       console.error("Error eliminando cliente: ", error);
       toast({
@@ -136,8 +128,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         </CardContent>
         <CardFooter className="p-4 border-t flex justify-between items-center">
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-7 w-7" asChild disabled>
-              {/* TODO: Implementar link a página de edición */}
+            <Button variant="outline" size="icon" className="h-7 w-7" asChild>
               <Link href={`/clients/${client.id}/edit`}> 
                 <Edit className="h-4 w-4" />
                 <span className="sr-only">Editar Cliente</span>
@@ -161,7 +152,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar este cliente?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará permanentemente el cliente "{client.name}" y todos sus datos asociados (futuras tareas y facturas podrían quedar sin cliente asociado).
+              Esta acción no se puede deshacer. Se eliminará permanentemente el cliente "{client.name}" y todos sus datos asociados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
