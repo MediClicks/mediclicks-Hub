@@ -7,7 +7,7 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif; /* Updated to sans-serif */
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif; /* Consistent sans-serif font */
 }
 
 @layer base {
@@ -21,7 +21,7 @@ h1, h2, h3, h4, h5, h6 {
     --popover: 0 0% 100%; /* White */
     --popover-foreground: 220 15% 25%;
 
-    --primary: 225 73% 56%; /* Bright Blue (#4A69FF) */
+    --primary: 230 39% 21%; /* Dark Indigo/Navy - #1e274e */
     --primary-foreground: 0 0% 100%; /* White */
 
     --secondary: 220 15% 90%; /* Light Gray - for less prominent elements */
@@ -30,86 +30,84 @@ h1, h2, h3, h4, h5, h6 {
     --muted: 220 20% 90%; /* Light grey for muted elements */
     --muted-foreground: 220 10% 45%; /* Medium Gray - for text on muted */
 
-    --accent: 180 70% 50%; /* Teal/Cyan for chart accents or other highlights */
-    --accent-foreground: 180 30% 15%; /* Dark text for on-teal accent */
+    --accent: 30 90% 55%; /* Orange for accent */
+    --accent-foreground: 0 0% 100%; /* White text for orange accent */
 
     --destructive: 0 84.2% 60.2%; /* Default destructive red */
     --destructive-foreground: 0 0% 98%; /* Default light text for destructive */
 
     --border: 220 15% 88%; /* Slightly darker than muted for borders */
     --input: 220 15% 94%; /* Input background, light gray */
-    --ring: 225 73% 66%; /* Ring color, related to new primary */
+    --ring: 230 39% 31%; /* Ring color, related to new primary */
     
-    --chart-1: 225 73% 56%; /* Primary Blue */
-    --chart-2: 180 70% 50%; /* Teal/Cyan */
-    --chart-3: 250 60% 65%; /* Lavender */
-    --chart-4: 43 74% 66%;  /* Muted Gold - keeping some variety */
-    --chart-5: 27 87% 67%;  /* Orange/Coral - keeping some variety */
+    --chart-1: 230 39% 40%; /* Variations of primary for charts */
+    --chart-2: 230 39% 55%;
+    --chart-3: 30 90% 55%;  /* Accent orange */
+    --chart-4: 43 74% 66%;  /* Muted Gold */
+    --chart-5: 27 87% 67%;  /* Orange/Coral */
     --radius: 0.5rem;
 
-    /* Sidebar specific theme */
-    --sidebar-background: 258 36% 21%; /* Dark Indigo/Purple (#2A2047) */
-    --sidebar-foreground: 255 20% 80%; /* Light lavender for inactive text/icons (#C4B8DD) */
+    /* Sidebar specific theme - Aligned with the #1e274e primary */
+    --sidebar-background: 230 30% 15%; /* Darker shade of primary for sidebar */
+    --sidebar-foreground: 230 20% 80%; /* Lighter text for dark sidebar */
     
-    /* Active/Hovered sidebar item: background subtle, text/icon uses main primary blue */
-    --sidebar-accent: 258 36% 25%; /* Subtle highlight for active item background */
-    --sidebar-accent-foreground: 225 73% 56%; /* Main Primary Blue for active item text/icon */
+    --sidebar-accent: 230 30% 25%; /* Active/hover background for sidebar */
+    --sidebar-accent-foreground: 0 0% 100%; /* White for active/hover text */
     
-    /* Keeping these distinct in case we need a different "primary" action within the sidebar itself vs active navigation */
-    --sidebar-primary: 225 73% 56%; /* Main Primary Blue */
+    --sidebar-primary: 230 39% 21%; /* Main primary color */
     --sidebar-primary-foreground: 0 0% 100%; /* White */
     
-    --sidebar-border: 258 36% 28%; /* Border color within sidebar */
-    --sidebar-ring: 225 73% 66%; /* Ring for focus in sidebar - related to new primary */
+    --sidebar-border: 230 30% 20%; /* Border color within sidebar */
+    --sidebar-ring: 230 39% 31%; /* Ring for focus in sidebar */
   }
 
   .dark {
-    --background: 220 15% 10%; /* Very Dark Blue/Gray */
-    --foreground: 220 15% 90%; /* Light Gray/White */
+    --background: 230 15% 10%; /* Very Dark Blue/Gray */
+    --foreground: 230 15% 90%; /* Light Gray/White */
 
-    --card: 220 15% 15%; /* Darker than background */
-    --card-foreground: 220 15% 90%;
+    --card: 230 15% 15%; /* Darker than background */
+    --card-foreground: 230 15% 90%;
 
-    --popover: 220 15% 12%;
-    --popover-foreground: 220 15% 90%;
+    --popover: 230 15% 12%;
+    --popover-foreground: 230 15% 90%;
 
-    --primary: 225 73% 60%; /* Slightly lighter Bright Blue for dark mode */
+    --primary: 230 39% 35%; /* Slightly lighter/brighter primary for dark mode */
     --primary-foreground: 0 0% 100%; /* White */
 
-    --secondary: 220 10% 20%; /* Dark Gray */
-    --secondary-foreground: 220 10% 80%;
+    --secondary: 230 10% 20%; /* Dark Gray */
+    --secondary-foreground: 230 10% 80%;
 
-    --muted: 220 10% 25%;
-    --muted-foreground: 220 10% 65%;
+    --muted: 230 10% 25%;
+    --muted-foreground: 230 10% 65%;
 
-    --accent: 180 70% 55%; /* Slightly lighter Teal/Cyan for dark mode */
-    --accent-foreground: 180 30% 90%; /* Light text for on-teal accent in dark mode */
+    --accent: 30 90% 60%; /* Brighter Orange for dark mode */
+    --accent-foreground: 0 0% 10%; /* Dark text for orange accent in dark mode */
 
     --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 220 10% 30%;
-    --input: 220 10% 25%;
-    --ring: 225 73% 70%; /* Ring color for dark mode, related to new primary */
+    --border: 230 10% 30%;
+    --input: 230 10% 25%;
+    --ring: 230 39% 45%; /* Ring color for dark mode, related to new primary */
     
-    --chart-1: 225 73% 60%;
-    --chart-2: 180 70% 55%;
-    --chart-3: 250 60% 70%;
+    --chart-1: 230 39% 45%;
+    --chart-2: 230 39% 60%;
+    --chart-3: 30 90% 60%;
     --chart-4: 43 74% 70%;
     --chart-5: 27 87% 70%;
 
     /* Sidebar specific theme for dark mode */
-    --sidebar-background: 258 36% 18%; /* Even darker Indigo for sidebar dark mode */
-    --sidebar-foreground: 255 20% 75%; /* Slightly less bright lavender */
+    --sidebar-background: 230 30% 12%; /* Even darker for sidebar dark mode */
+    --sidebar-foreground: 230 20% 75%; /* Slightly less bright text */
     
-    --sidebar-accent: 258 36% 22%; 
-    --sidebar-accent-foreground: 225 73% 60%; /* Main Primary Blue (dark mode version) */
+    --sidebar-accent: 230 30% 22%; 
+    --sidebar-accent-foreground: 0 0% 100%; 
     
-    --sidebar-primary: 225 73% 60%;
+    --sidebar-primary: 230 39% 35%;
     --sidebar-primary-foreground: 0 0% 100%;
     
-    --sidebar-border: 258 36% 24%; 
-    --sidebar-ring: 225 73% 70%;
+    --sidebar-border: 230 30% 18%; 
+    --sidebar-ring: 230 39% 45%;
   }
 }
 
