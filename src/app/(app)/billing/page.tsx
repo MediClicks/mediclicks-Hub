@@ -14,9 +14,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Invoice, InvoiceStatus, WithConvertedDates } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2 } from "lucide-react";
+import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter } from "lucide-react";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -28,6 +28,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 
 const statusColors: Record<InvoiceStatus, string> = {
@@ -42,17 +50,21 @@ function convertTimestampsToDates(docData: any): WithConvertedDates<Invoice> {
   for (const key in data) {
     if (data[key as keyof Invoice] instanceof Timestamp) {
       data[key as keyof Invoice] = (data[key as keyof Invoice] as Timestamp).toDate() as any;
-    } else if (Array.isArray(data[key as keyof Invoice])) { 
-        (data[key as keyof Invoice] as any) = (data[key as keyof Invoice] as any[]).map(item => 
-            typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
-        );
-    } else if (typeof data[key as keyof Invoice] === 'object' && data[key as keyof Invoice] !== null && !((data[key as keyof Invoice]) instanceof Date)) { 
-        (data[key as keyof Invoice] as any) = convertTimestampsToDates(data[key as keyof Invoice] as any);
+    } else if (Array.isArray(data[key as keyof Invoice])) {
+      (data[key as keyof Invoice] as any) = (data[key as keyof Invoice] as any[]).map(item =>
+        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
+      );
+    } else if (typeof data[key as keyof Invoice] === 'object' && data[key as keyof Invoice] !== null && !((data[key as keyof Invoice]) instanceof Date)) {
+      (data[key as keyof Invoice] as any) = convertTimestampsToDates(data[key as keyof Invoice] as any);
     }
   }
   return data as WithConvertedDates<Invoice>;
 }
 
+const ALL_STATUSES = 'All';
+type StatusFilterType = InvoiceStatus | typeof ALL_STATUSES;
+
+const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Vencida'];
 
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
@@ -61,13 +73,20 @@ export default function BillingPage() {
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_STATUSES);
 
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const invoicesCollection = collection(db, "invoices");
-      const q = query(invoicesCollection, orderBy("createdAt", "desc"));
+      const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
+
+      if (statusFilter !== ALL_STATUSES) {
+        queryConstraints.unshift(where("status", "==", statusFilter));
+      }
+
+      const q = query(invoicesCollection, ...queryConstraints);
       const querySnapshot = await getDocs(q);
       const invoicesData = querySnapshot.docs.map(doc => {
         const data = doc.data();
@@ -75,13 +94,17 @@ export default function BillingPage() {
         return { id: doc.id, ...convertedData };
       });
       setInvoices(invoicesData);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching invoices: ", err);
-      setError("No se pudieron cargar las facturas. Intenta de nuevo más tarde.");
+      if (err.message && err.message.includes("index")) {
+        setError(`Se requiere un índice de Firestore para esta consulta. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
+      } else {
+        setError("No se pudieron cargar las facturas. Intenta de nuevo más tarde.");
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [statusFilter]); // statusFilter is now a dependency
 
   useEffect(() => {
     fetchInvoices();
@@ -94,7 +117,7 @@ export default function BillingPage() {
       await deleteDoc(doc(db, "invoices", invoiceToDelete.id));
       toast({
         title: "Factura Eliminada",
-        description: `La factura con ID ${invoiceToDelete.id.substring(0,8).toUpperCase()} ha sido eliminada.`,
+        description: `La factura con ID ${invoiceToDelete.id.substring(0, 8).toUpperCase()} ha sido eliminada.`,
       });
       setInvoices(prevInvoices => prevInvoices.filter(inv => inv.id !== invoiceToDelete.id));
       setInvoiceToDelete(null);
@@ -114,11 +137,39 @@ export default function BillingPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Facturación y Cobros</h1>
-        <Button asChild>
-          <Link href="/billing/add">
-            <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Crear Nueva Factura
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar por Estado
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56">
+              <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={statusFilter === ALL_STATUSES}
+                onCheckedChange={() => setStatusFilter(ALL_STATUSES)}
+              >
+                Todas
+              </DropdownMenuCheckboxItem>
+              {invoiceStatusesForFilter.map(status => (
+                <DropdownMenuCheckboxItem
+                  key={status}
+                  checked={statusFilter === status}
+                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_STATUSES : status)}
+                >
+                  {status}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button asChild>
+            <Link href="/billing/add">
+              <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Crear Nueva Factura
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -129,13 +180,13 @@ export default function BillingPage() {
       )}
 
       {error && !isLoading && (
-        <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
+        <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md whitespace-pre-wrap">
           <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
-           <Button variant="link" onClick={fetchInvoices} className="mt-2">Reintentar Carga</Button>
+          <Button variant="link" onClick={fetchInvoices} className="mt-2">Reintentar Carga</Button>
         </div>
       )}
-      
+
       {!isLoading && !error && invoices.length > 0 && (
         <div className="rounded-lg border shadow-sm bg-card">
           <Table>
@@ -154,7 +205,7 @@ export default function BillingPage() {
               {invoices.map(invoice => (
                 <TableRow key={invoice.id} className="hover:bg-muted/50">
                   <TableCell className="font-medium">{invoice.id.substring(0, 8).toUpperCase()}</TableCell>
-                  <TableCell>{invoice.clientName}</TableCell>
+                  <TableCell>{invoice.clientName || 'N/A'}</TableCell>
                   <TableCell>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                   <TableCell>{invoice.issuedDate ? new Date(invoice.issuedDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
                   <TableCell>{invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
@@ -170,7 +221,7 @@ export default function BillingPage() {
                         <Edit2 className="h-4 w-4 text-yellow-600" />
                       </Link>
                     </Button>
-                     <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)}>
+                    <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)}>
                       <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
                     <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled>
@@ -183,12 +234,12 @@ export default function BillingPage() {
           </Table>
         </div>
       )}
-      
+
       {!isLoading && !error && invoices.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />
-          <p className="text-lg">No se encontraron facturas.</p>
-           <Button variant="link" className="mt-2" asChild>
+          <p className="text-lg">{statusFilter === ALL_STATUSES ? "No se encontraron facturas." : `No se encontraron facturas con estado "${statusFilter}".`}</p>
+          <Button variant="link" className="mt-2" asChild>
             <Link href="/billing/add">Crea tu primera factura</Link>
           </Button>
         </div>
@@ -199,14 +250,14 @@ export default function BillingPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar esta factura?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará permanentemente la factura con ID {invoiceToDelete?.id.substring(0,8).toUpperCase()}.
+              Esta acción no se puede deshacer. Se eliminará permanentemente la factura con ID {invoiceToDelete?.id.substring(0, 8).toUpperCase()}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting} onClick={() => setInvoiceToDelete(null)}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteInvoice} 
-              disabled={isDeleting} 
+            <AlertDialogAction
+              onClick={handleDeleteInvoice}
+              disabled={isDeleting}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
               {isDeleting ? "Eliminando..." : "Sí, eliminar factura"}
@@ -217,4 +268,3 @@ export default function BillingPage() {
     </div>
   );
 }
-
