@@ -21,8 +21,8 @@ h1, h2, h3, h4, h5, h6 {
     --popover: 0 0% 100%; /* White */
     --popover-foreground: 220 15% 25%;
 
-    --primary: 230 39% 21%; /* Dark Indigo/Navy - #1e274e */
-    --primary-foreground: 0 0% 100%; /* White */
+    --primary: 210 74% 20%; /* New Primary: #0d3357 */
+    --primary-foreground: 0 0% 100%; /* Pure White */
 
     --secondary: 220 15% 90%; /* Light Gray - for less prominent elements */
     --secondary-foreground: 220 10% 30%; /* Darker Gray - for text on secondary */
@@ -38,27 +38,27 @@ h1, h2, h3, h4, h5, h6 {
 
     --border: 220 15% 88%; /* Slightly darker than muted for borders */
     --input: 220 15% 94%; /* Input background, light gray */
-    --ring: 230 39% 31%; /* Ring color, related to new primary */
+    --ring: 210 74% 30%; /* Ring color, related to new primary */
     
-    --chart-1: 230 39% 40%; /* Variations of primary for charts */
-    --chart-2: 230 39% 55%;
+    --chart-1: 210 74% 35%; /* Variations of new primary for charts */
+    --chart-2: 210 74% 50%;
     --chart-3: 30 90% 55%;  /* Accent orange */
     --chart-4: 43 74% 66%;  /* Muted Gold */
     --chart-5: 27 87% 67%;  /* Orange/Coral */
     --radius: 0.5rem;
 
-    /* Sidebar specific theme - Aligned with the #1e274e primary */
-    --sidebar-background: 230 30% 15%; /* Darker shade of primary for sidebar */
-    --sidebar-foreground: 230 20% 80%; /* Lighter text for dark sidebar */
+    /* Sidebar specific theme - Aligned with the new primary #0d3357 */
+    --sidebar-background: 210 60% 12%; /* Darker shade of new primary for sidebar */
+    --sidebar-foreground: 210 20% 80%; /* Lighter text for dark sidebar */
     
-    --sidebar-accent: 230 30% 25%; /* Active/hover background for sidebar */
+    --sidebar-accent: 210 65% 22%; /* Active/hover background for sidebar, derived from new primary */
     --sidebar-accent-foreground: 0 0% 100%; /* White for active/hover text */
     
-    --sidebar-primary: 230 39% 21%; /* Main primary color */
-    --sidebar-primary-foreground: 0 0% 100%; /* White */
+    --sidebar-primary: 210 74% 20%; /* Main new primary color */
+    --sidebar-primary-foreground: 0 0% 100%; /* Pure White */
     
-    --sidebar-border: 230 30% 20%; /* Border color within sidebar */
-    --sidebar-ring: 230 39% 31%; /* Ring for focus in sidebar */
+    --sidebar-border: 210 60% 15%; /* Border color within sidebar, derived from new sidebar-background */
+    --sidebar-ring: 210 74% 30%; /* Ring for focus in sidebar, related to new primary */
   }
 
   .dark {
@@ -71,8 +71,8 @@ h1, h2, h3, h4, h5, h6 {
     --popover: 230 15% 12%;
     --popover-foreground: 230 15% 90%;
 
-    --primary: 230 39% 35%; /* Slightly lighter/brighter primary for dark mode */
-    --primary-foreground: 0 0% 100%; /* White */
+    --primary: 210 74% 30%; /* Slightly lighter/brighter new primary for dark mode */
+    --primary-foreground: 0 0% 100%; /* Pure White */
 
     --secondary: 230 10% 20%; /* Dark Gray */
     --secondary-foreground: 230 10% 80%;
@@ -88,26 +88,26 @@ h1, h2, h3, h4, h5, h6 {
 
     --border: 230 10% 30%;
     --input: 230 10% 25%;
-    --ring: 230 39% 45%; /* Ring color for dark mode, related to new primary */
+    --ring: 210 74% 40%; /* Ring color for dark mode, related to new primary */
     
-    --chart-1: 230 39% 45%;
-    --chart-2: 230 39% 60%;
+    --chart-1: 210 74% 45%; /* Variations of new primary for dark mode charts */
+    --chart-2: 210 74% 60%;
     --chart-3: 30 90% 60%;
     --chart-4: 43 74% 70%;
     --chart-5: 27 87% 70%;
 
-    /* Sidebar specific theme for dark mode */
-    --sidebar-background: 230 30% 12%; /* Even darker for sidebar dark mode */
-    --sidebar-foreground: 230 20% 75%; /* Slightly less bright text */
+    /* Sidebar specific theme for dark mode - Aligned with new dark primary */
+    --sidebar-background: 210 60% 10%; /* Even darker for sidebar dark mode, derived from new primary */
+    --sidebar-foreground: 210 20% 75%; /* Slightly less bright text */
     
-    --sidebar-accent: 230 30% 22%; 
+    --sidebar-accent: 210 65% 20%; /* Active/hover background, derived from new dark primary */
     --sidebar-accent-foreground: 0 0% 100%; 
     
-    --sidebar-primary: 230 39% 35%;
-    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-primary: 210 74% 30%; /* Main new dark primary color */
+    --sidebar-primary-foreground: 0 0% 100%; /* Pure White */
     
-    --sidebar-border: 230 30% 18%; 
-    --sidebar-ring: 230 39% 45%;
+    --sidebar-border: 210 60% 13%; /* Border color within sidebar, derived from new dark sidebar-background */
+    --sidebar-ring: 210 74% 40%; /* Ring for focus, related to new dark primary */
   }
 }
 
