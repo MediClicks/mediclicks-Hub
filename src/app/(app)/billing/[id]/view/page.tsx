@@ -10,8 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail } from 'lucide-react';
+import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { PDFDownloadLink } from '@react-pdf/renderer';
+import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
 
 interface AgencyDetails {
   agencyName?: string;
@@ -55,8 +57,10 @@ export default function ViewInvoicePage() {
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false); // For client-side only rendering of PDFLink
 
   useEffect(() => {
+    setIsClient(true); // Ensures PDFDownloadLink only renders on client
     const fetchInvoiceData = async () => {
       if (!invoiceId) {
         setError("ID de factura no válido.");
@@ -86,10 +90,10 @@ export default function ViewInvoicePage() {
             setClient(convertTimestampsToDates(clientSnap.data() as Client) ?? null);
           } else {
             console.warn(`Cliente con ID ${fetchedInvoice.clientId} no encontrado para la factura ${invoiceId}`);
-            setClient(null); // Client not found, but invoice might still be viewable
+            setClient(null); 
           }
         } else {
-          setClient(null); // No client ID on invoice
+          setClient(null); 
         }
 
         // Fetch Agency Details
@@ -98,7 +102,7 @@ export default function ViewInvoicePage() {
         if (agencySnap.exists()) {
           setAgencyDetails(agencySnap.data() as AgencyDetails);
         } else {
-          setAgencyDetails({ // Default placeholders if not configured
+          setAgencyDetails({ 
             agencyName: "Tu Agencia S.L.",
             address: "Calle Falsa 123, Ciudad, CP",
             taxId: "NIF/CIF: X1234567Z",
@@ -150,14 +154,12 @@ export default function ViewInvoicePage() {
   }
 
   if (!invoice) {
-    // This case should ideally be caught by the error state if invoiceSnap doesn't exist.
     return <div className="text-center py-10">Factura no encontrada.</div>;
   }
 
   const subtotal = invoice.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-  // Assuming tax is 0 for now, can be made dynamic later
   const taxAmount = 0; 
-  const total = subtotal + taxAmount;
+  const total = subtotal + taxAmount; // This was previously used, but invoice.totalAmount is what's stored.
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 bg-background">
@@ -218,7 +220,7 @@ export default function ViewInvoicePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[60%]">Descripción</TableHead>
+                  <TableHead className="w-[50%]">Descripción</TableHead>
                   <TableHead className="text-right">Cantidad</TableHead>
                   <TableHead className="text-right">Precio Unit.</TableHead>
                   <TableHead className="text-right">Importe</TableHead>
@@ -268,16 +270,32 @@ export default function ViewInvoicePage() {
           )}
         </CardContent>
         <CardFooter className="p-6 border-t print:hidden">
-          <div className="flex w-full justify-between items-center">
+          <div className="flex w-full justify-between items-center gap-2">
             <Button variant="outline" onClick={() => router.push('/billing')}>
               <ArrowLeft className="mr-2 h-4 w-4" /> Volver
             </Button>
-            <Button onClick={handlePrint}>
-              <Printer className="mr-2 h-4 w-4" /> Imprimir Factura
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={handlePrint} variant="outline">
+                <Printer className="mr-2 h-4 w-4" /> Imprimir
+              </Button>
+              {isClient && invoice && client && agencyDetails && (
+                <PDFDownloadLink
+                  document={<InvoicePdfDocument invoice={invoice} client={client} agencyDetails={agencyDetails} />}
+                  fileName={`Factura-${invoice.id.substring(0,8).toUpperCase()}.pdf`}
+                >
+                  {({ loading }) => (
+                    <Button disabled={loading}>
+                      {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                      Descargar PDF
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+              )}
+            </div>
           </div>
         </CardFooter>
       </Card>
     </div>
   );
 }
+
