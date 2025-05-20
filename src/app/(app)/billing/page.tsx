@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
 import {
   Table,
@@ -14,10 +14,21 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Invoice, InvoiceStatus, WithConvertedDates } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle } from "lucide-react";
+import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2 } from "lucide-react";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
 
 const statusColors: Record<InvoiceStatus, string> = {
   Pagada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
@@ -47,31 +58,57 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { toast } = useToast();
+
+  const fetchInvoices = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const invoicesCollection = collection(db, "invoices");
+      const q = query(invoicesCollection, orderBy("createdAt", "desc"));
+      const querySnapshot = await getDocs(q);
+      const invoicesData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const convertedData = convertTimestampsToDates(data as Invoice);
+        return { id: doc.id, ...convertedData };
+      });
+      setInvoices(invoicesData);
+    } catch (err) {
+      console.error("Error fetching invoices: ", err);
+      setError("No se pudieron cargar las facturas. Intenta de nuevo más tarde.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchInvoices = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const invoicesCollection = collection(db, "invoices");
-        const q = query(invoicesCollection, orderBy("createdAt", "desc"));
-        const querySnapshot = await getDocs(q);
-        const invoicesData = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          const convertedData = convertTimestampsToDates(data as Invoice);
-          return { id: doc.id, ...convertedData };
-        });
-        setInvoices(invoicesData);
-      } catch (err) {
-        console.error("Error fetching invoices: ", err);
-        setError("No se pudieron cargar las facturas. Intenta de nuevo más tarde.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchInvoices();
-  }, []);
+  }, [fetchInvoices]);
+
+  const handleDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, "invoices", invoiceToDelete.id));
+      toast({
+        title: "Factura Eliminada",
+        description: `La factura con ID ${invoiceToDelete.id.substring(0,8).toUpperCase()} ha sido eliminada.`,
+      });
+      setInvoices(prevInvoices => prevInvoices.filter(inv => inv.id !== invoiceToDelete.id));
+      setInvoiceToDelete(null);
+    } catch (error) {
+      console.error("Error eliminando factura: ", error);
+      toast({
+        title: "Error al Eliminar",
+        description: "No se pudo eliminar la factura. Inténtalo de nuevo.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -95,6 +132,7 @@ export default function BillingPage() {
         <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md">
           <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
+           <Button variant="link" onClick={fetchInvoices} className="mt-2">Reintentar Carga</Button>
         </div>
       )}
       
@@ -127,8 +165,13 @@ export default function BillingPage() {
                     <Button variant="ghost" size="icon" className="hover:text-primary" title="Ver Factura" disabled>
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-yellow-500" title="Editar Factura" disabled>
-                      <Edit2 className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="hover:text-yellow-500" title="Editar Factura" asChild>
+                      <Link href={`/billing/${invoice.id}/edit`}>
+                        <Edit2 className="h-4 w-4 text-yellow-600" />
+                      </Link>
+                    </Button>
+                     <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)}>
+                      <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
                     <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled>
                       <Download className="h-4 w-4" />
@@ -150,6 +193,28 @@ export default function BillingPage() {
           </Button>
         </div>
       )}
+
+      <AlertDialog open={!!invoiceToDelete} onOpenChange={(open) => !open && setInvoiceToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Estás seguro de eliminar esta factura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará permanentemente la factura con ID {invoiceToDelete?.id.substring(0,8).toUpperCase()}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting} onClick={() => setInvoiceToDelete(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteInvoice} 
+              disabled={isDeleting} 
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              {isDeleting ? "Eliminando..." : "Sí, eliminar factura"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
