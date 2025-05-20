@@ -7,7 +7,9 @@ import {
   Receipt,
   Lightbulb,
   Settings,
-  // LifeBuoy // Removed as Support page is deleted
+  Building2, // Icono para Agency
+  Hospital, // Icono para Clinic
+  AreaChart, // Icono para Dashboard específico
 } from "lucide-react";
 
 export type NavItem = {
@@ -17,6 +19,7 @@ export type NavItem = {
   tooltip?: string;
   subItems?: NavItem[];
   active?: boolean;
+  isSectionTitle?: boolean; // Para los nuevos títulos de sección
 };
 
 export const navItems: NavItem[] = [
@@ -25,24 +28,28 @@ export const navItems: NavItem[] = [
   { href: "/tasks", label: "Tareas", icon: ListChecks, tooltip: "Seguimiento de Tareas" },
   { href: "/billing", label: "Facturación", icon: Receipt, tooltip: "Facturas y Pagos" },
   { href: "/content-suggestions", label: "Sugerencias IA", icon: Lightbulb, tooltip: "Ideas de Contenido" },
+  // Nuevas Secciones
+  { isSectionTitle: true, label: "Módulos Adicionales", icon: Building2 }, // Placeholder icon
+  { href: "/medi-clicks-agency", label: "Medi Clicks Agency", icon: Building2, tooltip: "Gestión de Agencia" },
+  { href: "/medi-clinic", label: "Medi Clinic", icon: Hospital, tooltip: "Gestión de Clínica" },
+  { href: "/medi-clicks-dashboard", label: "Medi Clicks Dashboard", icon: AreaChart, tooltip: "Dashboard Específico" },
 ];
 
 export const bottomNavItems: NavItem[] = [
   { href: "/settings", label: "Configuración", icon: Settings, tooltip: "Ajustes de la App" },
-  // { href: "/support", label: "Soporte", icon: LifeBuoy, tooltip: "Ayuda y Soporte" }, // Removed
 ];
 
 export const AppLogo = ({ collapsed }: { collapsed?: boolean }) => (
   <div className="flex items-center gap-2 px-2 py-1">
-    {/* Assuming logo-mediclicks.png is in public/images/ */}
     <Image 
       src="/images/logo-mediclicks.png" 
       alt="MediClicks Hub Logo" 
-      width={collapsed ? 32 : 32} // Adjust size as needed
-      height={collapsed ? 32 : 32} // Adjust size as needed
+      width={collapsed ? 32 : 32} 
+      height={collapsed ? 32 : 32} 
       className="object-contain"
       data-ai-hint="company logo"
     />
     {!collapsed && <span className="text-xl font-semibold text-sidebar-foreground">MediClicks Hub</span>}
   </div>
 );
+
