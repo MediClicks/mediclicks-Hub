@@ -10,10 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail, Download } from 'lucide-react';
+import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { PDFDownloadLink } from '@react-pdf/renderer';
-import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
 
 type InvoiceWithConvertedDates = WithConvertedDates<Invoice>;
 type ClientWithConvertedDates = WithConvertedDates<Client>;
@@ -48,10 +46,8 @@ export default function ViewInvoicePage() {
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isClient, setIsClient] = useState(false); // For client-side only rendering of PDFLink
 
   useEffect(() => {
-    setIsClient(true); // Ensures PDFDownloadLink only renders on client
     const fetchInvoiceData = async () => {
       if (!invoiceId) {
         setError("ID de factura no válido.");
@@ -71,10 +67,10 @@ export default function ViewInvoicePage() {
           return;
         }
         
-        const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>; // Data from Firestore document
+        const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>;
         const invoiceDataWithCorrectId: Invoice = {
-          ...firestoreData, // Spread the document data first
-          id: invoiceSnap.id, // Ensure the actual document ID overwrites any 'id' field from firestoreData
+          ...firestoreData, 
+          id: invoiceSnap.id, 
         };
         const fetchedInvoice = convertTimestampsToDates(invoiceDataWithCorrectId);
         setInvoice(fetchedInvoice ?? null);
@@ -155,7 +151,7 @@ export default function ViewInvoicePage() {
     );
   }
 
-  if (!invoice) { // This check should catch if fetchedInvoice was null
+  if (!invoice) { 
     return (
          <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] text-center">
             <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
@@ -168,7 +164,6 @@ export default function ViewInvoicePage() {
     );
   }
   
-  // Defensive check for invoice.id just before rendering
   const displayInvoiceId = invoice.id ? String(invoice.id).substring(0,10).toUpperCase() : 'ID N/A';
 
   const subtotal = Array.isArray(invoice.items) ? invoice.items.reduce((sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0), 0) : 0;
@@ -292,19 +287,7 @@ export default function ViewInvoicePage() {
               <Button onClick={handlePrint} variant="outline">
                 <Printer className="mr-2 h-4 w-4" /> Imprimir
               </Button>
-              {isClient && invoice && client && agencyDetails && (
-                <PDFDownloadLink
-                  document={<InvoicePdfDocument invoice={invoice} client={client} agencyDetails={agencyDetails} />}
-                  fileName={`Factura-${displayInvoiceId}.pdf`}
-                >
-                  {({ loading }) => (
-                    <Button disabled={loading}>
-                      {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                      Descargar PDF
-                    </Button>
-                  )}
-                </PDFDownloadLink>
-              )}
+              {/* PDF Download functionality removed */}
             </div>
           </div>
         </CardFooter>
