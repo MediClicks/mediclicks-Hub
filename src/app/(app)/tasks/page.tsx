@@ -21,6 +21,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -37,6 +39,7 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
 import type { Task, TaskStatus, TaskPriority, WithConvertedDates } from '@/types';
 import { cn } from '@/lib/utils';
+import { isPast, isToday, isTomorrow, startOfDay } from 'date-fns';
 
 const statusColors: Record<TaskStatus, string> = {
   Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600 text-white",
@@ -101,7 +104,7 @@ export default function TasksPage() {
       setTasks(tasksData);
     } catch (err: any) {
       console.error("Error fetching tasks: ", err);
-      if (err.message && err.message.includes("index")) {
+      if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
         setError(`Se requiere un índice de Firestore para esta consulta. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
       } else {
         setError("No se pudieron cargar las tareas. Intenta de nuevo más tarde.");
@@ -125,7 +128,6 @@ export default function TasksPage() {
         description: `La tarea "${taskToDelete.name}" ha sido eliminada correctamente.`,
       });
       setTasks(prevTasks => prevTasks.filter(task => task.id !== taskToDelete.id));
-      setTaskToDelete(null);
     } catch (error) {
       console.error("Error eliminando tarea: ", error);
       toast({
@@ -135,6 +137,7 @@ export default function TasksPage() {
       });
     } finally {
       setIsDeleting(false);
+      setTaskToDelete(null); 
     }
   };
 
@@ -179,21 +182,12 @@ export default function TasksPage() {
             <DropdownMenuContent className="w-56">
               <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={statusFilter === ALL_FILTER_VALUE}
-                onCheckedChange={() => setStatusFilter(ALL_FILTER_VALUE)}
-              >
-                Todas
-              </DropdownMenuCheckboxItem>
-              {taskStatusesForFilter.map(status => (
-                <DropdownMenuCheckboxItem
-                  key={status}
-                  checked={statusFilter === status}
-                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_FILTER_VALUE : status)}
-                >
-                  {status}
-                </DropdownMenuCheckboxItem>
-              ))}
+              <DropdownMenuRadioGroup value={statusFilter} onValueChange={setStatusFilter}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
+                {taskStatusesForFilter.map(status => (
+                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -207,21 +201,12 @@ export default function TasksPage() {
             <DropdownMenuContent className="w-56">
               <DropdownMenuLabel>Seleccionar Prioridad</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={priorityFilter === ALL_FILTER_VALUE}
-                onCheckedChange={() => setPriorityFilter(ALL_FILTER_VALUE)}
-              >
-                Todas
-              </DropdownMenuCheckboxItem>
-              {taskPrioritiesForFilter.map(priority => (
-                <DropdownMenuCheckboxItem
-                  key={priority}
-                  checked={priorityFilter === priority}
-                  onCheckedChange={() => setPriorityFilter(priorityFilter === priority ? ALL_FILTER_VALUE : priority)}
-                >
-                  {priority}
-                </DropdownMenuCheckboxItem>
-              ))}
+               <DropdownMenuRadioGroup value={priorityFilter} onValueChange={setPriorityFilter}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
+                {taskPrioritiesForFilter.map(priority => (
+                  <DropdownMenuRadioItem key={priority} value={priority}>{priority}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -263,34 +248,57 @@ export default function TasksPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tasks.map(task => (
-                <TableRow key={task.id} className="hover:bg-muted/50">
-                  <TableCell className="font-medium">
-                    <Link href={`/tasks/${task.id}/edit`} className="hover:underline text-primary">
-                      {task.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{task.assignedTo}</TableCell>
-                  <TableCell>{task.clientName || 'N/A'}</TableCell>
-                  <TableCell>{task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
-                  <TableCell>
-                    <Badge className={cn("border text-xs", priorityColors[task.priority])}>{task.priority}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={cn("border text-xs", statusColors[task.status])}>{task.status}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button variant="ghost" size="icon" className="hover:text-primary" title="Editar Tarea" asChild>
-                      <Link href={`/tasks/${task.id}/edit`}>
-                        <Edit2 className="h-4 w-4 text-yellow-600" />
+              {tasks.map(task => {
+                const today = startOfDay(new Date());
+                const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
+                const isTaskOverdue = dueDate && isPast(dueDate) && task.status !== 'Completada';
+                const isTaskDueSoon = dueDate && (isToday(dueDate) || isTomorrow(dueDate)) && task.status !== 'Completada';
+                
+                return (
+                  <TableRow 
+                    key={task.id} 
+                    className={cn(
+                      "hover:bg-muted/50",
+                      isTaskOverdue && "bg-red-100 dark:bg-red-900/30 hover:bg-red-200/70 dark:hover:bg-red-800/50",
+                      isTaskDueSoon && !isTaskOverdue && "bg-amber-100 dark:bg-amber-900/30 hover:bg-amber-200/70 dark:hover:bg-amber-800/50"
+                    )}
+                  >
+                    <TableCell className="font-medium">
+                      <Link href={`/tasks/${task.id}/edit`} className="hover:underline text-primary flex items-center">
+                        {isTaskOverdue && <AlertTriangle className="h-4 w-4 mr-2 text-red-600 shrink-0" />}
+                        {isTaskDueSoon && !isTaskOverdue && <Clock className="h-4 w-4 mr-2 text-amber-600 shrink-0" />}
+                        {task.name}
                       </Link>
-                    </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Tarea" onClick={() => setTaskToDelete(task)} disabled={isDeleting}>
-                      <Trash2 className="h-4 w-4 text-red-600" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    <TableCell>{task.assignedTo}</TableCell>
+                    <TableCell>{task.clientName || 'N/A'}</TableCell>
+                    <TableCell>{task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
+                    <TableCell>
+                      <Badge className={cn("border text-xs", priorityColors[task.priority])}>{task.priority}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={cn("border text-xs", statusColors[task.status])}>{task.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right space-x-1">
+                      <Button variant="ghost" size="icon" className="hover:text-primary" title="Editar Tarea" asChild>
+                        <Link href={`/tasks/${task.id}/edit`}>
+                          <Edit2 className="h-4 w-4 text-yellow-600" />
+                        </Link>
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="hover:text-destructive" 
+                        title="Eliminar Tarea" 
+                        onClick={() => setTaskToDelete(task)} 
+                        disabled={isDeleting}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
