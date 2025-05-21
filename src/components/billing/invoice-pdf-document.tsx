@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 // Disabling TypeScript check for this file due to @react-pdf/renderer type complexities
 // Consider enabling it if types become more stable or are strictly needed.
@@ -9,9 +8,9 @@ import { Page, Text, View, Document, StyleSheet } from '@react-pdf/renderer';
 import type { Invoice, Client, WithConvertedDates, AgencyDetails, InvoiceItem } from '@/types';
 
 interface InvoicePdfDocumentProps {
-  invoice: WithConvertedDates<Invoice>;
-  client: WithConvertedDates<Client>;
-  agencyDetails: AgencyDetails;
+  invoice?: WithConvertedDates<Invoice> | null;
+  client?: WithConvertedDates<Client> | null;
+  agencyDetails?: AgencyDetails | null;
 }
 
 const styles = StyleSheet.create({
@@ -186,10 +185,7 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
     if (!dateInput) return 'N/A';
     try {
       const date = new Date(dateInput);
-      // Check if date is valid
-      if (isNaN(date.getTime())) {
-        return 'Fecha Inválida';
-      }
+      if (isNaN(date.getTime())) return 'Fecha Inválida';
       return date.toLocaleDateString('es-ES');
     } catch (e) {
       return 'Fecha Inválida';
@@ -197,17 +193,23 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
   };
 
   const formatCurrency = (amount: number | undefined | null): string => {
-    if (typeof amount !== 'number' || isNaN(amount)) return formatCurrency(0); // Default to 0 if invalid
-    return amount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' });
+    const numAmount = Number(amount);
+    if (typeof numAmount !== 'number' || isNaN(numAmount) || !Number.isFinite(numAmount)) return (0).toLocaleString('es-ES', { style: 'currency', currency: 'USD' });
+    return numAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' });
   };
 
   const safeInvoiceItems = Array.isArray(invoice?.items) ? invoice.items : [];
   const subtotal = safeInvoiceItems.reduce((sum, item) => {
-    const quantity = typeof item?.quantity === 'number' ? item.quantity : 0;
-    const unitPrice = typeof item?.unitPrice === 'number' ? item.unitPrice : 0;
-    return sum + quantity * unitPrice;
+    const quantity = Number(item?.quantity);
+    const unitPrice = Number(item?.unitPrice);
+    const validQuantity = Number.isFinite(quantity) ? quantity : 0;
+    const validUnitPrice = Number.isFinite(unitPrice) ? unitPrice : 0;
+    return sum + validQuantity * validUnitPrice;
   }, 0);
-  const taxAmount = 0; // Assuming 0 tax for now
+  const taxAmount = 0; 
+  const totalAmount = Number(invoice?.totalAmount);
+  const validTotalAmount = Number.isFinite(totalAmount) ? totalAmount : 0;
+
 
   return (
     <Document title={`Factura ${invoice?.id?.substring(0,8).toUpperCase() || 'SIN_ID'}`}>
@@ -219,10 +221,10 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
             <Text style={styles.invoiceId}>ID: {invoice?.id?.substring(0,10).toUpperCase() || 'N/A'}</Text>
           </View>
           <View style={styles.headerRight}>
-            <Text style={styles.agencyName}>{agencyDetails?.agencyName || "Nombre de Agencia"}</Text>
-            <Text style={styles.smallText}>{agencyDetails?.address || "Dirección de Agencia"}</Text>
-            <Text style={styles.smallText}>{agencyDetails?.taxId || "NIF/CIF Agencia"}</Text>
-            <Text style={styles.smallText}>{agencyDetails?.contactEmail || "Email Agencia"}</Text>
+            <Text style={styles.agencyName}>{agencyDetails?.agencyName || "Nombre de Agencia N/A"}</Text>
+            <Text style={styles.smallText}>{agencyDetails?.address || "Dirección N/A"}</Text>
+            <Text style={styles.smallText}>{agencyDetails?.taxId || "NIF/CIF N/A"}</Text>
+            <Text style={styles.smallText}>{agencyDetails?.contactEmail || "Email N/A"}</Text>
             {agencyDetails?.contactPhone && <Text style={styles.smallText}>Tel: {agencyDetails.contactPhone}</Text>}
             {agencyDetails?.website && <Text style={styles.smallText}>{agencyDetails.website}</Text>}
           </View>
@@ -232,16 +234,10 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
         <View style={styles.grid}>
           <View style={styles.gridColumn}>
             <Text style={styles.sectionTitle}>Facturar a:</Text>
-            {client ? (
-              <>
-                <Text style={{ fontWeight: 'bold', fontSize: 11, marginBottom: 2 }}>{client.name || 'Nombre Cliente N/A'}</Text>
-                {client.clinica && <Text style={styles.smallText}>{client.clinica}</Text>}
-                <Text style={styles.smallText}>{client.email || 'Email N/A'}</Text>
-                {client.telefono && <Text style={styles.smallText}>Tel: {client.telefono}</Text>}
-              </>
-            ) : (
-              <Text style={styles.smallText}>Información del cliente no disponible.</Text>
-            )}
+            <Text style={{ fontWeight: 'bold', fontSize: 11, marginBottom: 2 }}>{client?.name || 'Cliente N/A'}</Text>
+            {client?.clinica && <Text style={styles.smallText}>{client.clinica}</Text>}
+            <Text style={styles.smallText}>{client?.email || 'Email N/A'}</Text>
+            {client?.telefono && <Text style={styles.smallText}>Tel: {client.telefono}</Text>}
           </View>
           <View style={styles.gridColumn}>
             <Text style={styles.sectionTitle}>Detalles de la Factura:</Text>
@@ -270,15 +266,18 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
               <Text style={[styles.tableColHeader, styles.tableColPrice]}>P. Unit.</Text>
               <Text style={[styles.tableColHeader, styles.tableColTotal]}>Total</Text>
             </View>
-            {safeInvoiceItems.map((item: InvoiceItem, index: number) => {
-              const quantity = typeof item?.quantity === 'number' ? item.quantity : 0;
-              const unitPrice = typeof item?.unitPrice === 'number' ? item.unitPrice : 0;
-              const itemTotal = quantity * unitPrice;
+            {safeInvoiceItems.map((item: InvoiceItem | null | undefined, index: number) => {
+              const description = String(item?.description || 'Descripción N/A');
+              const quantity = Number(item?.quantity);
+              const unitPrice = Number(item?.unitPrice);
+              const validQuantity = Number.isFinite(quantity) ? quantity : 0;
+              const validUnitPrice = Number.isFinite(unitPrice) ? unitPrice : 0;
+              const itemTotal = validQuantity * validUnitPrice;
               return (
-                <View key={item?.id || `item-${index}`} style={styles.tableRow}>
-                  <Text style={[styles.tableCol, styles.tableColDesc]}>{item?.description || 'Descripción N/A'}</Text>
-                  <Text style={[styles.tableCol, styles.tableColQty]}>{quantity}</Text>
-                  <Text style={[styles.tableCol, styles.tableColPrice]}>{formatCurrency(unitPrice)}</Text>
+                <View key={item?.id || `item-pdf-${index}`} style={styles.tableRow}>
+                  <Text style={[styles.tableCol, styles.tableColDesc]}>{description}</Text>
+                  <Text style={[styles.tableCol, styles.tableColQty]}>{validQuantity}</Text>
+                  <Text style={[styles.tableCol, styles.tableColPrice]}>{formatCurrency(validUnitPrice)}</Text>
                   <Text style={[styles.tableCol, styles.tableColTotal]}>{formatCurrency(itemTotal)}</Text>
                 </View>
               );
@@ -304,7 +303,7 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
             </View>
             <View style={[styles.totalRow, { borderTopWidth: 1, borderTopColor: '#cccccc', paddingTop: 5, marginTop: 5 }]}>
               <Text style={styles.grandTotalLabel}>TOTAL:</Text>
-              <Text style={styles.grandTotalValue}>{formatCurrency(invoice?.totalAmount)}</Text>
+              <Text style={styles.grandTotalValue}>{formatCurrency(validTotalAmount)}</Text>
             </View>
           </View>
         </View>
@@ -327,4 +326,3 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
 };
 
 export default InvoicePdfDocument;
-
