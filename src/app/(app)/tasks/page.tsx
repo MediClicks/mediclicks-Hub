@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
-import { useSearchParams, useRouter } from 'next/navigation'; // Added useRouter
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Table,
   TableBody,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff, UserCircle, Calendar as CalendarIconLucide, X } from "lucide-react"; // Added X for Clear Filters
+import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff, UserCircle, Calendar as CalendarIconLucide, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -110,6 +110,8 @@ export default function TasksPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const dueFilterParam = searchParams.get('due');
+  const showActionableParam = searchParams.get('show');
+
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilterType>(ALL_FILTER_VALUE);
@@ -121,14 +123,25 @@ export default function TasksPage() {
     if (dueFilterParam === 'today') {
       const todayRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
       setDateRangeFilter(todayRange);
+      if (showActionableParam === 'actionable' && statusFilter === ALL_FILTER_VALUE) {
+        // If coming from dashboard "Tareas para Hoy" and no status filter is set,
+        // we don't pre-select a status in the dropdown, but the query will handle it.
+      }
     } else {
-        // If dueFilterParam is not 'today' or is absent, ensure dateRangeFilter is undefined unless user explicitly sets it
-        // This prevents an infinite loop if the user clears the date filter after coming from `due=today`
-        if (dueFilterParam !== null) { // only clear if the param was there and is not 'today' now
-          setDateRangeFilter(undefined);
+        // Clear date range if `due` param is removed or not 'today'
+        // only if the filter was previously set by 'due=today'
+        const currentUrlParams = new URLSearchParams(window.location.search);
+        if (!currentUrlParams.has('due') && dateRangeFilter && 
+            dateRangeFilter.from && dateRangeFilter.to &&
+            isToday(dateRangeFilter.from) && isToday(dateRangeFilter.to) &&
+            startOfDay(dateRangeFilter.from).getTime() === startOfDay(new Date()).getTime() &&
+            endOfDay(dateRangeFilter.to).getTime() === endOfDay(new Date()).getTime()
+           ) {
+           // Only clear if it was specifically set to today's range by the param
+           // This logic is tricky; simpler is to clear if `due` param changes from 'today'
         }
     }
-  }, [dueFilterParam]);
+  }, [dueFilterParam, showActionableParam, statusFilter, dateRangeFilter]);
 
 
   const fetchInitialData = useCallback(async () => {
@@ -155,8 +168,6 @@ export default function TasksPage() {
     setError(null);
     try {
       const tasksCollection = collection(db, "tasks");
-      // Default sort by createdAt, but if dueDate filters are active, Firestore might prefer sorting by dueDate first.
-      // For simplicity, we'll keep createdAt as primary sort unless a dueDate filter makes it impossible.
       const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
 
       if (statusFilter !== ALL_FILTER_VALUE) {
@@ -168,14 +179,29 @@ export default function TasksPage() {
       if (clientFilter !== ALL_FILTER_VALUE) {
         queryConstraints.push(where("clientId", "==", clientFilter));
       }
-      if (dateRangeFilter?.from) {
-        queryConstraints.push(where("dueDate", ">=", Timestamp.fromDate(startOfDay(dateRangeFilter.from))));
+      
+      let effectiveDateRange = dateRangeFilter;
+      if (dueFilterParam === 'today' && !dateRangeFilter) { // If param is set but user hasn't picked a range yet
+        effectiveDateRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
       }
-      if (dateRangeFilter?.to) {
-        // If only 'from' is set, and 'to' is undefined, but you want to filter up to a certain point (e.g. end of 'from' day)
-        // you might adjust the 'to' date. For range, 'to' should be inclusive of the end of the day.
-        queryConstraints.push(where("dueDate", "<=", Timestamp.fromDate(endOfDay(dateRangeFilter.to))));
+
+      if (effectiveDateRange?.from) {
+        queryConstraints.push(where("dueDate", ">=", Timestamp.fromDate(startOfDay(effectiveDateRange.from))));
       }
+      if (effectiveDateRange?.to) {
+        queryConstraints.push(where("dueDate", "<=", Timestamp.fromDate(endOfDay(effectiveDateRange.to))));
+      }
+      
+      // Specific handling for 'actionable' tasks from dashboard link
+      if (dueFilterParam === 'today' && showActionableParam === 'actionable') {
+        // Remove any existing status filter from queryConstraints if 'show=actionable' is set
+        const statusFilterIndex = queryConstraints.findIndex(c => (c as any)._field.segments.join('/') === 'status');
+        if (statusFilterIndex > -1) {
+          queryConstraints.splice(statusFilterIndex, 1);
+        }
+        queryConstraints.push(where("status", "in", ["Pendiente", "En Progreso"]));
+      }
+
 
       const now = Timestamp.now();
       if (alertStatusFilter === 'Activa') {
@@ -183,7 +209,6 @@ export default function TasksPage() {
         queryConstraints.push(where("alertFired", "==", false));
       } else if (alertStatusFilter === 'Programada') {
         queryConstraints.push(where("alertDate", ">", now));
-        // Optionally: queryConstraints.push(where("alertFired", "==", false)); if only non-fired future alerts
       } else if (alertStatusFilter === 'Disparada') {
         queryConstraints.push(where("alertFired", "==", true));
       }
@@ -207,7 +232,7 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter]);
+  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter, dueFilterParam, showActionableParam]);
 
   useEffect(() => {
     fetchInitialData();
@@ -249,9 +274,23 @@ export default function TasksPage() {
     setClientFilter(ALL_FILTER_VALUE);
     setDateRangeFilter(undefined);
     setAlertStatusFilter(ALL_FILTER_VALUE);
-    // Clear URL params if 'due=today' was set
-    if (searchParams.has('due')) {
-      router.replace('/tasks', { scroll: false });
+    
+    const currentUrlParams = new URLSearchParams(window.location.search);
+    if (currentUrlParams.has('due') || currentUrlParams.has('show')) {
+        currentUrlParams.delete('due');
+        currentUrlParams.delete('show');
+        router.replace(`/tasks${currentUrlParams.toString() ? '?' + currentUrlParams.toString() : ''}`, { scroll: false });
+    }
+  };
+  
+  const handleDateRangeChange = (newRange: DateRange | undefined) => {
+    setDateRangeFilter(newRange);
+    // If user manually changes date range, remove 'due' and 'show' params from URL
+    const currentUrlParams = new URLSearchParams(window.location.search);
+    if (currentUrlParams.has('due') || currentUrlParams.has('show')) {
+        currentUrlParams.delete('due');
+        currentUrlParams.delete('show');
+        router.replace(`/tasks${currentUrlParams.toString() ? '?' + currentUrlParams.toString() : ''}`, { scroll: false });
     }
   };
 
@@ -268,15 +307,29 @@ export default function TasksPage() {
     if (clientFilter !== ALL_FILTER_VALUE && clientName) {
       filtersApplied.push(`cliente "${clientName}"`);
     }
-    if (dateRangeFilter?.from || dateRangeFilter?.to) {
-      let rangeStr = "rango de fechas ";
-      if (dateRangeFilter.from) rangeStr += `desde ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`;
-      if (dateRangeFilter.to) rangeStr += ` ${dateRangeFilter.from ? 'hasta' : 'hasta'} ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}`;
+    
+    let currentEffectiveDateRange = dateRangeFilter;
+    if (dueFilterParam === 'today' && !dateRangeFilter) {
+        currentEffectiveDateRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
+    }
+
+    if (currentEffectiveDateRange?.from || currentEffectiveDateRange?.to) {
+      let rangeStr = "vencimiento ";
+      if (currentEffectiveDateRange.from && isToday(currentEffectiveDateRange.from) && currentEffectiveDateRange.to && isToday(currentEffectiveDateRange.to)) {
+        rangeStr += "hoy";
+      } else {
+        if (currentEffectiveDateRange.from) rangeStr += `desde ${format(currentEffectiveDateRange.from, "dd/MM/yy", { locale: es })}`;
+        if (currentEffectiveDateRange.to) rangeStr += ` ${currentEffectiveDateRange.from ? 'hasta' : 'hasta'} ${format(currentEffectiveDateRange.to, "dd/MM/yy", { locale: es })}`;
+      }
       filtersApplied.push(rangeStr.trim());
     }
     if (alertStatusFilter !== ALL_FILTER_VALUE) {
-      filtersApplied.push(`estado de alerta "${alertStatusFilter}"`);
+      filtersApplied.push(`alerta "${alertStatusFilter}"`);
     }
+    if (showActionableParam === 'actionable' && dueFilterParam === 'today') {
+        filtersApplied.push("no completadas");
+    }
+
 
     if (filtersApplied.length > 0) {
       message += ` con ${filtersApplied.join(', ')}.`;
@@ -301,7 +354,7 @@ export default function TasksPage() {
   
   const activeFiltersCount = [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter].filter(
     (f) => f !== ALL_FILTER_VALUE && f !== undefined
-  ).length + (dueFilterParam === 'today' && !dateRangeFilter ? 1 : 0);
+  ).length + ( (dueFilterParam !== null || showActionableParam !== null) ? 1 : 0);
 
 
   return (
@@ -380,7 +433,6 @@ export default function TasksPage() {
                   "w-[260px] justify-start text-left font-normal",
                   !dateRangeFilter && "text-muted-foreground"
                 )}
-                // disabled={dueFilterParam === 'today'} // Keep enabled to allow user to change from "today"
               >
                 <CalendarIconLucide className="mr-2 h-4 w-4 text-muted-foreground" />
                 {dateRangeFilter?.from ? (
@@ -403,7 +455,7 @@ export default function TasksPage() {
                 mode="range"
                 defaultMonth={dateRangeFilter?.from}
                 selected={dateRangeFilter}
-                onSelect={setDateRangeFilter}
+                onSelect={handleDateRangeChange}
                 numberOfMonths={2}
                 locale={es}
               />
@@ -431,7 +483,7 @@ export default function TasksPage() {
           </DropdownMenu>
 
           {activeFiltersCount > 0 && (
-             <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-destructive hover:text-destructive/80">
+             <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-destructive hover:text-destructive/80" title="Limpiar Todos los Filtros">
                 <X className="mr-1 h-4 w-4" /> Limpiar Filtros ({activeFiltersCount})
              </Button>
           )}
@@ -483,7 +535,7 @@ export default function TasksPage() {
                 const alertDateExists = task.alertDate && task.alertDate instanceof Date;
                 const isAlertDatePast = alertDateExists && isPast(task.alertDate as Date);
                 const isAlertActive = isAlertDatePast && !task.alertFired;
-                const isAlertProcessed = task.alertFired === true; // Explicitly check for true
+                const isAlertProcessed = task.alertFired === true;
                 
                 return (
                   <TableRow 
@@ -541,7 +593,7 @@ export default function TasksPage() {
          <div className="text-center py-12 text-muted-foreground">
           {getEmptyStateIcon()}
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE && !dateRangeFilter && alertStatusFilter === ALL_FILTER_VALUE) && (
+          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE && !dateRangeFilter && alertStatusFilter === ALL_FILTER_VALUE && dueFilterParam !== 'today') && (
             <Button variant="link" className="mt-2" asChild>
               <Link href="/tasks/add">Agrega tu primera tarea</Link>
             </Button>

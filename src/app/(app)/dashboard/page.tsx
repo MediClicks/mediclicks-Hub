@@ -4,7 +4,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
@@ -13,13 +13,14 @@ import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Clie
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
-import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { format, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface DashboardStats {
   totalClients: number;
   tasksInProgress: number;
   pendingTasks: number;
+  tasksForToday: number;
   revenueThisMonth: string;
 }
 
@@ -35,10 +36,12 @@ interface RecentActivityItem {
 
 interface UpcomingItem {
   id: string;
-  name: string; 
+  name: string;
   dueDateFormatted: string;
   type: 'task' | 'invoice';
   href: string;
+  alertDate?: Date | null;
+  alertFired?: boolean;
 }
 
 interface MonthlyRevenueChartData {
@@ -52,24 +55,29 @@ interface TaskStatusChartData {
   fill: string;
 }
 
+// Enhanced recursive converter
 function convertFirestoreTimestamps<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
   if (!data) return undefined;
-  const convertedData = { ...data } as any;
+  const convertedData = { ...data } as any; // Use 'any' for intermediate object to allow flexible property assignment
   for (const key in convertedData) {
-    if (convertedData[key] instanceof Timestamp) {
-      convertedData[key] = convertedData[key].toDate();
-    } else if (Array.isArray(convertedData[key])) {
-      convertedData[key] = convertedData[key].map((item: any) =>
-        typeof item === 'object' && item !== null && !(item instanceof Date)
-          ? convertFirestoreTimestamps(item)
-          : item
-      );
-    } else if (typeof convertedData[key] === 'object' && convertedData[key] !== null && !(convertedData[key] instanceof Date) ) {
-      convertedData[key] = convertFirestoreTimestamps(convertedData[key]);
+    if (Object.prototype.hasOwnProperty.call(convertedData, key)) {
+      const value = convertedData[key];
+      if (value instanceof Timestamp) {
+        convertedData[key] = value.toDate();
+      } else if (Array.isArray(value)) {
+        convertedData[key] = value.map((item: any) =>
+          typeof item === 'object' && item !== null && !(item instanceof Date)
+            ? convertFirestoreTimestamps(item) // Recursively convert objects in arrays
+            : item
+        );
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+        convertedData[key] = convertFirestoreTimestamps(value); // Recursively convert nested objects
+      }
     }
   }
   return convertedData as WithConvertedDates<T>;
 }
+
 
 const taskStatusColors: Record<TaskStatus, string> = {
   Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600 text-white",
@@ -123,10 +131,14 @@ export default function DashboardPage() {
       setError(null);
       try {
         const now = new Date();
+        const todayStart = startOfDay(now);
+        const todayEnd = endOfDay(now);
 
+        // Total Clients
         const clientsSnapshot = await getCountFromServer(collection(db, "clients"));
         const totalClients = clientsSnapshot.data().count;
 
+        // Task Status counts for chart and summary cards
         const tasksCollectionRef = collection(db, "tasks");
         const tasksInProgressSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "En Progreso")));
         const tasksInProgress = tasksInProgressSnapshot.data().count;
@@ -143,6 +155,16 @@ export default function DashboardPage() {
           { status: "Completada", count: completedTasks, fill: chartColors.completed },
         ]);
 
+        // Tasks for Today
+        const tasksForTodayQuery = query(tasksCollectionRef, 
+          where("dueDate", ">=", Timestamp.fromDate(todayStart)),
+          where("dueDate", "<=", Timestamp.fromDate(todayEnd)),
+          where("status", "in", ["Pendiente", "En Progreso"])
+        );
+        const tasksForTodaySnap = await getCountFromServer(tasksForTodayQuery);
+        const tasksForToday = tasksForTodaySnap.data().count;
+
+        // Revenue This Month
         const invoicesCollectionRef = collection(db, "invoices");
         const currentMonthStart = startOfMonth(now);
         const currentMonthEnd = endOfMonth(now);
@@ -163,9 +185,11 @@ export default function DashboardPage() {
           totalClients,
           tasksInProgress,
           pendingTasks,
+          tasksForToday,
           revenueThisMonth: revenueThisMonthAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })
         });
 
+        // Revenue Last 6 Months Chart Data
         const revenueByMonth: Record<string, number> = {};
         const sixMonthsAgo = startOfMonth(subMonths(now, 5)); 
 
@@ -175,8 +199,8 @@ export default function DashboardPage() {
         );
         const allPaidInvoicesSnap = await getDocs(allPaidInvoicesQuery);
 
-        allPaidInvoicesSnap.docs.forEach(doc => {
-          const invoiceData = doc.data() as Invoice;
+        allPaidInvoicesSnap.docs.forEach(docSnap => {
+          const invoiceData = docSnap.data() as Invoice;
           const invoice = convertFirestoreTimestamps(invoiceData);
           if (invoice?.issuedDate) {
             const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
@@ -195,6 +219,7 @@ export default function DashboardPage() {
         }
         setMonthlyRevenueData(formattedRevenueData);
 
+        // Recent Activity
         const recentTasksQuery = query(tasksCollectionRef, orderBy("createdAt", "desc"), limit(3));
         const recentInvoicesQuery = query(invoicesCollectionRef, orderBy("createdAt", "desc"), limit(2));
         
@@ -204,41 +229,40 @@ export default function DashboardPage() {
         ]);
 
         const fetchedRecentActivity: RecentActivityItem[] = [];
-        recentTasksSnap.docs.forEach(doc => {
-          const taskData = doc.data() as Task;
-          const task = convertFirestoreTimestamps(taskData);
+        recentTasksSnap.docs.forEach(docSnap => {
+          const task = convertFirestoreTimestamps(docSnap.data() as Task);
           if (task && task.createdAt) {
             fetchedRecentActivity.push({ 
-              id: doc.id, type: 'task', name: task.name || "Tarea sin nombre", 
+              id: docSnap.id, type: 'task', name: task.name || "Tarea sin nombre", 
               statusOrClient: task.status, date: new Date(task.createdAt), statusType: task.status,
-              href: `/tasks/${doc.id}/edit`
+              href: `/tasks/${docSnap.id}/edit`
             });
           }
         });
-        recentInvoicesSnap.docs.forEach(doc => {
-          const invoiceData = doc.data() as Invoice;
-          const invoice = convertFirestoreTimestamps(invoiceData);
+        recentInvoicesSnap.docs.forEach(docSnap => {
+          const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
           if (invoice && invoice.createdAt) {
             fetchedRecentActivity.push({ 
-              id: doc.id, type: 'invoice', name: `Factura ${doc.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
+              id: docSnap.id, type: 'invoice', name: `Factura ${docSnap.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
               statusOrClient: invoice.status, date: new Date(invoice.createdAt), statusType: invoice.status,
-              href: `/billing/${doc.id}/view`
+              href: `/billing/${docSnap.id}/view`
             });
           }
         });
         fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
         setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
-        const upcomingCutoffDate = Timestamp.fromDate(now); 
+        // Upcoming Items
+        const upcomingCutoffDateFirestore = Timestamp.fromDate(now); 
         const upcomingTasksQuery = query(tasksCollectionRef, 
           where("status", "in", ["Pendiente", "En Progreso"]), 
-          where("dueDate", ">", upcomingCutoffDate),
+          where("dueDate", ">", upcomingCutoffDateFirestore),
           orderBy("dueDate", "asc"),
           limit(3)
         );
         const upcomingInvoicesQuery = query(invoicesCollectionRef, 
           where("status", "==", "No Pagada"), 
-          where("dueDate", ">", upcomingCutoffDate),
+          where("dueDate", ">", upcomingCutoffDateFirestore),
           orderBy("dueDate", "asc"),
           limit(2)
         );
@@ -249,35 +273,34 @@ export default function DashboardPage() {
         ]);
         
         const fetchedUpcomingItems: UpcomingItem[] = [];
-        upcomingTasksSnap.docs.forEach(doc => {
-          const taskData = doc.data() as Task;
-          const task = convertFirestoreTimestamps(taskData);
+        upcomingTasksSnap.docs.forEach(docSnap => {
+          const task = convertFirestoreTimestamps(docSnap.data() as Task);
           if (task && task.dueDate) {
             let taskDisplayName = `Tarea: ${task.name || "Tarea sin nombre"}`;
             if (task.clientName) {
               taskDisplayName += ` (Cliente: ${task.clientName})`;
             }
             fetchedUpcomingItems.push({ 
-              id: doc.id, type: 'task', name: taskDisplayName, 
+              id: docSnap.id, type: 'task', name: taskDisplayName, 
               dueDateFormatted: new Date(task.dueDate).toLocaleDateString('es-ES'),
-              href: `/tasks/${doc.id}/edit`
+              alertDate: task.alertDate,
+              alertFired: task.alertFired,
+              href: `/tasks/${docSnap.id}/edit`
             });
           }
         });
-        upcomingInvoicesSnap.docs.forEach(doc => {
-          const invoiceData = doc.data() as Invoice;
-          const invoice = convertFirestoreTimestamps(invoiceData);
+        upcomingInvoicesSnap.docs.forEach(docSnap => {
+          const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
           if (invoice && invoice.dueDate) {
             fetchedUpcomingItems.push({ 
-              id: doc.id, type: 'invoice', 
-              name: `Factura ${doc.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
+              id: docSnap.id, type: 'invoice', 
+              name: `Factura ${docSnap.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
               dueDateFormatted: new Date(invoice.dueDate).toLocaleDateString('es-ES'),
-              href: `/billing/${doc.id}/view`
+              href: `/billing/${docSnap.id}/view`
             });
           }
         });
         fetchedUpcomingItems.sort((a, b) => {
-            // Safely parse dates
             const dateAIsValid = a.dueDateFormatted && !isNaN(new Date(a.dueDateFormatted.split('/').reverse().join('-')).getTime());
             const dateBIsValid = b.dueDateFormatted && !isNaN(new Date(b.dueDateFormatted.split('/').reverse().join('-')).getTime());
 
@@ -330,7 +353,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-3xl font-bold tracking-tight">Panel Principal</h1>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <SummaryCard 
           title="Total Clientes" 
           value={stats?.totalClients ?? 0} 
@@ -354,6 +377,14 @@ export default function DashboardPage() {
           description="Tareas que requieren atención"
           className="border-amber-500"
           href="/tasks?status=Pendiente"
+        />
+         <SummaryCard 
+          title="Tareas para Hoy" 
+          value={stats?.tasksForToday ?? 0} 
+          icon={ListChecks}
+          description="Tareas no completadas que vencen hoy"
+          className="border-teal-500"
+          href="/tasks?due=today&show=actionable"
         />
         <SummaryCard 
           title="Ingresos Este Mes" 
@@ -379,13 +410,13 @@ export default function DashboardPage() {
               <ul className="space-y-3">
                 {recentActivity.map(item => (
                   <li key={item.id} className="text-sm text-muted-foreground flex justify-between items-center hover:bg-muted/50 p-2 rounded-md transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
-                        {item.type === 'task' && <ListChecks className="inline-block mr-2 h-4 w-4 text-sky-600 align-text-bottom" />}
-                        {item.type === 'invoice' && <Receipt className="inline-block mr-2 h-4 w-4 text-rose-600 align-text-bottom" />}
-                        {item.name}
-                      </Link>
-                      <span className="text-xs ml-1">({new Date(item.date).toLocaleDateString('es-ES')})</span>
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                        {item.type === 'task' && <ListChecks className="inline-block h-5 w-5 text-sky-600 shrink-0" />}
+                        {item.type === 'invoice' && <Receipt className="inline-block h-5 w-5 text-rose-600 shrink-0" />}
+                        <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
+                            {item.name}
+                        </Link>
+                        <span className="text-xs ml-1">({new Date(item.date).toLocaleDateString('es-ES')})</span>
                     </div>
                     {item.statusType && (
                        <Badge className={cn("text-white text-xs border ml-2 shrink-0", getStatusColorClass(item.statusType, item.type))}>
@@ -411,17 +442,23 @@ export default function DashboardPage() {
           <CardContent>
            {upcomingItems.length > 0 ? (
             <ul className="space-y-3">
-              {upcomingItems.map(item => (
-                <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2 hover:bg-muted/50 p-2 rounded-md transition-colors">
-                  {item.type === 'task' ? <ListChecks className="h-5 w-5 text-sky-600 shrink-0" /> : <Receipt className="h-5 w-5 text-rose-600 shrink-0" />}
-                  <div className="flex-1 min-w-0">
-                    <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
-                      {item.name}
-                    </Link>
-                    <span className="text-xs">Vence: {item.dueDateFormatted}</span>
-                  </div>
-                </li>
-              ))}
+              {upcomingItems.map(item => {
+                const isAlertActive = item.type === 'task' && item.alertDate && new Date(item.alertDate) <= new Date() && !item.alertFired;
+                return (
+                  <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2 hover:bg-muted/50 p-2 rounded-md transition-colors">
+                    {item.type === 'task' ? <ListChecks className="h-5 w-5 text-sky-600 shrink-0" /> : <Receipt className="h-5 w-5 text-rose-600 shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
+                        {item.name}
+                      </Link>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs">Vence: {item.dueDateFormatted}</span>
+                        {isAlertActive && <BellRing className="h-3 w-3 text-orange-500 shrink-0" title="Alerta Activa"/>}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-4">No hay vencimientos próximos.</p>
@@ -458,7 +495,7 @@ export default function DashboardPage() {
                     tickMargin={8}
                     tickFormatter={(value) => value.slice(0, 3)}
                   />
-                  <YAxis tickFormatter={(value) => `$${value/1000}k`} />
+                  <YAxis tickFormatter={(value) => `$${Number(value/1000).toFixed(0)}k`} />
                   <ChartTooltip
                     cursor={false}
                     content={<ChartTooltipContent indicator="line" />}
@@ -502,4 +539,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

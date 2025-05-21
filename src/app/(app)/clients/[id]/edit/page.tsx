@@ -36,7 +36,6 @@ const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral',
 let serviceItemIdCounter = 0;
 let socialItemIdCounter = 0;
 
-// Schemas for form validation including client-side ID for useFieldArray
 const contractedServiceClientSchema = z.object({
   id: z.string(), 
   serviceName: z.string().min(1, { message: 'Debe seleccionar un servicio.' }),
@@ -71,7 +70,6 @@ const clientFormSchema = z.object({
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
-// Function to convert Firestore Timestamps to JS Date objects
 function convertServiceDefinitionTimestamps(docData: any): WithConvertedDates<ServiceDefinition> {
    const data = { ...docData } as Partial<WithConvertedDates<ServiceDefinition>>;
   for (const key in data) {
@@ -221,7 +219,6 @@ export default function EditClientPage() {
         updatedAt: serverTimestamp(),
       };
 
-      // Handle optional fields
       (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
          if (key === 'name' || key === 'email' || key === 'contractStartDate' || key === 'pagado' || 
             key === 'contractedServices' || key === 'socialMediaAccounts') {
@@ -236,14 +233,12 @@ export default function EditClientPage() {
         }
       });
       
-      // Handle contractedServices: remove client-side id
       if (data.contractedServices && data.contractedServices.length > 0) {
         dataToUpdate.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
       } else {
         dataToUpdate.contractedServices = deleteField(); 
       }
 
-      // Handle socialMediaAccounts: remove client-side id and optional empty password
       if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
         dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
           const account: any = {...rest};
@@ -427,15 +422,17 @@ export default function EditClientPage() {
                           }
                         }}
                         value={field.value}
-                        disabled={isLoadingServices || !!serviceError}
+                        disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
                       >
                         <FormControl>
                            <SelectTrigger>
-                            <SelectValue placeholder={
-                              isLoadingServices ? "Cargando servicios..." : 
-                              (serviceError ? "Error al cargar" : 
-                              (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
-                            } />
+                             <SelectValue 
+                                placeholder={
+                                  isLoadingServices ? "Cargando servicios..." : 
+                                  (serviceError ? "Error al cargar servicios" : 
+                                  (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
+                                } 
+                              />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -621,7 +618,6 @@ export default function EditClientPage() {
             </FormDescription>
           </div>
           
-          {/* Legacy Social Fields - Kept for potential backward compatibility, can be removed if not needed */}
           <FormField
               control={form.control}
               name="credencialesRedesUsuario"
@@ -674,3 +670,5 @@ export default function EditClientPage() {
     </div>
   );
 }
+
+    

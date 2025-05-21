@@ -70,7 +70,6 @@ const clientFormSchema = z.object({
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
-// Function to convert Firestore Timestamps to JS Date objects
 function convertServiceDefinitionTimestamps(docData: any): WithConvertedDates<ServiceDefinition> {
    const data = { ...docData } as Partial<WithConvertedDates<ServiceDefinition>>;
   for (const key in data) {
@@ -155,11 +154,10 @@ export default function AddClientPage() {
         updatedAt: serverTimestamp(),
       };
 
-      // Handle optional fields
       (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
         if (key === 'name' || key === 'email' || key === 'contractStartDate' || key === 'pagado' || 
             key === 'contractedServices' || key === 'socialMediaAccounts') {
-          return; // Already handled or handled separately
+          return; 
         }
 
         if (key === 'vencimientoWeb') {
@@ -171,14 +169,12 @@ export default function AddClientPage() {
         }
       });
       
-      // Handle contractedServices: remove client-side id before saving
       if (data.contractedServices && data.contractedServices.length > 0) {
         clientData.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
       } else {
-        clientData.contractedServices = deleteField(); // Or an empty array: []
+        clientData.contractedServices = deleteField(); 
       }
 
-      // Handle socialMediaAccounts: remove client-side id and optional empty password
       if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
         clientData.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
             const account: any = {...rest};
@@ -186,7 +182,7 @@ export default function AddClientPage() {
             return account;
         });
       } else {
-        clientData.socialMediaAccounts = deleteField(); // Or an empty array: []
+        clientData.socialMediaAccounts = deleteField();
       }
 
 
@@ -249,7 +245,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>URL del Avatar (Opcional)</FormLabel>
                   <FormControl>
-                    <Input type="url" placeholder="https://ejemplo.com/logo.png" {...field} />
+                    <Input type="url" placeholder="https://ejemplo.com/logo.png" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -262,7 +258,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Nombre de la Clínica (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Sonrisas Centro" {...field} />
+                    <Input placeholder="Ej: Sonrisas Centro" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -275,7 +271,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Teléfono (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: +34 900 123 456" {...field} />
+                    <Input placeholder="Ej: +34 900 123 456" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -317,7 +313,7 @@ export default function AddClientPage() {
               <FormItem>
                 <FormLabel>Resumen del Perfil (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Describe la marca, valores, público objetivo, tono deseado, etc." className="resize-y min-h-[100px]" {...field} />
+                  <Textarea placeholder="Describe la marca, valores, público objetivo, tono deseado, etc." className="resize-y min-h-[100px]" {...field} value={field.value || ''} />
                 </FormControl>
                 <FormDescription>Esta información ayudará a generar mejores sugerencias de contenido.</FormDescription>
                 <FormMessage />
@@ -345,15 +341,17 @@ export default function AddClientPage() {
                           }
                         }}
                         value={field.value}
-                        disabled={isLoadingServices || !!serviceError}
+                        disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
                       >
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={
-                              isLoadingServices ? "Cargando servicios..." : 
-                              (serviceError ? "Error al cargar" : 
-                              (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
-                            } />
+                           <SelectTrigger>
+                             <SelectValue 
+                                placeholder={
+                                  isLoadingServices ? "Cargando servicios..." : 
+                                  (serviceError ? "Error al cargar servicios" : 
+                                  (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
+                                } 
+                              />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -429,7 +427,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Dominio Web (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: www.sonrisas.com" {...field} />
+                    <Input placeholder="Ej: www.sonrisas.com" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -442,7 +440,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Tipo de Servicio Web (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Hosting Compartido Pro" {...field} />
+                    <Input placeholder="Ej: Hosting Compartido Pro" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -513,7 +511,7 @@ export default function AddClientPage() {
                     <FormItem className="md:col-span-3">
                        {index === 0 && <FormLabel>Contraseña (Opcional)</FormLabel>}
                       <FormControl>
-                        <Input type="password" placeholder="Contraseña" {...field} />
+                        <Input type="password" placeholder="Contraseña" {...field} value={field.value || ''} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -539,7 +537,6 @@ export default function AddClientPage() {
             </FormDescription>
           </div>
           
-          {/* Legacy Social Fields - Kept for potential backward compatibility, can be removed if not needed */}
           <FormField
               control={form.control}
               name="credencialesRedesUsuario"
@@ -547,7 +544,7 @@ export default function AddClientPage() {
                 <FormItem className="hidden">
                   <FormLabel>Usuario Credenciales RRSS (Legacy)</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input {...field} value={field.value || ''}/>
                   </FormControl>
                 </FormItem>
               )}
@@ -559,7 +556,7 @@ export default function AddClientPage() {
               <FormItem className="hidden">
                 <FormLabel>Contraseña Credenciales RRSS (Legacy)</FormLabel>
                 <FormControl>
-                  <Input type="password" {...field} />
+                  <Input type="password" {...field} value={field.value || ''}/>
                 </FormControl>
               </FormItem>
             )}
@@ -591,3 +588,5 @@ export default function AddClientPage() {
     </div>
   );
 }
+
+    
