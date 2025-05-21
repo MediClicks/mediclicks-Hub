@@ -176,8 +176,6 @@ export default function BillingPage() {
   }, [fetchInitialData]);
 
   useEffect(() => {
-    // Fetch invoices only after clients and agency details are loaded (or attempted to load)
-    // This ensures data for PDFs is available if invoices are loaded quickly
     if (!isLoadingClients && !isLoadingAgencyDetails) {
         fetchInvoices();
     }
@@ -230,7 +228,6 @@ export default function BillingPage() {
     ? clientsForFilter.find(c => c.id === clientFilter)?.name
     : null;
 
-  // Overall loading considers main table data, client list for filter, and agency details for PDF.
   const isLoadingOverall = isLoading || isLoadingClients || isLoadingAgencyDetails;
 
   return (
@@ -318,7 +315,6 @@ export default function BillingPage() {
               {invoices.map(invoice => {
                 const clientForPdf = allClients[invoice.clientId];
                 
-                // Prepare data for PDF with extreme defensiveness
                 const currentInvoiceDataForPdf: WithConvertedDates<Invoice> = {
                   id: String(invoice?.id || `invoice-pdf-${Date.now()}`),
                   clientId: String(invoice?.clientId || ""),
@@ -348,24 +344,31 @@ export default function BillingPage() {
                     telefono: typeof clientForPdf?.telefono === 'string' ? clientForPdf.telefono : undefined,
                     avatarUrl: typeof clientForPdf?.avatarUrl === 'string' ? clientForPdf.avatarUrl : undefined,
                     services: Array.isArray(clientForPdf?.services) ? clientForPdf.services.map(s => ({...s})) : [],
-                    contractedServices: Array.isArray(clientForPdf?.contractedServices) ? clientForPdf.contractedServices.map(s => ({...s})) : [],
-                    socialMediaAccounts: Array.isArray(clientForPdf?.socialMediaAccounts) ? clientForPdf.socialMediaAccounts.map(s => ({...s})) : [],
+                    contractedServices: Array.isArray(clientForPdf?.contractedServices) ? clientForPdf.contractedServices.map(s => ({
+                      serviceName: String(s?.serviceName || "N/A"),
+                      price: Number.isFinite(s?.price as number) ? Number(s.price) : 0,
+                      paymentModality: (s?.paymentModality as PaymentModality) || "Único",
+                    })) : [],
+                    socialMediaAccounts: Array.isArray(clientForPdf?.socialMediaAccounts) ? clientForPdf.socialMediaAccounts.map(s => ({
+                      platform: String(s?.platform || "N/A"),
+                      username: String(s?.username || "N/A"),
+                      password: typeof s?.password === 'string' ? s.password : undefined,
+                    })) : [],
                     contractStartDate: clientForPdf?.contractStartDate instanceof Date ? clientForPdf.contractStartDate : new Date(0),
-                    // Ensure all other Client fields have fallbacks if they are used in PDF or elsewhere
-                    nextBillingDate: clientForPdf?.nextBillingDate instanceof Date ? clientForPdf.nextBillingDate : new Date(0),
+                    nextBillingDate: undefined, // Removed field
                     profileSummary: String(clientForPdf?.profileSummary || ""),
-                    serviciosActivosGeneral: clientForPdf?.serviciosActivosGeneral,
+                    serviciosActivosGeneral: undefined, // Removed field
                     pagado: typeof clientForPdf?.pagado === 'boolean' ? clientForPdf.pagado : false,
-                    notas: clientForPdf?.notas,
-                    dominioWeb: clientForPdf?.dominioWeb,
-                    tipoServicioWeb: clientForPdf?.tipoServicioWeb,
+                    notas: undefined, // Removed field
+                    dominioWeb: typeof clientForPdf?.dominioWeb === 'string' ? clientForPdf.dominioWeb : undefined,
+                    tipoServicioWeb: typeof clientForPdf?.tipoServicioWeb === 'string' ? clientForPdf.tipoServicioWeb : undefined,
                     vencimientoWeb: clientForPdf?.vencimientoWeb instanceof Date ? clientForPdf.vencimientoWeb : undefined,
-                    plataformasRedesSociales: clientForPdf?.plataformasRedesSociales,
-                    detallesRedesSociales: clientForPdf?.detallesRedesSociales,
-                    serviciosContratadosAdicionales: clientForPdf?.serviciosContratadosAdicionales,
-                    configuracionRedesSociales: clientForPdf?.configuracionRedesSociales,
-                    credencialesRedesUsuario: clientForPdf?.credencialesRedesUsuario,
-                    credencialesRedesContrasena: clientForPdf?.credencialesRedesContrasena,
+                    plataformasRedesSociales: undefined, // Removed field
+                    detallesRedesSociales: undefined, // Removed field
+                    serviciosContratadosAdicionales: undefined, // Removed field
+                    configuracionRedesSociales: undefined, // Removed field
+                    credencialesRedesUsuario: typeof clientForPdf?.credencialesRedesUsuario === 'string' ? clientForPdf.credencialesRedesUsuario : undefined, // Legacy field
+                    credencialesRedesContrasena: typeof clientForPdf?.credencialesRedesContrasena === 'string' ? clientForPdf.credencialesRedesContrasena : undefined, // Legacy field
                     createdAt: clientForPdf?.createdAt instanceof Date ? clientForPdf.createdAt : new Date(0),
                     updatedAt: clientForPdf?.updatedAt instanceof Date ? clientForPdf.updatedAt : new Date(0),
                   };
@@ -380,6 +383,7 @@ export default function BillingPage() {
                     website: "https://www.tuagencia.com"
                 };
 
+                // Condition for rendering PDF download link - ensure all necessary data is present
                 const canRenderPdfLink = isClientSide && currentInvoiceDataForPdf && sanitizedClientForPdf && safeAgencyDetails;
 
                 return (
@@ -417,6 +421,11 @@ export default function BillingPage() {
                        >
                         {isDeleting && invoiceToDelete?.id === invoice.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
+                      {/* Temporarily disabling PDFDownloadLink in the list view due to persistent 'hasOwnProperty' error */}
+                      <Button variant="ghost" size="icon" className="text-blue-600 opacity-50 cursor-not-allowed" title="Descargar PDF (deshabilitado en lista)" disabled>
+                        <Download className="h-4 w-4 opacity-50" />
+                      </Button>
+                      {/* 
                       {canRenderPdfLink ? (
                         <PDFDownloadLink
                           document={<InvoicePdfDocument invoice={currentInvoiceDataForPdf} client={sanitizedClientForPdf} agencyDetails={safeAgencyDetails} />}
@@ -433,6 +442,7 @@ export default function BillingPage() {
                            <Download className="h-4 w-4 opacity-50" />
                          </Button>
                       )}
+                      */}
                     </TableCell>
                   </TableRow>
                 );
