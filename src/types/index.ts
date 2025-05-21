@@ -50,6 +50,8 @@ export interface Task {
   priority: TaskPriority;
   status: TaskStatus;
 
+  alertDate?: Date | Timestamp;
+  alertFired?: boolean;
   createdAt?: Date | Timestamp;
   updatedAt?: Date | Timestamp;
 }

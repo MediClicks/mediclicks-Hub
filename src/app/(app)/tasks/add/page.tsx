@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
-import {
+import{
   Form,
   FormControl,
   FormField,
@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';;
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, AlertTriangle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -27,7 +27,7 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, doc, updateDoc, FieldValue } from 'firebase/firestore';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -36,15 +36,15 @@ const taskFormSchema = z.object({
   name: z.string().min(3, { message: 'El nombre de la tarea debe tener al menos 3 caracteres.' }),
   description: z.string().optional(),
   assignedTo: z.string().min(2, { message: 'Debe asignar la tarea a alguien.' }),
-  clientId: z.string().optional(), // No será TASK_CLIENT_SELECT_NONE_VALUE aquí, será undefined o el ID real
+  clientId: z.string().optional(), 
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   priority: z.enum(taskPriorities, { required_error: 'La prioridad es obligatoria.' }),
   status: z.enum(taskStatuses, { required_error: 'El estado es obligatorio.' }),
+  alertDate: z.date().optional().nullable(),
 });
 
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
-// Function to convert Firestore Timestamps to JS Date objects for clients
 function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
@@ -55,6 +55,7 @@ function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client
   return data as WithConvertedDates<Client>;
 }
 
+const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
 
 export default function AddTaskPage() {
   const router = useRouter();
@@ -63,7 +64,15 @@ export default function AddTaskPage() {
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [clientError, setClientError] = useState<string | null>(null);
 
-  const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
+  const timeOptions = Array.from({ length: 48 }, (_, i) => {
+    const hours = Math.floor(i / 2);
+    const minutes = (i % 2) * 30;
+    const paddedHours = String(hours).padStart(2, '0');
+    const paddedMinutes = String(minutes).padStart(2, '0');
+    return `${paddedHours}:${paddedMinutes}`;
+  });
+
+  const [selectedAlertTime, setSelectedAlertTime] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const fetchClients = async () => {
@@ -101,34 +110,67 @@ export default function AddTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
-      clientId: undefined, // Initialize as undefined for controlled component
+      clientId: TASK_CLIENT_SELECT_NONE_VALUE, 
       description: '',
+      alertDate: null,
     },
   });
 
   async function onSubmit(data: TaskFormValues) {
-    form.clearErrors();
+    form.clearErrors(); 
+
+    let combinedAlertDate: Date | null | undefined = data.alertDate;
+    if (data.alertDate && selectedAlertTime) {
+      const [hours, minutes] = selectedAlertTime.split(':').map(Number);
+      combinedAlertDate = new Date(data.alertDate); 
+      combinedAlertDate.setHours(hours, minutes, 0, 0);
+    } else if (data.alertDate && !selectedAlertTime) {
+       combinedAlertDate = new Date(data.alertDate);
+       combinedAlertDate.setHours(0, 0, 0, 0); // Default to start of day if no time selected
+    }
+
     try {
       let clientName: string | undefined = undefined;
-      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) { // TASK_CLIENT_SELECT_NONE_VALUE might still be used if it's set by Select
+      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
         clientName = clientsList.find(c => c.id === data.clientId)?.name;
       }
-      
-      const taskData: any = {
-        ...data,
-        clientName: clientName,
+
+      // Correctly construct taskDataToSave
+      const taskDataToSave: any = {
+        ...data, // Spread form data
+        clientName: clientName, // Add or override clientName
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        // dueDate and alertDate will be handled next
       };
 
-      if (!taskData.clientId || taskData.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
-        delete taskData.clientId; // Ensure clientId is removed if it's the placeholder
-        delete taskData.clientName;
+      // Convert JS Dates from form to Firestore Timestamps or use deleteField
+      taskDataToSave.dueDate = Timestamp.fromDate(data.dueDate);
+      
+      if (combinedAlertDate) {
+        taskDataToSave.alertDate = Timestamp.fromDate(combinedAlertDate);
+      } else {
+        taskDataToSave.alertDate = deleteField(); 
       }
-      if (taskData.description === undefined || taskData.description === '') delete taskData.description;
+      
+      if (!data.clientId || data.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
+        taskDataToSave.clientId = deleteField();
+        taskDataToSave.clientName = deleteField(); 
+      } else {
+         taskDataToSave.clientId = data.clientId; 
+      }
 
+      if (taskDataToSave.description === undefined || taskDataToSave.description === '') {
+        taskDataToSave.description = deleteField();
+      }
+      
+      const docRef = await addDoc(collection(db, 'tasks'), taskDataToSave);
 
-      const docRef = await addDoc(collection(db, 'tasks'), taskData);
+      // Add alertFired field, only if alertDate was provided and saved (is a Timestamp)
+      if (taskDataToSave.alertDate && !(taskDataToSave.alertDate instanceof FieldValue) ) { 
+          await updateDoc(doc(db, 'tasks', docRef.id), { alertFired: false });
+      }
+      
       console.log('Nueva tarea guardada en Firestore con ID: ', docRef.id);
 
       toast({
@@ -222,7 +264,7 @@ export default function AddTaskPage() {
               )}
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <FormField
               control={form.control}
               name="dueDate"
@@ -256,6 +298,58 @@ export default function AddTaskPage() {
                         initialFocus
                         locale={es}
                       />
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="alertDate"
+              render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Fecha y Hora de Alerta (Opcional)</FormLabel>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant={'outline'}
+                          className={cn(
+                            'w-full pl-3 text-left font-normal',
+                            !field.value && 'text-muted-foreground'
+                          )}
+                        >
+                          {field.value ? (
+                            format(field.value, 'PPP', { locale: es }) + (selectedAlertTime ? ` ${selectedAlertTime}` : ' (00:00)')
+                          ) : (
+                            <span>Seleccionar fecha</span>
+                          )}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={field.value}
+                        onSelect={(date) => field.onChange(date || null)} 
+                        initialFocus
+                        locale={es}
+                      />
+                      <div className="p-3 border-t">
+                        <Select value={selectedAlertTime} onValueChange={setSelectedAlertTime}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar hora (opcional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={undefined}>Sin hora específica (00:00)</SelectItem>
+                            {timeOptions.map(time => (
+                              <SelectItem key={time} value={time}>{time}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -306,12 +400,15 @@ export default function AddTaskPage() {
                 </FormItem>
               )}
             />
+         </div>
+          <div className="flex gap-4">
+            <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients}>
+              {form.formState.isSubmitting ? 'Guardando Tarea...' : 'Guardar Tarea'}
+            </Button>
           </div>
-          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients}>
-            {form.formState.isSubmitting ? 'Guardando Tarea...' : 'Guardar Tarea'}
-          </Button>
         </form>
       </Form>
     </div>
   );
 }
+
