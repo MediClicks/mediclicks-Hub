@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { User, LogOut, Settings as SettingsIcon, Sun, Moon } from "lucide-react";
 import * as React from 'react';
-import { useAuth } from '@/contexts/auth-context'; // Importar useAuth
+import { useAuth } from '@/contexts/auth-context';
 
 interface AppHeaderProps {
   pageTitle: string;
@@ -15,7 +15,7 @@ interface AppHeaderProps {
 
 export function AppHeader({ pageTitle }: AppHeaderProps) {
   const [isDark, setIsDark] = React.useState(false);
-  const { logout } = useAuth(); // Obtener la función logout
+  const { logout, user } = useAuth(); // Get user from auth context
 
   React.useEffect(() => {
     const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -61,9 +61,9 @@ export function AppHeader({ pageTitle }: AppHeaderProps) {
           <DropdownMenuContent className="w-56" align="end" forceMount>
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">Usuario Admin</p>
+                <p className="text-sm font-medium leading-none">{user?.displayName || "Usuario"}</p>
                 <p className="text-xs leading-none text-muted-foreground">
-                  admin@mediclicks.hub
+                  {user?.email || "Cargando email..."}
                 </p>
               </div>
             </DropdownMenuLabel>
@@ -81,7 +81,7 @@ export function AppHeader({ pageTitle }: AppHeaderProps) {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={logout}> {/* Usar la función logout del contexto */}
+            <DropdownMenuItem onClick={logout}>
               <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />
               <span>Cerrar Sesión</span>
             </DropdownMenuItem>

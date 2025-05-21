@@ -13,37 +13,81 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Lock, Mail, LogIn, Loader2 } from 'lucide-react'; // Added Loader2 here
+import { Lock, Mail, LogIn, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import Image from 'next/image';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, isAuthenticated, isLoading: isLoadingAuth } = useAuth();
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState('');
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = React.useState(false); // Renamed for clarity
+
+  React.useEffect(() => {
+    // Redirect if already authenticated and auth is not loading
+    if (!isLoadingAuth && isAuthenticated) {
+      router.push('/dashboard');
+    }
+  }, [isAuthenticated, isLoadingAuth, router]);
+
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
-    setIsLoading(true);
+    setIsSubmitting(true);
 
     try {
       await login(email, password);
-      router.push('/dashboard');
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Ocurrió un error inesperado.');
+      // No need to push here, the useEffect in AppLayout or this page will handle redirection
+      // after isAuthenticated state updates.
+    } catch (err: any) {
+      let errorMessage = 'Ocurrió un error inesperado al iniciar sesión.';
+      if (err.code) {
+        switch (err.code) {
+          case 'auth/invalid-credential':
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+            errorMessage = 'Credenciales incorrectas. Por favor, verifica tu email y contraseña.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'El formato del email no es válido.';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = 'Demasiados intentos fallidos. Intenta de nuevo más tarde.';
+            break;
+          default:
+            errorMessage = `Error: ${err.message}`;
+        }
       }
+      setError(errorMessage);
+      console.error("Login page error details:", err);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
+  
+  // If auth state is still loading, don't render the form yet or show a page loader
+  if (isLoadingAuth) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-background to-primary/20 p-4">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // If authenticated after loading, router.push in useEffect should have redirected.
+  // This is a fallback or in case redirection is slower.
+  if (isAuthenticated) {
+     return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-background to-primary/20 p-4">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="mt-2 text-muted-foreground">Redirigiendo...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-background to-primary/20 p-4">
@@ -73,7 +117,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                disabled={isLoading}
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -87,27 +131,25 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                disabled={isLoading}
+                disabled={isSubmitting}
               />
             </div>
             {error && <p className="text-sm text-destructive text-center">{error}</p>}
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <LogIn className="mr-2 h-4 w-4" />
               )}
-              Ingresar
+              {isSubmitting ? 'Ingresando...' : 'Ingresar'}
             </Button>
           </CardFooter>
         </form>
       </Card>
       <p className="mt-6 text-xs text-center text-muted-foreground">
         © {new Date().getFullYear()} MediClicks Hub. Todos los derechos reservados.
-        <br />
-        <span className="font-bold text-destructive">Nota: Login temporal solo para desarrollo.</span>
       </p>
     </div>
   );

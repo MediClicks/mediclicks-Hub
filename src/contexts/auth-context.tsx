@@ -3,55 +3,71 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  type User as FirebaseUser // Import Firebase User type
+} from 'firebase/auth';
+import { app } from '@/lib/firebase'; // Import your Firebase app instance
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: (email: string, pass: string) => Promise<void>; // Simulado por ahora
+  user: FirebaseUser | null; // Store the Firebase user object
+  login: (email: string, pass: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const AUTH_STORAGE_KEY = 'mediClicksHubAuth';
+const auth = getAuth(app); // Get auth instance
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true); // Para verificar el estado inicial
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    // Verificar el estado de autenticación desde localStorage al cargar
-    const storedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (storedAuth === 'true') {
-      setIsAuthenticated(true);
-    }
-    setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe(); // Cleanup subscription on unmount
   }, []);
 
-  // Simulación de login
   const login = async (email: string, pass: string) => {
-    // ¡¡¡ADVERTENCIA: ESTO ES SOLO UNA SIMULACIÓN Y NO ES SEGURO!!!
-    // En una aplicación real, aquí llamarías a Firebase Auth o tu backend.
-    // Por ahora, solo comprobamos credenciales hardcodeadas.
-    if (email === 'admin@mediclicks.hub' && pass === 'password123') {
-      localStorage.setItem(AUTH_STORAGE_KEY, 'true');
-      setIsAuthenticated(true);
-      // No es necesario redirigir aquí, la página de login lo hará.
-    } else {
-      // El manejo de error de credenciales se hará en la página de login
-      throw new Error('Credenciales incorrectas');
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+      // onAuthStateChanged will handle setting the user and redirecting
+      // No need to explicitly setUser here or push route, AppLayout handles redirection based on auth state
+    } catch (error: any) {
+      // Firebase Auth errors have a 'code' property
+      console.error("Firebase login error:", error.code, error.message);
+      throw error; // Re-throw the error so LoginPage can handle it
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    setIsAuthenticated(false);
-    router.push('/login'); // Redirigir a login al cerrar sesión
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null); // Clear user state
+      router.push('/login');
+    } catch (error) {
+      console.error("Error signing out: ", error);
+      // Optionally show a toast message for sign-out error
+    }
   };
+  
+  const isAuthenticated = !!user;
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
