@@ -76,9 +76,9 @@ export default function BillingPage() {
   const [allClients, setAllClients] = useState<Record<string, WithConvertedDates<Client>>>({});
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
 
-  const [isLoading, setIsLoading] = useState(true); // General loading for invoices
-  const [isLoadingClients, setIsLoadingClients] = useState(true);
-  const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // General loading for invoices table
+  const [isLoadingClients, setIsLoadingClients] = useState(true); // Loading for client filter dropdown and PDF data
+  const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = useState(true); // Loading for agency details PDF data
 
   const [error, setError] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
@@ -97,6 +97,7 @@ export default function BillingPage() {
     setIsLoadingClients(true);
     setIsLoadingAgencyDetails(true);
 
+    // Fetch Clients for filter and PDF
     try {
       const clientsCollection = collection(db, "clients");
       const clientsQuery = query(clientsCollection, orderBy("name", "asc"));
@@ -118,28 +119,20 @@ export default function BillingPage() {
       setIsLoadingClients(false);
     }
 
+    // Fetch Agency Details for PDF
     try {
       const agencyDocRef = doc(db, 'settings', 'agencyDetails');
       const agencySnap = await getDoc(agencyDocRef);
       if (agencySnap.exists()) {
         setAgencyDetails(agencySnap.data() as AgencyDetails);
       } else {
-        setAgencyDetails({ // Provide a default empty structure if not found
-          agencyName: "Tu Agencia N/A",
-          address: "Dirección N/A",
-          taxId: "NIF/CIF N/A",
-          contactEmail: "email@ejemplo.com",
-        });
+        console.warn("Agency details not found in settings. PDF will use placeholders.");
+        setAgencyDetails(null); // Explicitly set to null if not found
       }
     } catch (err) {
       console.error("Error fetching agency details: ", err);
       toast({ title: "Advertencia", description: "No se pudieron cargar los detalles de la agencia para los PDFs.", variant: "default" });
-       setAgencyDetails({ // Provide a default empty structure on error
-          agencyName: "Tu Agencia N/A",
-          address: "Dirección N/A",
-          taxId: "NIF/CIF N/A",
-          contactEmail: "email@ejemplo.com",
-        });
+      setAgencyDetails(null); // Set to null on error
     } finally {
       setIsLoadingAgencyDetails(false);
     }
@@ -168,7 +161,7 @@ export default function BillingPage() {
       setInvoices(invoicesData);
     } catch (err: any) {
       console.error("Error fetching invoices: ", err);
-      if (err.message && err.message.includes("index")) {
+      if (err.message && (err.message.includes("index") || err.message.includes("Index")) ) {
         setError(`Se requiere un índice de Firestore para esta consulta. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
       } else {
         setError("No se pudieron cargar las facturas. Intenta de nuevo más tarde.");
@@ -184,6 +177,7 @@ export default function BillingPage() {
 
   useEffect(() => {
     // Fetch invoices only after clients and agency details are loaded (or attempted to load)
+    // This ensures data for PDFs is available if invoices are loaded quickly
     if (!isLoadingClients && !isLoadingAgencyDetails) {
         fetchInvoices();
     }
@@ -236,6 +230,7 @@ export default function BillingPage() {
     ? clientsForFilter.find(c => c.id === clientFilter)?.name
     : null;
 
+  // Overall loading considers main table data, client list for filter, and agency details for PDF.
   const isLoadingOverall = isLoading || isLoadingClients || isLoadingAgencyDetails;
 
   return (
@@ -323,57 +318,69 @@ export default function BillingPage() {
               {invoices.map(invoice => {
                 const clientForPdf = allClients[invoice.clientId];
                 
-                // Ultra-defensive data sanitization for PDF rendering
+                // Prepare data for PDF with extreme defensiveness
                 const currentInvoiceDataForPdf: WithConvertedDates<Invoice> = {
-                  id: String(invoice.id || `invoice-pdf-${Date.now()}`),
-                  clientId: String(invoice.clientId || ""),
-                  clientName: String(invoice.clientName || "Cliente N/A"),
-                  issuedDate: invoice.issuedDate instanceof Date ? invoice.issuedDate : new Date(0),
-                  dueDate: invoice.dueDate instanceof Date ? invoice.dueDate : new Date(0),
-                  status: invoice.status || "No Pagada",
-                  items: (Array.isArray(invoice.items) ? invoice.items : []).map((item, index) => ({
-                    id: String(item?.id || `item-pdf-${index}-${Date.now()}`),
+                  id: String(invoice?.id || `invoice-pdf-${Date.now()}`),
+                  clientId: String(invoice?.clientId || ""),
+                  clientName: String(invoice?.clientName || "Cliente N/A"),
+                  issuedDate: invoice?.issuedDate instanceof Date ? invoice.issuedDate : new Date(0),
+                  dueDate: invoice?.dueDate instanceof Date ? invoice.dueDate : new Date(0),
+                  status: (invoice?.status as InvoiceStatus) || "No Pagada",
+                  items: (Array.isArray(invoice?.items) ? invoice.items : []).map((item, index) => ({
+                    id: String(item?.id || `item-pdf-item-${index}-${Date.now()}`),
                     description: String(item?.description || "N/A"),
                     quantity: Number.isFinite(item?.quantity as number) ? Number(item.quantity) : 0,
                     unitPrice: Number.isFinite(item?.unitPrice as number) ? Number(item.unitPrice) : 0,
                   })) as InvoiceItem[],
-                  totalAmount: Number.isFinite(invoice.totalAmount) ? Number(invoice.totalAmount) : 0,
-                  notes: typeof invoice.notes === 'string' ? invoice.notes : undefined,
-                  createdAt: invoice.createdAt instanceof Date ? invoice.createdAt : new Date(0),
-                  updatedAt: invoice.updatedAt instanceof Date ? invoice.updatedAt : new Date(0),
+                  totalAmount: Number.isFinite(invoice?.totalAmount as number) ? Number(invoice.totalAmount) : 0,
+                  notes: typeof invoice?.notes === 'string' ? invoice.notes : undefined,
+                  createdAt: invoice?.createdAt instanceof Date ? invoice.createdAt : new Date(0),
+                  updatedAt: invoice?.updatedAt instanceof Date ? invoice.updatedAt : new Date(0),
                 };
                 
                 let sanitizedClientForPdf: WithConvertedDates<Client> | undefined = undefined;
                 if (clientForPdf) {
                   sanitizedClientForPdf = {
-                    id: String(clientForPdf.id || `client-pdf-${Date.now()}`),
-                    name: String(clientForPdf.name || "Cliente N/A"),
-                    email: String(clientForPdf.email || "email@ejemplo.com"),
-                    clinica: typeof clientForPdf.clinica === 'string' ? clientForPdf.clinica : undefined,
-                    telefono: typeof clientForPdf.telefono === 'string' ? clientForPdf.telefono : undefined,
-                    avatarUrl: typeof clientForPdf.avatarUrl === 'string' ? clientForPdf.avatarUrl : undefined,
-                    services: Array.isArray(clientForPdf.services) ? clientForPdf.services.map(s => ({...s})) : [],
-                    contractStartDate: clientForPdf.contractStartDate instanceof Date ? clientForPdf.contractStartDate : new Date(0),
-                    profileSummary: typeof clientForPdf.profileSummary === 'string' ? clientForPdf.profileSummary : "",
-                    pagado: typeof clientForPdf.pagado === 'boolean' ? clientForPdf.pagado : false,
-                    dominioWeb: typeof clientForPdf.dominioWeb === 'string' ? clientForPdf.dominioWeb : undefined,
-                    tipoServicioWeb: typeof clientForPdf.tipoServicioWeb === 'string' ? clientForPdf.tipoServicioWeb : undefined,
-                    vencimientoWeb: clientForPdf.vencimientoWeb instanceof Date ? clientForPdf.vencimientoWeb : undefined,
-                    contractedServices: Array.isArray(clientForPdf.contractedServices) ? clientForPdf.contractedServices.map(s => ({...s})) : [],
-                    socialMediaAccounts: Array.isArray(clientForPdf.socialMediaAccounts) ? clientForPdf.socialMediaAccounts.map(s => ({...s})) : [],
-                    credencialesRedesUsuario: typeof clientForPdf.credencialesRedesUsuario === 'string' ? clientForPdf.credencialesRedesUsuario : undefined,
-                    credencialesRedesContrasena: typeof clientForPdf.credencialesRedesContrasena === 'string' ? clientForPdf.credencialesRedesContrasena : undefined,
-                    createdAt: clientForPdf.createdAt instanceof Date ? clientForPdf.createdAt : new Date(0),
-                    updatedAt: clientForPdf.updatedAt instanceof Date ? clientForPdf.updatedAt : new Date(0),
+                    id: String(clientForPdf?.id || `client-pdf-${Date.now()}`),
+                    name: String(clientForPdf?.name || "Cliente N/A"),
+                    email: String(clientForPdf?.email || "email@ejemplo.com"),
+                    clinica: typeof clientForPdf?.clinica === 'string' ? clientForPdf.clinica : undefined,
+                    telefono: typeof clientForPdf?.telefono === 'string' ? clientForPdf.telefono : undefined,
+                    avatarUrl: typeof clientForPdf?.avatarUrl === 'string' ? clientForPdf.avatarUrl : undefined,
+                    services: Array.isArray(clientForPdf?.services) ? clientForPdf.services.map(s => ({...s})) : [],
+                    contractedServices: Array.isArray(clientForPdf?.contractedServices) ? clientForPdf.contractedServices.map(s => ({...s})) : [],
+                    socialMediaAccounts: Array.isArray(clientForPdf?.socialMediaAccounts) ? clientForPdf.socialMediaAccounts.map(s => ({...s})) : [],
+                    contractStartDate: clientForPdf?.contractStartDate instanceof Date ? clientForPdf.contractStartDate : new Date(0),
+                    // Ensure all other Client fields have fallbacks if they are used in PDF or elsewhere
+                    nextBillingDate: clientForPdf?.nextBillingDate instanceof Date ? clientForPdf.nextBillingDate : new Date(0),
+                    profileSummary: String(clientForPdf?.profileSummary || ""),
+                    serviciosActivosGeneral: clientForPdf?.serviciosActivosGeneral,
+                    pagado: typeof clientForPdf?.pagado === 'boolean' ? clientForPdf.pagado : false,
+                    notas: clientForPdf?.notas,
+                    dominioWeb: clientForPdf?.dominioWeb,
+                    tipoServicioWeb: clientForPdf?.tipoServicioWeb,
+                    vencimientoWeb: clientForPdf?.vencimientoWeb instanceof Date ? clientForPdf.vencimientoWeb : undefined,
+                    plataformasRedesSociales: clientForPdf?.plataformasRedesSociales,
+                    detallesRedesSociales: clientForPdf?.detallesRedesSociales,
+                    serviciosContratadosAdicionales: clientForPdf?.serviciosContratadosAdicionales,
+                    configuracionRedesSociales: clientForPdf?.configuracionRedesSociales,
+                    credencialesRedesUsuario: clientForPdf?.credencialesRedesUsuario,
+                    credencialesRedesContrasena: clientForPdf?.credencialesRedesContrasena,
+                    createdAt: clientForPdf?.createdAt instanceof Date ? clientForPdf.createdAt : new Date(0),
+                    updatedAt: clientForPdf?.updatedAt instanceof Date ? clientForPdf.updatedAt : new Date(0),
                   };
                 }
                 
                 const safeAgencyDetails: AgencyDetails = agencyDetails || {
-                    agencyName: "Agencia N/A",
-                    address: "Dirección N/A",
-                    taxId: "NIF/CIF N/A",
-                    contactEmail: "email@ejemplo.com",
+                    agencyName: "Tu Agencia S.L.",
+                    address: "Calle Falsa 123, Ciudad, CP",
+                    taxId: "NIF/CIF: X1234567Z",
+                    contactEmail: "contacto@tuagencia.com",
+                    contactPhone: "+34 900 000 000",
+                    website: "https://www.tuagencia.com"
                 };
+
+                const canRenderPdfLink = isClientSide && currentInvoiceDataForPdf && sanitizedClientForPdf && safeAgencyDetails;
 
                 return (
                   <TableRow key={invoice.id} className="hover:bg-muted/50">
@@ -410,20 +417,20 @@ export default function BillingPage() {
                        >
                         {isDeleting && invoiceToDelete?.id === invoice.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
-                      {isClientSide && sanitizedClientForPdf && safeAgencyDetails ? (
+                      {canRenderPdfLink ? (
                         <PDFDownloadLink
                           document={<InvoicePdfDocument invoice={currentInvoiceDataForPdf} client={sanitizedClientForPdf} agencyDetails={safeAgencyDetails} />}
-                          fileName={`Factura-${currentInvoiceDataForPdf.id.substring(0,8).toUpperCase()}.pdf`}
+                          fileName={`factura-${currentInvoiceDataForPdf.id.substring(0,8).toLowerCase()}.pdf`}
                         >
                           {({ loading }) => (
-                            <Button variant="ghost" size="icon" className="hover:text-accent text-blue-600" title="Descargar PDF" disabled={loading || isLoadingAgencyDetails || isLoadingClients}>
-                              {loading ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
+                            <Button variant="ghost" size="icon" className="hover:text-accent text-blue-600" title="Descargar PDF" disabled={loading || isLoadingClients || isLoadingAgencyDetails}>
+                              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
                             </Button>
                           )}
                         </PDFDownloadLink>
                       ) : (
-                         <Button variant="ghost" size="icon" className="hover:text-accent opacity-50 cursor-not-allowed" title="Descargar PDF no disponible" disabled>
-                           <Download className="h-4 w-4 text-blue-600 opacity-50" />
+                         <Button variant="ghost" size="icon" className="text-blue-600 opacity-50 cursor-not-allowed" title="Descargar PDF no disponible" disabled>
+                           <Download className="h-4 w-4 opacity-50" />
                          </Button>
                       )}
                     </TableCell>
@@ -470,3 +477,4 @@ export default function BillingPage() {
     </div>
   );
 }
+
