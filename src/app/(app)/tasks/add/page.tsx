@@ -27,7 +27,8 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, doc, updateDoc, FieldValue } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, doc, updateDoc, type FieldValue } from 'firebase/firestore';
+import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -135,16 +136,13 @@ export default function AddTaskPage() {
         clientName = clientsList.find(c => c.id === data.clientId)?.name;
       }
 
-      // Correctly construct taskDataToSave
       const taskDataToSave: any = {
-        ...data, // Spread form data
-        clientName: clientName, // Add or override clientName
+        ...data,
+        clientName: clientName,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        // dueDate and alertDate will be handled next
       };
-
-      // Convert JS Dates from form to Firestore Timestamps or use deleteField
+      
       taskDataToSave.dueDate = Timestamp.fromDate(data.dueDate);
       
       if (combinedAlertDate) {
@@ -164,19 +162,55 @@ export default function AddTaskPage() {
         taskDataToSave.description = deleteField();
       }
       
-      const docRef = await addDoc(collection(db, 'tasks'), taskDataToSave);
+      // Eliminar el campo alertDate del objeto principal si no hay fecha, ya que se maneja arriba.
+      // Esto es redundante debido al deleteField(), pero por claridad.
+      if (!combinedAlertDate && 'alertDate' in taskDataToSave) {
+         delete taskDataToSave.alertDate;
+      }
 
+
+      const docRef = await addDoc(collection(db, 'tasks'), taskDataToSave);
+      console.log('Nueva tarea guardada en Firestore con ID: ', docRef.id);
+      
       // Add alertFired field, only if alertDate was provided and saved (is a Timestamp)
-      if (taskDataToSave.alertDate && !(taskDataToSave.alertDate instanceof FieldValue) ) { 
+      if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp ) { 
           await updateDoc(doc(db, 'tasks', docRef.id), { alertFired: false });
       }
       
-      console.log('Nueva tarea guardada en Firestore con ID: ', docRef.id);
-
       toast({
         title: 'Tarea Creada',
         description: `La tarea "${data.name}" ha sido agregada exitosamente.`,
       });
+
+      // Intentar crear evento de Google Calendar si hay fecha de alerta
+      if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp) {
+        try {
+          const calendarResult = await addCalendarEventForTaskAction({
+            name: taskDataToSave.name,
+            description: taskDataToSave.description instanceof FieldValue ? undefined : taskDataToSave.description, // Handle deleteField case
+            alertDate: taskDataToSave.alertDate,
+          });
+          if (calendarResult.success) {
+            toast({
+              title: 'Evento de Calendario Creado',
+              description: calendarResult.message,
+            });
+          } else {
+            toast({
+              title: 'Error de Calendario',
+              description: calendarResult.message,
+              variant: 'destructive',
+            });
+          }
+        } catch (calendarError: any) {
+          console.error('Error directo al llamar addCalendarEventForTaskAction:', calendarError);
+           toast({
+            title: 'Error de Calendario (Excepción)',
+            description: calendarError.message || 'No se pudo crear el evento en Google Calendar.',
+            variant: 'destructive',
+          });
+        }
+      }
       router.push('/tasks');
     } catch (e) {
       console.error('Error al agregar tarea a Firestore: ', e);
@@ -343,7 +377,7 @@ export default function AddTaskPage() {
                             <SelectValue placeholder="Seleccionar hora (opcional)" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={undefined}>Sin hora específica (00:00)</SelectItem>
+                            <SelectItem value={undefined as any}>Sin hora específica (00:00)</SelectItem>
                             {timeOptions.map(time => (
                               <SelectItem key={time} value={time}>{time}</SelectItem>
                             ))}
@@ -411,4 +445,3 @@ export default function AddTaskPage() {
     </div>
   );
 }
-
