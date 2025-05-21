@@ -13,10 +13,9 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo } from "lucide-react";
+import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff } from "lucide-react";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -58,6 +57,12 @@ function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   for (const key in data) {
     if (data[key as keyof Task] instanceof Timestamp) {
       data[key as keyof Task] = (data[key as keyof Task] as Timestamp).toDate() as any;
+    } else if (Array.isArray(data[key as keyof Task])) {
+      (data[key as keyof Task] as any) = (data[key as keyof Task] as any[]).map(item =>
+        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
+      );
+    } else if (typeof data[key as keyof Task] === 'object' && data[key as keyof Task] !== null && !((data[key as keyof Task]) instanceof Date)) {
+      (data[key as keyof Task] as any) = convertTimestampsToDates(data[key as keyof Task] as any);
     }
   }
   return data as WithConvertedDates<Task>;
@@ -182,7 +187,7 @@ export default function TasksPage() {
             <DropdownMenuContent className="w-56">
               <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={statusFilter} onValueChange={setStatusFilter}>
+              <DropdownMenuRadioGroup value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilterType)}>
                 <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
                 {taskStatusesForFilter.map(status => (
                   <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
@@ -201,7 +206,7 @@ export default function TasksPage() {
             <DropdownMenuContent className="w-56">
               <DropdownMenuLabel>Seleccionar Prioridad</DropdownMenuLabel>
               <DropdownMenuSeparator />
-               <DropdownMenuRadioGroup value={priorityFilter} onValueChange={setPriorityFilter}>
+               <DropdownMenuRadioGroup value={priorityFilter} onValueChange={(value) => setPriorityFilter(value as PriorityFilterType)}>
                 <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
                 {taskPrioritiesForFilter.map(priority => (
                   <DropdownMenuRadioItem key={priority} value={priority}>{priority}</DropdownMenuRadioItem>
@@ -250,9 +255,14 @@ export default function TasksPage() {
             <TableBody>
               {tasks.map(task => {
                 const today = startOfDay(new Date());
-                const dueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
-                const isTaskOverdue = dueDate && isPast(dueDate) && task.status !== 'Completada';
-                const isTaskDueSoon = dueDate && (isToday(dueDate) || isTomorrow(dueDate)) && task.status !== 'Completada';
+                const taskDueDate = task.dueDate ? startOfDay(new Date(task.dueDate)) : null;
+                const isTaskOverdue = taskDueDate && isPast(taskDueDate) && task.status !== 'Completada';
+                const isTaskDueSoon = taskDueDate && (isToday(taskDueDate) || isTomorrow(taskDueDate)) && task.status !== 'Completada';
+                
+                const alertDateExists = task.alertDate && task.alertDate instanceof Date;
+                const isAlertDatePast = alertDateExists && isPast(task.alertDate as Date);
+                const isAlertActive = isAlertDatePast && !task.alertFired;
+                const isAlertProcessed = isAlertDatePast && task.alertFired;
                 
                 return (
                   <TableRow 
@@ -264,10 +274,12 @@ export default function TasksPage() {
                     )}
                   >
                     <TableCell className="font-medium">
-                      <Link href={`/tasks/${task.id}/edit`} className="hover:underline text-primary flex items-center">
-                        {isTaskOverdue && <AlertTriangle className="h-4 w-4 mr-2 text-red-600 shrink-0" />}
-                        {isTaskDueSoon && !isTaskOverdue && <Clock className="h-4 w-4 mr-2 text-amber-600 shrink-0" />}
-                        {task.name}
+                      <Link href={`/tasks/${task.id}/edit`} className="hover:underline text-primary flex items-center gap-2">
+                        {isTaskOverdue && <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" title="Tarea Vencida" />}
+                        {isTaskDueSoon && !isTaskOverdue && <Clock className="h-4 w-4 text-amber-600 shrink-0" title="Tarea Próxima a Vencer"/>}
+                        {isAlertActive && <BellRing className="h-4 w-4 text-orange-500 shrink-0" title="Alerta Activa"/>}
+                        {isAlertProcessed && <BellOff className="h-4 w-4 text-slate-500 shrink-0" title="Alerta Procesada"/>}
+                        <span>{task.name}</span>
                       </Link>
                     </TableCell>
                     <TableCell>{task.assignedTo}</TableCell>
@@ -280,7 +292,7 @@ export default function TasksPage() {
                       <Badge className={cn("border text-xs", statusColors[task.status])}>{task.status}</Badge>
                     </TableCell>
                     <TableCell className="text-right space-x-1">
-                      <Button variant="ghost" size="icon" className="hover:text-primary" title="Editar Tarea" asChild>
+                      <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" title="Editar Tarea" asChild>
                         <Link href={`/tasks/${task.id}/edit`}>
                           <Edit2 className="h-4 w-4 text-yellow-600" />
                         </Link>
@@ -288,12 +300,12 @@ export default function TasksPage() {
                       <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="hover:text-destructive" 
+                        className="hover:text-destructive h-8 w-8" 
                         title="Eliminar Tarea" 
                         onClick={() => setTaskToDelete(task)} 
-                        disabled={isDeleting}
+                        disabled={isDeleting && taskToDelete?.id === task.id}
                       >
-                        <Trash2 className="h-4 w-4 text-red-600" />
+                        {isDeleting && taskToDelete?.id === task.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600"/> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -329,7 +341,10 @@ export default function TasksPage() {
             <AlertDialogAction
               onClick={handleDeleteTask}
               disabled={isDeleting}
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              className={cn(
+                "bg-destructive hover:bg-destructive/90 text-destructive-foreground",
+                isDeleting && "opacity-75 cursor-not-allowed"
+              )}
             >
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar tarea"}
             </AlertDialogAction>
@@ -339,3 +354,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
