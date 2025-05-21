@@ -6,21 +6,45 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { BarChart3, Building, Save, Loader2, AlertTriangle } from "lucide-react";
+import { BarChart3, Building, Save, Loader2, AlertTriangle, PlusCircle, Trash2, Edit, PackageSearch } from "lucide-react";
 import React, { useEffect, useState } from "react";
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, getDoc, serverTimestamp, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, Timestamp, collection, query, where, getDocs, addDoc, orderBy, deleteDoc, updateDoc } from 'firebase/firestore';
 import { Textarea } from "@/components/ui/textarea";
-import type { AgencyDetails, Invoice, WithConvertedDates } from "@/types";
+import type { AgencyDetails, Invoice, WithConvertedDates, ServiceDefinition, PaymentModality } from "@/types";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from "@/contexts/auth-context"; 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 const agencyDetailsSchema = z.object({
   agencyName: z.string().min(1, "El nombre de la agencia es obligatorio."),
@@ -32,6 +56,17 @@ const agencyDetailsSchema = z.object({
 });
 
 type AgencyDetailsFormValues = z.infer<typeof agencyDetailsSchema>;
+
+const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
+
+const serviceDefinitionSchema = z.object({
+  name: z.string().min(2, { message: "El nombre del servicio debe tener al menos 2 caracteres." }),
+  price: z.coerce.number().min(0, { message: "El precio no puede ser negativo." }),
+  paymentModality: z.enum(paymentModalities, { required_error: "La modalidad de pago es obligatoria." }),
+});
+
+type ServiceDefinitionFormValues = z.infer<typeof serviceDefinitionSchema>;
+
 
 interface MonthlyRevenueChartData {
   month: string;
@@ -75,6 +110,16 @@ export default function SettingsPage() {
   const [isLoadingChart, setIsLoadingChart] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
 
+  const [serviceDefinitions, setServiceDefinitions] = useState<ServiceDefinition[]>([]);
+  const [isLoadingServices, setIsLoadingServices] = useState(true);
+  const [serviceError, setServiceError] = useState<string | null>(null);
+
+  const [serviceToDelete, setServiceToDelete] = useState<ServiceDefinition | null>(null);
+  const [isDeletingService, setIsDeletingService] = useState(false);
+  
+  const [editingService, setEditingService] = useState<ServiceDefinition | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
   const agencyForm = useForm<AgencyDetailsFormValues>({
     resolver: zodResolver(agencyDetailsSchema),
     defaultValues: {
@@ -85,6 +130,19 @@ export default function SettingsPage() {
       contactEmail: '',
       website: '',
     }
+  });
+
+  const serviceForm = useForm<ServiceDefinitionFormValues>({
+    resolver: zodResolver(serviceDefinitionSchema),
+    defaultValues: {
+      name: '',
+      price: 0,
+      paymentModality: 'Mensual',
+    }
+  });
+  
+  const editServiceForm = useForm<ServiceDefinitionFormValues>({
+    resolver: zodResolver(serviceDefinitionSchema),
   });
 
   useEffect(() => {
@@ -141,11 +199,11 @@ export default function SettingsPage() {
         );
         const paidInvoicesSnap = await getDocs(paidInvoicesQuery);
 
-        paidInvoicesSnap.docs.forEach(doc => {
-          const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
-          if (invoice.issuedDate) {
+        paidInvoicesSnap.docs.forEach(docSnap => {
+          const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
+          if (invoice?.issuedDate) {
             const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
-            revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + invoice.totalAmount;
+            revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + (invoice.totalAmount || 0);
           }
         });
         
@@ -180,7 +238,39 @@ export default function SettingsPage() {
     };
     fetchRevenueChartData();
 
-  }, [agencyForm, toast]);
+    fetchServiceDefinitions();
+
+  }, [agencyForm, toast]); // fetchServiceDefinitions will be added once defined
+
+  const fetchServiceDefinitions = async () => {
+    setIsLoadingServices(true);
+    setServiceError(null);
+    try {
+      const servicesCollection = collection(db, "appServices");
+      const q = query(servicesCollection, orderBy("name", "asc"));
+      const querySnapshot = await getDocs(q);
+      const fetchedServices = querySnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return { id: docSnap.id, ...convertFirestoreTimestamps(data) } as ServiceDefinition;
+      });
+      setServiceDefinitions(fetchedServices);
+    } catch (err: any) {
+      console.error("Error fetching service definitions: ", err);
+      setServiceError("No se pudieron cargar las definiciones de servicios.");
+      toast({
+        title: "Error al Cargar Servicios",
+        description: err.message || "No se pudieron cargar las definiciones de servicios.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingServices(false);
+    }
+  };
+  
+  React.useEffect(() => {
+    fetchServiceDefinitions();
+  }, [toast]);
+
 
   const toggleDarkMode = (checked: boolean) => {
     setIsDark(checked);
@@ -221,6 +311,93 @@ export default function SettingsPage() {
       });
     }
   };
+
+  const onServiceSubmit = async (data: ServiceDefinitionFormValues) => {
+    serviceForm.clearErrors();
+    try {
+      const serviceData = {
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      await addDoc(collection(db, 'appServices'), serviceData);
+      toast({
+        title: "Servicio Creado",
+        description: `El servicio "${data.name}" ha sido agregado.`,
+      });
+      serviceForm.reset(); // Reset form after successful submission
+      fetchServiceDefinitions(); // Refresh the list
+    } catch (e) {
+      console.error("Error agregando servicio a Firestore: ", e);
+      toast({
+        title: "Error al Guardar Servicio",
+        description: "Hubo un problema al guardar el servicio. Por favor, intenta de nuevo.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  const onEditServiceSubmit = async (data: ServiceDefinitionFormValues) => {
+    if (!editingService) return;
+    editServiceForm.clearErrors();
+    try {
+      const serviceDocRef = doc(db, 'appServices', editingService.id);
+      const serviceDataToUpdate = {
+        ...data,
+        updatedAt: serverTimestamp(),
+      };
+      await updateDoc(serviceDocRef, serviceDataToUpdate);
+      toast({
+        title: "Servicio Actualizado",
+        description: `El servicio "${data.name}" ha sido actualizado.`,
+      });
+      setIsEditDialogOpen(false);
+      setEditingService(null);
+      fetchServiceDefinitions(); // Refresh list
+    } catch (e) {
+      console.error("Error actualizando servicio en Firestore: ", e);
+      toast({
+        title: "Error al Actualizar",
+        description: "Hubo un problema al actualizar el servicio.",
+        variant: "destructive",
+      });
+    }
+  };
+
+
+  const handleDeleteService = async () => {
+    if (!serviceToDelete) return;
+    setIsDeletingService(true);
+    try {
+      await deleteDoc(doc(db, "appServices", serviceToDelete.id));
+      toast({
+        title: "Servicio Eliminado",
+        description: `El servicio "${serviceToDelete.name}" ha sido eliminado.`,
+      });
+      fetchServiceDefinitions(); // Refresh the list
+    } catch (error) {
+      console.error("Error eliminando servicio: ", error);
+      toast({
+        title: "Error al Eliminar",
+        description: "No se pudo eliminar el servicio.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingService(false);
+      setServiceToDelete(null);
+    }
+  };
+  
+  const handleOpenEditDialog = (service: ServiceDefinition) => {
+    setEditingService(service);
+    editServiceForm.reset({ // Pre-fill the edit form
+      name: service.name,
+      price: service.price,
+      paymentModality: service.paymentModality,
+    });
+    setIsEditDialogOpen(true);
+  };
+
 
   const noRevenueData = monthlyRevenueData.length === 0 || monthlyRevenueData.every(d => d.total === 0);
 
@@ -286,6 +463,186 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center">
+             <Package className="mr-2 h-5 w-5 text-primary" />
+             Gestionar Servicios y Paquetes
+          </CardTitle>
+          <CardDescription>Define los servicios que ofreces a tus clientes.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={serviceForm.handleSubmit(onServiceSubmit)} className="space-y-6 mb-8 p-4 border rounded-md bg-card">
+            <h3 className="text-lg font-medium">Agregar Nuevo Servicio/Paquete</h3>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div>
+                  <Label htmlFor="serviceName">Nombre del Servicio/Paquete</Label>
+                  <Input id="serviceName" {...serviceForm.register("name")} placeholder="Ej: SEO Básico Mensual" />
+                  {serviceForm.formState.errors.name && <p className="text-xs text-destructive mt-1">{serviceForm.formState.errors.name.message}</p>}
+                </div>
+                <div>
+                  <Label htmlFor="servicePrice">Precio (USD)</Label>
+                  <Input id="servicePrice" type="number" step="0.01" {...serviceForm.register("price")} placeholder="Ej: 299.99" />
+                  {serviceForm.formState.errors.price && <p className="text-xs text-destructive mt-1">{serviceForm.formState.errors.price.message}</p>}
+                </div>
+                <div>
+                  <Label htmlFor="paymentModality">Modalidad de Pago</Label>
+                  <Controller
+                    name="paymentModality"
+                    control={serviceForm.control}
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <SelectTrigger id="paymentModality">
+                          <SelectValue placeholder="Seleccionar modalidad" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {paymentModalities.map(modality => (
+                            <SelectItem key={modality} value={modality}>{modality}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {serviceForm.formState.errors.paymentModality && <p className="text-xs text-destructive mt-1">{serviceForm.formState.errors.paymentModality.message}</p>}
+                </div>
+             </div>
+             <Button type="submit" disabled={serviceForm.formState.isSubmitting}>
+                {serviceForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+                Agregar Servicio
+            </Button>
+          </form>
+
+          <h3 className="text-lg font-medium mb-4">Servicios Existentes</h3>
+          {isLoadingServices && (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <p className="ml-2 text-muted-foreground">Cargando servicios...</p>
+            </div>
+          )}
+          {!isLoadingServices && serviceError && (
+            <div className="text-destructive bg-destructive/10 p-3 rounded-md text-sm flex items-center">
+              <AlertTriangle className="h-4 w-4 mr-2 shrink-0"/> {serviceError}
+            </div>
+          )}
+          {!isLoadingServices && !serviceError && serviceDefinitions.length === 0 && (
+            <div className="text-center py-6 text-muted-foreground">
+              <PackageSearch className="mx-auto h-10 w-10 text-gray-400 mb-2" />
+              <p>Aún no has definido ningún servicio o paquete.</p>
+              <p className="text-sm">¡Crea el primero usando el formulario de arriba!</p>
+            </div>
+          )}
+          {!isLoadingServices && !serviceError && serviceDefinitions.length > 0 && (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead className="text-right">Precio (USD)</TableHead>
+                    <TableHead>Modalidad</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {serviceDefinitions.map((service) => (
+                    <TableRow key={service.id}>
+                      <TableCell className="font-medium">{service.name}</TableCell>
+                      <TableCell className="text-right">{service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
+                      <TableCell>{service.paymentModality}</TableCell>
+                      <TableCell className="text-right space-x-1">
+                         <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" onClick={() => handleOpenEditDialog(service)}>
+                            <Edit className="h-4 w-4 text-yellow-600" />
+                         </Button>
+                         <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" onClick={() => setServiceToDelete(service)}>
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          </AlertDialogTrigger>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Edit Service Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[525px]">
+          <DialogHeader>
+            <DialogTitle>Editar Servicio/Paquete</DialogTitle>
+            <DialogDescription>
+              Modifica los detalles de "{editingService?.name}". Los cambios aquí afectarán cómo se auto-populan estos servicios al asignarlos a clientes.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={editServiceForm.handleSubmit(onEditServiceSubmit)} className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="editServiceName">Nombre del Servicio/Paquete</Label>
+              <Input id="editServiceName" {...editServiceForm.register("name")} />
+              {editServiceForm.formState.errors.name && <p className="text-xs text-destructive mt-1">{editServiceForm.formState.errors.name.message}</p>}
+            </div>
+            <div>
+              <Label htmlFor="editServicePrice">Precio (USD)</Label>
+              <Input id="editServicePrice" type="number" step="0.01" {...editServiceForm.register("price")} />
+              {editServiceForm.formState.errors.price && <p className="text-xs text-destructive mt-1">{editServiceForm.formState.errors.price.message}</p>}
+            </div>
+            <div>
+              <Label htmlFor="editPaymentModality">Modalidad de Pago</Label>
+               <Controller
+                    name="paymentModality"
+                    control={editServiceForm.control}
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <SelectTrigger id="editPaymentModality">
+                          <SelectValue placeholder="Seleccionar modalidad" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {paymentModalities.map(modality => (
+                            <SelectItem key={modality} value={modality}>{modality}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+              {editServiceForm.formState.errors.paymentModality && <p className="text-xs text-destructive mt-1">{editServiceForm.formState.errors.paymentModality.message}</p>}
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline" onClick={() => setEditingService(null)}>Cancelar</Button>
+              </DialogClose>
+              <Button type="submit" disabled={editServiceForm.formState.isSubmitting}>
+                {editServiceForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Guardar Cambios"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* Delete Service Confirmation Dialog */}
+      <AlertDialog open={!!serviceToDelete} onOpenChange={(open) => {if(!isDeletingService && !open) setServiceToDelete(null)}}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar Servicio/Paquete?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Estás a punto de eliminar el servicio "{serviceToDelete?.name}". Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingService} onClick={() => setServiceToDelete(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteService}
+              disabled={isDeletingService}
+              className={cn(buttonVariants({ variant: "destructive" }))}
+            >
+              {isDeletingService ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
 
       <Card className="shadow-lg">
         <CardHeader>
@@ -385,3 +742,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

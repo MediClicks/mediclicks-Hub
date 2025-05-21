@@ -4,12 +4,12 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore';
-import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus } from '@/types';
+import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Client } from '@/types';
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
@@ -35,7 +35,7 @@ interface RecentActivityItem {
 
 interface UpcomingItem {
   id: string;
-  name: string;
+  name: string; // Will include type and client name for context
   dueDateFormatted: string;
   type: 'task' | 'invoice';
   href: string;
@@ -52,7 +52,8 @@ interface TaskStatusChartData {
   fill: string;
 }
 
-function convertFirestoreTimestamps<T extends Record<string, any>>(data: T): WithConvertedDates<T> {
+function convertFirestoreTimestamps<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
+  if (!data) return undefined;
   const convertedData = { ...data } as any;
   for (const key in convertedData) {
     if (convertedData[key] instanceof Timestamp) {
@@ -153,7 +154,10 @@ export default function DashboardPage() {
         );
         const paidInvoicesThisMonthSnap = await getDocs(paidInvoicesThisMonthQuery);
         const revenueThisMonthAmount = paidInvoicesThisMonthSnap.docs
-          .reduce((sum, doc) => sum + (doc.data().totalAmount || 0), 0);
+          .reduce((sum, doc) => {
+            const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
+            return sum + (invoice?.totalAmount || 0);
+          }, 0);
         
         setStats({
           totalClients,
@@ -173,9 +177,9 @@ export default function DashboardPage() {
 
         allPaidInvoicesSnap.docs.forEach(doc => {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
-          if (invoice.issuedDate) {
+          if (invoice?.issuedDate) {
             const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
-            revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + invoice.totalAmount;
+            revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + (invoice.totalAmount || 0);
           }
         });
         
@@ -201,19 +205,23 @@ export default function DashboardPage() {
         const fetchedRecentActivity: RecentActivityItem[] = [];
         recentTasksSnap.docs.forEach(doc => {
           const task = convertFirestoreTimestamps(doc.data() as Task);
-          fetchedRecentActivity.push({ 
-            id: doc.id, type: 'task', name: task.name, 
-            statusOrClient: task.status, date: task.createdAt!, statusType: task.status,
-            href: `/tasks/${doc.id}/edit`
-          });
+          if (task && task.createdAt) {
+            fetchedRecentActivity.push({ 
+              id: doc.id, type: 'task', name: task.name || "Tarea sin nombre", 
+              statusOrClient: task.status, date: new Date(task.createdAt), statusType: task.status,
+              href: `/tasks/${doc.id}/edit`
+            });
+          }
         });
         recentInvoicesSnap.docs.forEach(doc => {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
-          fetchedRecentActivity.push({ 
-            id: doc.id, type: 'invoice', name: `Factura para ${invoice.clientName || 'N/A'}`, 
-            statusOrClient: invoice.status, date: invoice.createdAt!, statusType: invoice.status,
-            href: `/billing/${doc.id}/view`
-          });
+          if (invoice && invoice.createdAt) {
+            fetchedRecentActivity.push({ 
+              id: doc.id, type: 'invoice', name: `Factura para ${invoice.clientName || 'N/A'}`, 
+              statusOrClient: invoice.status, date: new Date(invoice.createdAt), statusType: invoice.status,
+              href: `/billing/${doc.id}/view`
+            });
+          }
         });
         fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
         setRecentActivity(fetchedRecentActivity.slice(0, 5));
@@ -240,20 +248,28 @@ export default function DashboardPage() {
         const fetchedUpcomingItems: UpcomingItem[] = [];
         upcomingTasksSnap.docs.forEach(doc => {
           const task = convertFirestoreTimestamps(doc.data() as Task);
-          fetchedUpcomingItems.push({ 
-            id: doc.id, type: 'task', name: task.name, 
-            dueDateFormatted: task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A',
-            href: `/tasks/${doc.id}/edit`
-          });
+          if (task && task.dueDate) {
+            let taskDisplayName = `Tarea: ${task.name || "Tarea sin nombre"}`;
+            if (task.clientName) {
+              taskDisplayName += ` (Cliente: ${task.clientName})`;
+            }
+            fetchedUpcomingItems.push({ 
+              id: doc.id, type: 'task', name: taskDisplayName, 
+              dueDateFormatted: new Date(task.dueDate).toLocaleDateString('es-ES'),
+              href: `/tasks/${doc.id}/edit`
+            });
+          }
         });
         upcomingInvoicesSnap.docs.forEach(doc => {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
-          fetchedUpcomingItems.push({ 
-            id: doc.id, type: 'invoice', 
-            name: `Factura ${doc.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
-            dueDateFormatted: invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A',
-            href: `/billing/${doc.id}/view`
-          });
+          if (invoice && invoice.dueDate) {
+            fetchedUpcomingItems.push({ 
+              id: doc.id, type: 'invoice', 
+              name: `Factura ${doc.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
+              dueDateFormatted: new Date(invoice.dueDate).toLocaleDateString('es-ES'),
+              href: `/billing/${doc.id}/view`
+            });
+          }
         });
         fetchedUpcomingItems.sort((a, b) => {
             const dateA = a.dueDateFormatted !== 'N/A' ? new Date(a.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
@@ -265,9 +281,9 @@ export default function DashboardPage() {
       } catch (err) {
         console.error("Error fetching dashboard data: ", err);
         if (err instanceof Error && (err.message.includes("index") || err.message.includes("Index"))) {
-            setError(`Se requiere un índice de Firestore. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
+            setError(`Se requiere un índice de Firestore para cargar los datos del panel. Por favor, créalo usando el enlace que aparece en la consola de errores del navegador y luego recarga la página. (${err.message})`);
         } else if (err instanceof Error) {
-           setError(`Error al cargar datos: ${err.message}`);
+           setError(`Error al cargar datos del panel: ${err.message}`);
         } else {
            setError("No se pudieron cargar los datos del panel. Intenta de nuevo más tarde.");
         }
@@ -310,7 +326,7 @@ export default function DashboardPage() {
           value={stats?.totalClients ?? 0} 
           icon={Users}
           description="Clientes activos gestionados"
-          className="border-primary" // Example: blue border
+          className="border-primary"
           href="/clients"
         />
         <SummaryCard 
@@ -318,7 +334,7 @@ export default function DashboardPage() {
           value={stats?.tasksInProgress ?? 0} 
           icon={Briefcase}
           description="Tareas actualmente en desarrollo"
-          className="border-sky-500" // Example: sky blue border
+          className="border-sky-500"
           href="/tasks?status=En+Progreso"
         />
         <SummaryCard 
@@ -326,7 +342,7 @@ export default function DashboardPage() {
           value={stats?.pendingTasks ?? 0} 
           icon={ListTodo}
           description="Tareas que requieren atención"
-          className="border-amber-500" // Example: amber border
+          className="border-amber-500"
           href="/tasks?status=Pendiente"
         />
         <SummaryCard 
@@ -334,7 +350,7 @@ export default function DashboardPage() {
           value={stats?.revenueThisMonth ?? 'Calculando...'} 
           icon={DollarSign}
           description="Basado en facturas pagadas"
-          className="border-green-500" // Example: green border
+          className="border-green-500"
           href="/billing?status=Pagada"
         />
       </div>
@@ -472,3 +488,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
