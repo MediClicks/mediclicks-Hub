@@ -10,8 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail } from 'lucide-react';
+import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { PDFDownloadLink } from '@react-pdf/renderer';
+import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
 
 type InvoiceWithConvertedDates = WithConvertedDates<Invoice>;
 type ClientWithConvertedDates = WithConvertedDates<Client>;
@@ -46,6 +48,11 @@ export default function ViewInvoicePage() {
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     const fetchInvoiceData = async () => {
@@ -287,7 +294,24 @@ export default function ViewInvoicePage() {
               <Button onClick={handlePrint} variant="outline">
                 <Printer className="mr-2 h-4 w-4" /> Imprimir
               </Button>
-              {/* PDF Download functionality removed */}
+              {isClient && invoice && client && agencyDetails ? (
+                <PDFDownloadLink
+                  document={<InvoicePdfDocument invoice={invoice} client={client} agencyDetails={agencyDetails} />}
+                  fileName={`Factura-${displayInvoiceId}.pdf`}
+                >
+                  {({ loading }) => (
+                    <Button variant="outline" disabled={loading}>
+                      {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                      {loading ? 'Generando PDF...' : 'Descargar PDF'}
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+              ) : (
+                 <Button variant="outline" disabled>
+                    <Download className="mr-2 h-4 w-4" />
+                    Descargar PDF
+                 </Button>
+              )}
             </div>
           </div>
         </CardFooter>
