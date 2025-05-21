@@ -5,15 +5,15 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Invoice, Client, WithConvertedDates, InvoiceItem, AgencyDetails } from '@/types';
+import type { Invoice, Client, WithConvertedDates, AgencyDetails } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail, Download } from 'lucide-react';
+import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { PDFDownloadLink } from '@react-pdf/renderer';
-import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
+// import { PDFDownloadLink } from '@react-pdf/renderer'; // Comentado para eliminar error
+// import InvoicePdfDocument from '@/components/billing/invoice-pdf-document'; // Comentado
 
 type InvoiceWithConvertedDates = WithConvertedDates<Invoice>;
 type ClientWithConvertedDates = WithConvertedDates<Client>;
@@ -48,11 +48,11 @@ export default function ViewInvoicePage() {
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isClient, setIsClient] = useState(false);
+  // const [isClientSide, setIsClientSide] = useState(false); // Comentado
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+  // useEffect(() => { // Comentado
+  //   setIsClientSide(true);
+  // }, []);
 
   useEffect(() => {
     const fetchInvoiceData = async () => {
@@ -76,8 +76,8 @@ export default function ViewInvoicePage() {
         
         const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>;
         const invoiceDataWithCorrectId: Invoice = {
-          ...firestoreData, 
-          id: invoiceSnap.id, 
+          ...firestoreData, // Propagar los datos primero
+          id: invoiceSnap.id, // Luego sobrescribir/asegurar el ID del documento
         };
         const fetchedInvoice = convertTimestampsToDates(invoiceDataWithCorrectId);
         setInvoice(fetchedInvoice ?? null);
@@ -89,8 +89,8 @@ export default function ViewInvoicePage() {
           if (clientSnap.exists()) {
             const clientDataFromFirestore = clientSnap.data() as Omit<Client, 'id'>;
             const clientDataWithCorrectId: Client = {
-                ...clientDataFromFirestore,
-                id: clientSnap.id,
+                ...clientDataFromFirestore, // Propagar los datos primero
+                id: clientSnap.id, // Luego sobrescribir/asegurar el ID del documento
             };
             setClient(convertTimestampsToDates(clientDataWithCorrectId) ?? null);
           } else {
@@ -107,12 +107,14 @@ export default function ViewInvoicePage() {
         if (agencySnap.exists()) {
           setAgencyDetails(agencySnap.data() as AgencyDetails);
         } else {
+           // Proporcionar valores por defecto si no se encuentran los detalles de la agencia
           setAgencyDetails({ 
             agencyName: "Tu Agencia S.L.",
             address: "Calle Falsa 123, Ciudad, CP",
             taxId: "NIF/CIF: X1234567Z",
             contactEmail: "contacto@tuagencia.com",
-            contactPhone: "+34 900 000 000"
+            contactPhone: "+34 900 000 000",
+            website: "www.tuagencia.com"
           });
         }
 
@@ -294,7 +296,9 @@ export default function ViewInvoicePage() {
               <Button onClick={handlePrint} variant="outline">
                 <Printer className="mr-2 h-4 w-4" /> Imprimir
               </Button>
-              {isClient && invoice && client && agencyDetails ? (
+              {/* 
+                PDFDownloadLink comentado para evitar errores.
+                {isClientSide && invoice && client && agencyDetails ? (
                 <PDFDownloadLink
                   document={<InvoicePdfDocument invoice={invoice} client={client} agencyDetails={agencyDetails} />}
                   fileName={`Factura-${displayInvoiceId}.pdf`}
@@ -311,7 +315,8 @@ export default function ViewInvoicePage() {
                     <Download className="mr-2 h-4 w-4" />
                     Descargar PDF
                  </Button>
-              )}
+              )} 
+              */}
             </div>
           </div>
         </CardFooter>

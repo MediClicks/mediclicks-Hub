@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { BarChart3, Building, Save, Loader2, AlertTriangle, PlusCircle, Trash2, Edit, PackageSearch, Package } from "lucide-react"; // Added Package
-import React, { useEffect, useState } from "react";
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { BarChart3, Building, Save, Loader2, AlertTriangle, PlusCircle, Trash2, Edit, PackageSearch, Package } from "lucide-react";
+import React, { useEffect, useState, useMemo } from "react"; // Agregado useMemo
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useToast } from '@/hooks/use-toast';
@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { AgencyDetails, Invoice, WithConvertedDates, ServiceDefinition, PaymentModality } from "@/types";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { format, subMonths, startOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAuth } from "@/contexts/auth-context"; 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -41,7 +41,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -145,6 +144,31 @@ export default function SettingsPage() {
     resolver: zodResolver(serviceDefinitionSchema),
   });
 
+  const fetchServiceDefinitions = React.useCallback(async () => {
+    setIsLoadingServices(true);
+    setServiceError(null);
+    try {
+      const servicesCollection = collection(db, "appServices");
+      const q = query(servicesCollection, orderBy("name", "asc"));
+      const querySnapshot = await getDocs(q);
+      const fetchedServices = querySnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return { id: docSnap.id, ...convertFirestoreTimestamps(data) } as ServiceDefinition;
+      });
+      setServiceDefinitions(fetchedServices);
+    } catch (err: any) {
+      console.error("Error fetching service definitions: ", err);
+      setServiceError("No se pudieron cargar las definiciones de servicios.");
+      toast({
+        title: "Error al Cargar Servicios",
+        description: err.message || "No se pudieron cargar las definiciones de servicios.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingServices(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     const theme = localStorage.getItem('theme');
     if (theme === 'dark') {
@@ -227,49 +251,14 @@ export default function SettingsPage() {
           specificError = `Error al cargar gráfico: ${err.message}`;
         }
         setChartError(specificError);
-        toast({
-          title: "Error en Gráfico",
-          description: specificError,
-          variant: "destructive",
-        });
+        // No mostramos toast aquí para no saturar si el error es por índice
       } finally {
         setIsLoadingChart(false);
       }
     };
     fetchRevenueChartData();
-
     fetchServiceDefinitions();
-
-  }, [agencyForm, toast]); // fetchServiceDefinitions will be added once defined
-
-  const fetchServiceDefinitions = async () => {
-    setIsLoadingServices(true);
-    setServiceError(null);
-    try {
-      const servicesCollection = collection(db, "appServices");
-      const q = query(servicesCollection, orderBy("name", "asc"));
-      const querySnapshot = await getDocs(q);
-      const fetchedServices = querySnapshot.docs.map(docSnap => {
-        const data = docSnap.data();
-        return { id: docSnap.id, ...convertFirestoreTimestamps(data) } as ServiceDefinition;
-      });
-      setServiceDefinitions(fetchedServices);
-    } catch (err: any) {
-      console.error("Error fetching service definitions: ", err);
-      setServiceError("No se pudieron cargar las definiciones de servicios.");
-      toast({
-        title: "Error al Cargar Servicios",
-        description: err.message || "No se pudieron cargar las definiciones de servicios.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingServices(false);
-    }
-  };
-  
-  React.useEffect(() => {
-    fetchServiceDefinitions();
-  }, [toast]);
+  }, [agencyForm, toast, fetchServiceDefinitions]);
 
 
   const toggleDarkMode = (checked: boolean) => {
@@ -325,8 +314,8 @@ export default function SettingsPage() {
         title: "Servicio Creado",
         description: `El servicio "${data.name}" ha sido agregado.`,
       });
-      serviceForm.reset(); // Reset form after successful submission
-      fetchServiceDefinitions(); // Refresh the list
+      serviceForm.reset(); 
+      fetchServiceDefinitions(); 
     } catch (e) {
       console.error("Error agregando servicio a Firestore: ", e);
       toast({
@@ -353,7 +342,7 @@ export default function SettingsPage() {
       });
       setIsEditDialogOpen(false);
       setEditingService(null);
-      fetchServiceDefinitions(); // Refresh list
+      fetchServiceDefinitions(); 
     } catch (e) {
       console.error("Error actualizando servicio en Firestore: ", e);
       toast({
@@ -364,7 +353,6 @@ export default function SettingsPage() {
     }
   };
 
-
   const handleDeleteService = async () => {
     if (!serviceToDelete) return;
     setIsDeletingService(true);
@@ -374,7 +362,7 @@ export default function SettingsPage() {
         title: "Servicio Eliminado",
         description: `El servicio "${serviceToDelete.name}" ha sido eliminado.`,
       });
-      fetchServiceDefinitions(); // Refresh the list
+      fetchServiceDefinitions(); 
     } catch (error) {
       console.error("Error eliminando servicio: ", error);
       toast({
@@ -390,7 +378,7 @@ export default function SettingsPage() {
   
   const handleOpenEditDialog = (service: ServiceDefinition) => {
     setEditingService(service);
-    editServiceForm.reset({ // Pre-fill the edit form
+    editServiceForm.reset({ 
       name: service.name,
       price: service.price,
       paymentModality: service.paymentModality,
@@ -398,6 +386,18 @@ export default function SettingsPage() {
     setIsEditDialogOpen(true);
   };
 
+  const categorizedServices = useMemo(() => {
+    const categories: Record<PaymentModality, ServiceDefinition[]> = {
+      'Único': [],
+      'Mensual': [],
+      'Trimestral': [],
+      'Anual': [],
+    };
+    serviceDefinitions.forEach(service => {
+      categories[service.paymentModality]?.push(service);
+    });
+    return categories;
+  }, [serviceDefinitions]);
 
   const noRevenueData = monthlyRevenueData.length === 0 || monthlyRevenueData.every(d => d.total === 0);
 
@@ -513,7 +513,7 @@ export default function SettingsPage() {
             </Button>
           </form>
 
-          <h3 className="text-lg font-medium mb-4">Servicios Existentes</h3>
+          <h3 className="text-xl font-semibold mb-6 mt-10 border-b pb-2">Listado de Servicios Definidos</h3>
           {isLoadingServices && (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -532,49 +532,61 @@ export default function SettingsPage() {
               <p className="text-sm">¡Crea el primero usando el formulario de arriba!</p>
             </div>
           )}
+          
           {!isLoadingServices && !serviceError && serviceDefinitions.length > 0 && (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead className="text-right">Precio (USD)</TableHead>
-                    <TableHead>Modalidad</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {serviceDefinitions.map((service) => (
-                    <TableRow key={service.id}>
-                      <TableCell className="font-medium">{service.name}</TableCell>
-                      <TableCell className="text-right">{service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
-                      <TableCell>{service.paymentModality}</TableCell>
-                      <TableCell className="text-right space-x-1">
-                         <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" onClick={() => handleOpenEditDialog(service)}>
-                            <Edit className="h-4 w-4 text-yellow-600" />
-                         </Button>
-                         <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" onClick={() => setServiceToDelete(service)}>
-                              <Trash2 className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </AlertDialogTrigger>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="space-y-6">
+              {paymentModalities.map(modality => {
+                const servicesInThisCategory = categorizedServices[modality];
+                if (servicesInThisCategory.length === 0) return null; // No renderizar la sección si no hay servicios
+
+                return (
+                  <div key={modality}>
+                    <h4 className="text-lg font-medium mb-3 text-primary">{modality}</h4>
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Nombre</TableHead>
+                            <TableHead className="text-right">Precio (USD)</TableHead>
+                            {/* No necesitamos columna Modalidad aquí ya que están agrupados */}
+                            <TableHead className="text-right">Acciones</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {servicesInThisCategory.map((service) => (
+                            <TableRow key={service.id}>
+                              <TableCell className="font-medium">{service.name}</TableCell>
+                              <TableCell className="text-right">{service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
+                              <TableCell className="text-right space-x-1">
+                                 <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" onClick={() => handleOpenEditDialog(service)}>
+                                    <Edit className="h-4 w-4 text-yellow-600" />
+                                 </Button>
+                                 <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" onClick={() => setServiceToDelete(service)}>
+                                      <Trash2 className="h-4 w-4 text-red-600" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
       </Card>
 
       {/* Edit Service Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+      <Dialog open={isEditDialogOpen} onOpenChange={(open) => { if (!open) setEditingService(null); setIsEditDialogOpen(open);}}>
         <DialogContent className="sm:max-w-[525px]">
           <DialogHeader>
             <DialogTitle>Editar Servicio/Paquete</DialogTitle>
             <DialogDescription>
-              Modifica los detalles de "{editingService?.name}". Los cambios aquí afectarán cómo se auto-populan estos servicios al asignarlos a clientes.
+              Modifica los detalles de "{editingService?.name}".
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={editServiceForm.handleSubmit(onEditServiceSubmit)} className="space-y-4 py-4">
@@ -610,7 +622,7 @@ export default function SettingsPage() {
             </div>
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="button" variant="outline" onClick={() => setEditingService(null)}>Cancelar</Button>
+                <Button type="button" variant="outline" onClick={() => {setEditingService(null); setIsEditDialogOpen(false);}}>Cancelar</Button>
               </DialogClose>
               <Button type="submit" disabled={editServiceForm.formState.isSubmitting}>
                 {editServiceForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Guardar Cambios"}
@@ -619,7 +631,6 @@ export default function SettingsPage() {
           </form>
         </DialogContent>
       </Dialog>
-
 
       {/* Delete Service Confirmation Dialog */}
       <AlertDialog open={!!serviceToDelete} onOpenChange={(open) => {if(!isDeletingService && !open) setServiceToDelete(null)}}>
@@ -642,7 +653,6 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
 
       <Card className="shadow-lg">
         <CardHeader>
@@ -742,4 +752,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
