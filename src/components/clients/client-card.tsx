@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates } from "@/types";
-import { Briefcase, CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Share2 } from 'lucide-react';
+import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe } from 'lucide-react'; // Removed Briefcase, Share2
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -50,7 +50,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
       await deleteDoc(doc(db, "clients", client.id));
       toast({
         title: "Cliente Eliminado",
-        description: `El cliente ${client.name} ha sido eliminado correctamente.`,
+        description: `El cliente ${client.name} ha sido eliminado correctamente. Las tareas y facturas asociadas no se eliminan automáticamente.`,
       });
       onClientDeleted(client.id);
       setShowDeleteDialog(false); 
@@ -79,7 +79,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           </Avatar>
           <div className="flex-1">
             <CardTitle className="text-xl mb-1 text-foreground">
-              <Link href={`/clients/${client.id}/edit`} className="hover:underline">
+              <Link href={`/clients/${client.id}/edit`} className="hover:underline text-primary">
                 {client.name}
               </Link>
             </CardTitle>
@@ -99,13 +99,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           </div>
         </CardHeader>
         <CardContent className="p-4 space-y-3 flex-grow">
-          <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-              <Briefcase className="mr-2 h-4 w-4 text-primary" /> Servicios Activos
-            </h4>
-             <p className="text-xs text-foreground line-clamp-2">{client.serviciosActivosGeneral || 'No especificado'}</p>
-          </div>
-
+          
           {client.profileSummary && (
             <div>
               <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
@@ -115,15 +109,18 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             </div>
           )}
 
-          {client.plataformasRedesSociales && (
-             <div>
+          {/* Display summary of contracted services */}
+           {(client.contractedServices && client.contractedServices.length > 0) && (
+            <div>
               <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-                <Share2 className="mr-2 h-4 w-4 text-primary" /> Redes Sociales
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 h-4 w-4 text-primary"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><path d="M20 12H4"/></svg>
+                 Servicios Contratados ({client.contractedServices.length})
               </h4>
-              <p className="text-xs text-foreground line-clamp-2">{client.plataformasRedesSociales}</p>
+              <p className="text-xs text-foreground line-clamp-2">
+                {client.contractedServices.map(s => s.serviceName).join(', ') || 'No especificado'}
+              </p>
             </div>
           )}
-
 
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -132,17 +129,14 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
               </h4>
               <p>{formatDate(client.contractStartDate)}</p>
             </div>
-            <div>
-              <h4 className="text-xs font-medium text-muted-foreground mb-0.5 flex items-center">
-                <CalendarDays className="mr-1 h-3 w-3 text-primary/80" /> Próx. Factura
-              </h4>
-              <p>{formatDate(client.nextBillingDate)}</p>
-            </div>
+            {/* NextBillingDate was removed, so this part is removed */}
           </div>
 
           {client.dominioWeb && (
             <div>
-              <h4 className="text-xs font-medium text-muted-foreground mb-0.5">Dominio Web</h4>
+              <h4 className="text-sm font-medium text-muted-foreground mb-0.5 flex items-center">
+                 <Globe className="mr-2 h-4 w-4 text-primary" /> Dominio Web
+              </h4>
               <p className="text-sm">{client.dominioWeb}</p>
               {client.vencimientoWeb && <p className="text-xs text-muted-foreground">Vence: {formatDate(client.vencimientoWeb)}</p>}
             </div>
@@ -182,7 +176,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar este cliente?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará permanentemente el cliente "{client.name}" y todos sus datos asociados (las tareas y facturas no se eliminarán automáticamente).
+              Esta acción no se puede deshacer. Se eliminará permanentemente el cliente "{client.name}". Las tareas y facturas asociadas a este cliente no se eliminarán automáticamente.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
