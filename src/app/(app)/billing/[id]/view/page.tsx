@@ -5,7 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Invoice, Client, WithConvertedDates, InvoiceItem } from '@/types';
+import type { Invoice, Client, WithConvertedDates, InvoiceItem, AgencyDetails } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,15 +14,6 @@ import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCir
 import { useToast } from '@/hooks/use-toast';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
-
-interface AgencyDetails {
-  agencyName?: string;
-  address?: string;
-  taxId?: string;
-  contactPhone?: string;
-  contactEmail?: string;
-  website?: string;
-}
 
 type InvoiceWithConvertedDates = WithConvertedDates<Invoice>;
 type ClientWithConvertedDates = WithConvertedDates<Client>;
@@ -79,7 +70,13 @@ export default function ViewInvoicePage() {
           setIsLoading(false);
           return;
         }
-        const fetchedInvoice = convertTimestampsToDates(invoiceSnap.data() as Invoice);
+        
+        const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>; // Data from Firestore document
+        const invoiceDataWithCorrectId: Invoice = {
+          ...firestoreData, // Spread the document data first
+          id: invoiceSnap.id, // Ensure the actual document ID overwrites any 'id' field from firestoreData
+        };
+        const fetchedInvoice = convertTimestampsToDates(invoiceDataWithCorrectId);
         setInvoice(fetchedInvoice ?? null);
 
         // Fetch Client if invoice exists
@@ -87,7 +84,12 @@ export default function ViewInvoicePage() {
           const clientDocRef = doc(db, 'clients', fetchedInvoice.clientId);
           const clientSnap = await getDoc(clientDocRef);
           if (clientSnap.exists()) {
-            setClient(convertTimestampsToDates(clientSnap.data() as Client) ?? null);
+            const clientDataFromFirestore = clientSnap.data() as Omit<Client, 'id'>;
+            const clientDataWithCorrectId: Client = {
+                ...clientDataFromFirestore,
+                id: clientSnap.id,
+            };
+            setClient(convertTimestampsToDates(clientDataWithCorrectId) ?? null);
           } else {
             console.warn(`Cliente con ID ${fetchedInvoice.clientId} no encontrado para la factura ${invoiceId}`);
             setClient(null); 
@@ -153,13 +155,25 @@ export default function ViewInvoicePage() {
     );
   }
 
-  if (!invoice) {
-    return <div className="text-center py-10">Factura no encontrada.</div>;
+  if (!invoice) { // This check should catch if fetchedInvoice was null
+    return (
+         <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] text-center">
+            <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
+            <h2 className="text-2xl font-semibold mb-2">Factura no Encontrada</h2>
+            <p className="text-muted-foreground mb-6">No se pudo cargar la factura o no existe.</p>
+            <Button onClick={() => router.push('/billing')}>
+              <ArrowLeft className="mr-2 h-4 w-4" /> Volver a Facturación
+            </Button>
+        </div>
+    );
   }
+  
+  // Defensive check for invoice.id just before rendering
+  const displayInvoiceId = invoice.id ? String(invoice.id).substring(0,10).toUpperCase() : 'ID N/A';
 
-  const subtotal = invoice.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  const subtotal = Array.isArray(invoice.items) ? invoice.items.reduce((sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0), 0) : 0;
   const taxAmount = 0; 
-  const total = subtotal + taxAmount; // This was previously used, but invoice.totalAmount is what's stored.
+  const total = invoice.totalAmount || 0;
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 bg-background">
@@ -169,7 +183,7 @@ export default function ViewInvoicePage() {
             <div>
               <FileText className="h-10 w-10 text-primary mb-2" />
               <CardTitle className="text-3xl font-bold">Factura</CardTitle>
-              <CardDescription>ID: {invoice.id.substring(0,10).toUpperCase()}</CardDescription>
+              <CardDescription>ID: {displayInvoiceId}</CardDescription>
             </div>
             <div className="text-left sm:text-right">
               <h3 className="text-xl font-semibold text-primary">{agencyDetails?.agencyName || "Nombre de Agencia"}</h3>
@@ -187,9 +201,9 @@ export default function ViewInvoicePage() {
               <h4 className="font-semibold text-primary flex items-center"><UserCircle className="mr-2 h-5 w-5"/>Facturar a:</h4>
               {client ? (
                 <>
-                  <p className="font-medium text-lg">{client.name}</p>
+                  <p className="font-medium text-lg">{client.name || 'N/A'}</p>
                   {client.clinica && <p className="text-muted-foreground flex items-center"><Building className="mr-2 h-4 w-4 opacity-70"/> {client.clinica}</p>}
-                  <p className="text-muted-foreground flex items-center"><Mail className="mr-2 h-4 w-4 opacity-70"/> {client.email}</p>
+                  <p className="text-muted-foreground flex items-center"><Mail className="mr-2 h-4 w-4 opacity-70"/> {client.email || 'N/A'}</p>
                   {client.telefono && <p className="text-muted-foreground flex items-center"><Phone className="mr-2 h-4 w-4 opacity-70"/> {client.telefono}</p>}
                 </>
               ) : (
@@ -208,7 +222,7 @@ export default function ViewInvoicePage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Estado:</span>
-                <span className="font-semibold text-primary">{invoice.status}</span>
+                <span className="font-semibold text-primary">{invoice.status || 'N/A'}</span>
               </div>
             </div>
           </div>
@@ -227,12 +241,12 @@ export default function ViewInvoicePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoice.items.map((item, index) => (
-                  <TableRow key={item.id || index}>
-                    <TableCell>{item.description}</TableCell>
-                    <TableCell className="text-right">{item.quantity}</TableCell>
-                    <TableCell className="text-right">{item.unitPrice.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
-                    <TableCell className="text-right">{(item.quantity * item.unitPrice).toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
+                {(Array.isArray(invoice.items) ? invoice.items : []).map((item, index) => (
+                  <TableRow key={item.id || `item-${index}`}>
+                    <TableCell>{item.description || 'N/A'}</TableCell>
+                    <TableCell className="text-right">{item.quantity || 0}</TableCell>
+                    <TableCell className="text-right">{(item.unitPrice || 0).toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
+                    <TableCell className="text-right">{((item.quantity || 0) * (item.unitPrice || 0)).toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -254,7 +268,7 @@ export default function ViewInvoicePage() {
               <Separator />
               <div className="flex justify-between text-lg font-bold text-primary">
                 <span>TOTAL:</span>
-                <span>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+                <span>{total.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
               </div>
             </div>
           </div>
@@ -281,7 +295,7 @@ export default function ViewInvoicePage() {
               {isClient && invoice && client && agencyDetails && (
                 <PDFDownloadLink
                   document={<InvoicePdfDocument invoice={invoice} client={client} agencyDetails={agencyDetails} />}
-                  fileName={`Factura-${invoice.id.substring(0,8).toUpperCase()}.pdf`}
+                  fileName={`Factura-${displayInvoiceId}.pdf`}
                 >
                   {({ loading }) => (
                     <Button disabled={loading}>
@@ -298,4 +312,3 @@ export default function ViewInvoicePage() {
     </div>
   );
 }
-
