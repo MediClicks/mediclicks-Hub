@@ -13,10 +13,10 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Invoice, InvoiceStatus, WithConvertedDates, Client } from "@/types";
+import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types";
 import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle, CheckSquare, Clock } from "lucide-react";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint, getDoc } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -39,6 +39,8 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
+import { PDFDownloadLink } from '@react-pdf/renderer';
+import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
 
 const statusColors: Record<InvoiceStatus, string> = {
   Pagada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
@@ -46,30 +48,21 @@ const statusColors: Record<InvoiceStatus, string> = {
   Vencida: "bg-red-500 border-red-600 hover:bg-red-600 text-white",
 };
 
-function convertInvoiceTimestamps(docData: any): WithConvertedDates<Invoice> {
-  const data = { ...docData } as Partial<WithConvertedDates<Invoice>>;
+function convertFirestoreTimestamps<T extends Record<string, any>>(docData: any): WithConvertedDates<T> {
+  if (!docData) return docData as WithConvertedDates<T>; // Handle undefined input
+  const data = { ...docData } as Partial<WithConvertedDates<T>>;
   for (const key in data) {
-    if (data[key as keyof Invoice] instanceof Timestamp) {
-      data[key as keyof Invoice] = (data[key as keyof Invoice] as Timestamp).toDate() as any;
-    } else if (Array.isArray(data[key as keyof Invoice])) {
-      (data[key as keyof Invoice] as any) = (data[key as keyof Invoice] as any[]).map(item =>
-        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertInvoiceTimestamps(item) : item
+    if (data[key as keyof T] instanceof Timestamp) {
+      data[key as keyof T] = (data[key as keyof T] as Timestamp).toDate() as any;
+    } else if (Array.isArray(data[key as keyof T])) {
+      (data[key as keyof T] as any) = (data[key as keyof T] as any[]).map(item =>
+        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertFirestoreTimestamps(item) : item
       );
-    } else if (typeof data[key as keyof Invoice] === 'object' && data[key as keyof Invoice] !== null && !((data[key as keyof Invoice]) instanceof Date)) {
-      (data[key as keyof Invoice] as any) = convertInvoiceTimestamps(data[key as keyof Invoice] as any);
+    } else if (typeof data[key as keyof T] === 'object' && data[key as keyof T] !== null && !((data[key as keyof T]) instanceof Date)) {
+      (data[key as keyof T] as any) = convertFirestoreTimestamps(data[key as keyof T] as any);
     }
   }
-  return data as WithConvertedDates<Invoice>;
-}
-
-function convertClientTimestamps(docData: any): WithConvertedDates<Client> {
-  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
-  for (const key in data) {
-    if (data[key as keyof Client] instanceof Timestamp) {
-      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
-    }
-  }
-  return data as WithConvertedDates<Client>;
+  return data as WithConvertedDates<T>;
 }
 
 
@@ -83,35 +76,75 @@ const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Venci
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
   const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]);
+  const [allClients, setAllClients] = useState<Record<string, WithConvertedDates<Client>>>({}); // Store all clients by ID for PDF
+  const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
+  const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
+  const [isClient, setIsClient] = useState(false); // For client-side rendering of PDFLink
 
+  useEffect(() => {
+    setIsClient(true); // Ensure PDFDownloadLink only renders on client
+  }, []);
 
-  const fetchClientsForFilter = useCallback(async () => {
+  const fetchInitialData = useCallback(async () => {
     setIsLoadingClients(true);
+    setIsLoadingAgencyDetails(true);
+    let fetchedClientsForFilter: WithConvertedDates<Client>[] = [];
+    let fetchedAllClients: Record<string, WithConvertedDates<Client>> = {};
+    let fetchedAgencyDetails: AgencyDetails | null = null;
+
     try {
+      // Fetch Clients for filter and PDF
       const clientsCollection = collection(db, "clients");
-      const q = query(clientsCollection, orderBy("name", "asc"));
-      const querySnapshot = await getDocs(q);
-      const clientsData = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        const convertedData = convertClientTimestamps(data as Client);
-        return { id: doc.id, ...convertedData };
+      const clientsQuery = query(clientsCollection, orderBy("name", "asc"));
+      const clientsSnapshot = await getDocs(clientsQuery);
+      fetchedClientsForFilter = clientsSnapshot.docs.map(doc => {
+        const data = convertFirestoreTimestamps<Client>(doc.data() as Client);
+        return { id: doc.id, ...data };
       });
-      setClientsForFilter(clientsData);
+      fetchedClientsForFilter.forEach(client => {
+        fetchedAllClients[client.id] = client;
+      });
+      setClientsForFilter(fetchedClientsForFilter);
+      setAllClients(fetchedAllClients);
+
     } catch (err) {
-      console.error("Error fetching clients for filter: ", err);
-      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
+      console.error("Error fetching clients: ", err);
+      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes.", variant: "default" });
     } finally {
       setIsLoadingClients(false);
     }
+
+    try {
+      // Fetch Agency Details for PDF
+      const agencyDocRef = doc(db, 'settings', 'agencyDetails');
+      const agencySnap = await getDoc(agencyDocRef);
+      if (agencySnap.exists()) {
+        fetchedAgencyDetails = agencySnap.data() as AgencyDetails;
+      } else {
+        // Default if not configured, good for PDF fallback
+        fetchedAgencyDetails = {
+          agencyName: "Tu Agencia S.L.",
+          address: "Calle Falsa 123, Ciudad, CP",
+          taxId: "NIF/CIF: X1234567Z",
+        };
+      }
+      setAgencyDetails(fetchedAgencyDetails);
+    } catch (err) {
+      console.error("Error fetching agency details: ", err);
+      toast({ title: "Advertencia", description: "No se pudieron cargar los detalles de la agencia para los PDFs.", variant: "default" });
+    } finally {
+      setIsLoadingAgencyDetails(false);
+    }
   }, [toast]);
+
 
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true);
@@ -130,9 +163,8 @@ export default function BillingPage() {
       const q = query(invoicesCollection, ...queryConstraints);
       const querySnapshot = await getDocs(q);
       const invoicesData = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        const convertedData = convertInvoiceTimestamps(data as Invoice);
-        return { id: doc.id, ...convertedData };
+        const data = convertFirestoreTimestamps<Invoice>(doc.data() as Invoice);
+        return { id: doc.id, ...data };
       });
       setInvoices(invoicesData);
     } catch (err: any) {
@@ -148,9 +180,16 @@ export default function BillingPage() {
   }, [statusFilter, clientFilter]);
 
   useEffect(() => {
-    fetchClientsForFilter();
-    fetchInvoices();
-  }, [fetchClientsForFilter, fetchInvoices]);
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  useEffect(() => {
+    // Fetch invoices only after initial data (clients, agency details) might be needed or has started loading
+    if (!isLoadingClients || !isLoadingAgencyDetails) {
+        fetchInvoices();
+    }
+  }, [fetchInvoices, isLoadingClients, isLoadingAgencyDetails]);
+
 
   const handleDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
@@ -197,6 +236,10 @@ export default function BillingPage() {
     return message;
   };
 
+  const currentFilteredClientName = clientFilter !== ALL_FILTER_VALUE 
+    ? clientsForFilter.find(c => c.id === clientFilter)?.name 
+    : null;
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -205,7 +248,8 @@ export default function BillingPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar por Estado
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> 
+                {statusFilter === ALL_FILTER_VALUE ? "Filtrar por Estado" : `Estado: ${statusFilter}`}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56">
@@ -233,7 +277,8 @@ export default function BillingPage() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" disabled={isLoadingClients}>
                 <UserCircle className="mr-2 h-4 w-4 text-muted-foreground" /> 
-                {isLoadingClients ? "Cargando clientes..." : "Filtrar por Cliente"}
+                {isLoadingClients && "Cargando clientes..."}
+                {!isLoadingClients && (currentFilteredClientName ? `Cliente: ${currentFilteredClientName}` : "Filtrar por Cliente")}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-64 max-h-72 overflow-y-auto">
@@ -260,10 +305,10 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {isLoading && (
+      {(isLoading || isLoadingClients || isLoadingAgencyDetails) && (
         <div className="flex justify-center items-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="ml-2 text-muted-foreground">Cargando facturas...</p>
+          <p className="ml-2 text-muted-foreground">Cargando datos...</p>
         </div>
       )}
 
@@ -290,36 +335,52 @@ export default function BillingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoices.map(invoice => (
-                <TableRow key={invoice.id} className="hover:bg-muted/50">
-                  <TableCell className="font-medium">{invoice.id.substring(0, 8).toUpperCase()}</TableCell>
-                  <TableCell>{invoice.clientName || 'N/A'}</TableCell>
-                  <TableCell>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
-                  <TableCell>{invoice.issuedDate ? new Date(invoice.issuedDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
-                  <TableCell>{invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
-                  <TableCell>
-                    <Badge className={cn("border text-xs", statusColors[invoice.status])}>{invoice.status}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button variant="ghost" size="icon" className="hover:text-primary" title="Ver Factura" asChild>
-                       <Link href={`/billing/${invoice.id}/view`}>
-                        <Eye className="h-4 w-4 text-sky-600" />
-                       </Link>
-                    </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-yellow-500" title="Editar Factura" asChild>
-                      <Link href={`/billing/${invoice.id}/edit`}>
-                        <Edit2 className="h-4 w-4 text-yellow-600" />
-                      </Link>
-                    </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)}>
-                      <Trash2 className="h-4 w-4 text-red-600" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled>
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {invoices.map(invoice => {
+                const clientForPdf = allClients[invoice.clientId];
+                return (
+                  <TableRow key={invoice.id} className="hover:bg-muted/50">
+                    <TableCell className="font-medium">{invoice.id.substring(0, 8).toUpperCase()}</TableCell>
+                    <TableCell>{invoice.clientName || 'N/A'}</TableCell>
+                    <TableCell>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
+                    <TableCell>{invoice.issuedDate ? new Date(invoice.issuedDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
+                    <TableCell>{invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
+                    <TableCell>
+                      <Badge className={cn("border text-xs", statusColors[invoice.status])}>{invoice.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right space-x-1">
+                      <Button variant="ghost" size="icon" className="hover:text-primary" title="Ver Factura" asChild>
+                        <Link href={`/billing/${invoice.id}/view`}>
+                          <Eye className="h-4 w-4 text-sky-600" />
+                        </Link>
+                      </Button>
+                      <Button variant="ghost" size="icon" className="hover:text-yellow-500" title="Editar Factura" asChild>
+                        <Link href={`/billing/${invoice.id}/edit`}>
+                          <Edit2 className="h-4 w-4 text-yellow-600" />
+                        </Link>
+                      </Button>
+                      <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)}>
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                      {isClient && clientForPdf && agencyDetails ? (
+                        <PDFDownloadLink
+                          document={<InvoicePdfDocument invoice={invoice} client={clientForPdf} agencyDetails={agencyDetails} />}
+                          fileName={`Factura-${invoice.id.substring(0,8).toUpperCase()}.pdf`}
+                        >
+                          {({ loading }) => (
+                            <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled={loading}>
+                              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-primary" />}
+                            </Button>
+                          )}
+                        </PDFDownloadLink>
+                      ) : (
+                         <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF no disponible" disabled>
+                           <Download className="h-4 w-4 opacity-50" />
+                         </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -329,9 +390,11 @@ export default function BillingPage() {
         <div className="text-center py-12 text-muted-foreground">
           {getEmptyStateIcon()}
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          <Button variant="link" className="mt-2" asChild>
-            <Link href="/billing/add">Crea tu primera factura</Link>
-          </Button>
+          {(statusFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE) && (
+            <Button variant="link" className="mt-2" asChild>
+              <Link href="/billing/add">Crea tu primera factura</Link>
+            </Button>
+          )}
         </div>
       )}
 
@@ -358,4 +421,3 @@ export default function BillingPage() {
     </div>
   );
 }
-
