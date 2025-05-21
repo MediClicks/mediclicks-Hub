@@ -201,6 +201,7 @@ export default function BillingPage() {
         description: `La factura con ID ${invoiceToDelete.id.substring(0, 8).toUpperCase()} ha sido eliminada.`,
       });
       setInvoices(prevInvoices => prevInvoices.filter(inv => inv.id !== invoiceToDelete.id));
+      setInvoiceToDelete(null); 
     } catch (error) {
       console.error("Error eliminando factura: ", error);
       toast({
@@ -210,7 +211,6 @@ export default function BillingPage() {
       });
     } finally {
       setIsDeleting(false);
-      setInvoiceToDelete(null);
     }
   };
 
@@ -342,7 +342,11 @@ export default function BillingPage() {
                 const clientForPdf = allClients[invoice.clientId];
                 return (
                   <TableRow key={invoice.id} className="hover:bg-muted/50">
-                    <TableCell className="font-medium">{invoice.id.substring(0, 8).toUpperCase()}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link href={`/billing/${invoice.id}/view`} className="hover:underline text-primary">
+                        {invoice.id.substring(0, 8).toUpperCase()}
+                      </Link>
+                    </TableCell>
                     <TableCell>{invoice.clientName || 'N/A'}</TableCell>
                     <TableCell>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                     <TableCell>{invoice.issuedDate ? new Date(invoice.issuedDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
@@ -401,7 +405,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      <AlertDialog open={!!invoiceToDelete} onOpenChange={(open) => {if(!isDeleting) setInvoiceToDelete(null)}}>
+      <AlertDialog open={!!invoiceToDelete} onOpenChange={(open) => {if(!isDeleting && !open) setInvoiceToDelete(null)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar esta factura?</AlertDialogTitle>

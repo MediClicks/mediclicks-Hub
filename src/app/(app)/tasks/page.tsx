@@ -125,6 +125,7 @@ export default function TasksPage() {
         description: `La tarea "${taskToDelete.name}" ha sido eliminada correctamente.`,
       });
       setTasks(prevTasks => prevTasks.filter(task => task.id !== taskToDelete.id));
+      setTaskToDelete(null);
     } catch (error) {
       console.error("Error eliminando tarea: ", error);
       toast({
@@ -134,7 +135,6 @@ export default function TasksPage() {
       });
     } finally {
       setIsDeleting(false);
-      setTaskToDelete(null);
     }
   };
 
@@ -265,7 +265,11 @@ export default function TasksPage() {
             <TableBody>
               {tasks.map(task => (
                 <TableRow key={task.id} className="hover:bg-muted/50">
-                  <TableCell className="font-medium">{task.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link href={`/tasks/${task.id}/edit`} className="hover:underline text-primary">
+                      {task.name}
+                    </Link>
+                  </TableCell>
                   <TableCell>{task.assignedTo}</TableCell>
                   <TableCell>{task.clientName || 'N/A'}</TableCell>
                   <TableCell>{task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
@@ -304,7 +308,7 @@ export default function TasksPage() {
         </div>
       )}
 
-      <AlertDialog open={!!taskToDelete} onOpenChange={(open) => {if(!isDeleting) setTaskToDelete(null)}}>
+      <AlertDialog open={!!taskToDelete} onOpenChange={(open) => {if(!isDeleting && !open) setTaskToDelete(null)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar esta tarea?</AlertDialogTitle>

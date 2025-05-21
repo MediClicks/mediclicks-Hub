@@ -53,6 +53,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         description: `El cliente ${client.name} ha sido eliminado correctamente.`,
       });
       onClientDeleted(client.id);
+      setShowDeleteDialog(false); 
     } catch (error) {
       console.error("Error eliminando cliente: ", error);
       toast({
@@ -62,7 +63,6 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
       });
     } finally {
       setIsDeleting(false);
-      setShowDeleteDialog(false);
     }
   };
 
@@ -78,7 +78,11 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             )}
           </Avatar>
           <div className="flex-1">
-            <CardTitle className="text-xl mb-1 text-foreground">{client.name}</CardTitle>
+            <CardTitle className="text-xl mb-1 text-foreground">
+              <Link href={`/clients/${client.id}/edit`} className="hover:underline">
+                {client.name}
+              </Link>
+            </CardTitle>
             <CardDescription className="flex items-center text-sm mb-1">
               <Mail className="mr-2 h-4 w-4 text-muted-foreground" /> {client.email}
             </CardDescription>
@@ -173,7 +177,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         </CardFooter>
       </Card>
 
-      <AlertDialog open={showDeleteDialog} onOpenChange={(open) => {if(!isDeleting) setShowDeleteDialog(open)}}>
+      <AlertDialog open={showDeleteDialog} onOpenChange={(open) => {if(!isDeleting && !open) setShowDeleteDialog(open)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar este cliente?</AlertDialogTitle>
