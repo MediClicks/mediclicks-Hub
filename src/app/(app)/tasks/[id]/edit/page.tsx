@@ -46,7 +46,6 @@ type TaskFormValues = z.infer<typeof taskFormSchema>;
 
 const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
 
-// Function to convert Firestore Timestamps to JS Date objects for clients
 function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
@@ -56,7 +55,6 @@ function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client
   }
   return data as WithConvertedDates<Client>;
 }
-
 
 export default function EditTaskPage() {
   const router = useRouter();
@@ -77,7 +75,7 @@ export default function EditTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
-      clientId: undefined, 
+      clientId: TASK_CLIENT_SELECT_NONE_VALUE, 
       description: '',
     },
   });
@@ -123,8 +121,8 @@ export default function EditTaskPage() {
               name: data.name || '',
               description: data.description || '',
               assignedTo: data.assignedTo || '',
-              clientId: data.clientId || undefined,
-              dueDate: data.dueDate ? (data.dueDate as Timestamp).toDate() : new Date(),
+              clientId: data.clientId || TASK_CLIENT_SELECT_NONE_VALUE,
+              dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
               priority: data.priority,
               status: data.status,
             };
@@ -167,7 +165,7 @@ export default function EditTaskPage() {
       };
 
       if (!dataToUpdate.clientId || dataToUpdate.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
-        dataToUpdate.clientId = deleteField(); // Remove field if "Ninguno"
+        dataToUpdate.clientId = deleteField(); 
         dataToUpdate.clientName = deleteField();
       }
       if (dataToUpdate.description === undefined || dataToUpdate.description === '') {
@@ -184,7 +182,7 @@ export default function EditTaskPage() {
     } catch (e) {
       console.error('Error al actualizar tarea en Firestore: ', e);
       toast({
-        title: 'Error al Guardar',
+        title: 'Error al Guardar Tarea',
         description: 'Hubo un problema al actualizar la tarea. Por favor, intenta de nuevo.',
         variant: 'destructive',
       });
@@ -366,4 +364,3 @@ export default function EditTaskPage() {
     </div>
   );
 }
-

@@ -24,10 +24,9 @@ export default function LoginPage() {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState('');
-  const [isSubmitting, setIsSubmitting] = React.useState(false); // Renamed for clarity
+  const [isSubmitting, setIsSubmitting] = React.useState(false); 
 
   React.useEffect(() => {
-    // Redirect if already authenticated and auth is not loading
     if (!isLoadingAuth && isAuthenticated) {
       router.push('/dashboard');
     }
@@ -41,14 +40,12 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      // No need to push here, the useEffect in AppLayout or this page will handle redirection
-      // after isAuthenticated state updates.
     } catch (err: any) {
       let errorMessage = 'Ocurrió un error inesperado al iniciar sesión.';
       if (err.code) {
         switch (err.code) {
           case 'auth/invalid-credential':
-          case 'auth/user-not-found':
+          case 'auth/user-not-found': // Firebase might return this instead of wrong-password sometimes
           case 'auth/wrong-password':
             errorMessage = 'Credenciales incorrectas. Por favor, verifica tu email y contraseña.';
             break;
@@ -69,7 +66,6 @@ export default function LoginPage() {
     }
   };
   
-  // If auth state is still loading, don't render the form yet or show a page loader
   if (isLoadingAuth) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-background to-primary/20 p-4">
@@ -78,8 +74,6 @@ export default function LoginPage() {
     );
   }
 
-  // If authenticated after loading, router.push in useEffect should have redirected.
-  // This is a fallback or in case redirection is slower.
   if (isAuthenticated) {
      return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-background to-primary/20 p-4">
@@ -137,7 +131,7 @@ export default function LoginPage() {
             {error && <p className="text-sm text-destructive text-center">{error}</p>}
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full" disabled={isSubmitting || isLoadingAuth}>
               {isSubmitting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (

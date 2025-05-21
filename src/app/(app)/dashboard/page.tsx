@@ -13,7 +13,7 @@ import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus } fro
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
-import { format, subMonths, startOfMonth, endOfMonth, getMonth, getYear } from 'date-fns';
+import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface DashboardStats {
@@ -256,11 +256,8 @@ export default function DashboardPage() {
           });
         });
         fetchedUpcomingItems.sort((a, b) => {
-            // Robust date parsing for sorting
-            const [dayA, monthA, yearA] = a.dueDateFormatted.split('/').map(Number);
-            const dateA = new Date(yearA, monthA - 1, dayA);
-            const [dayB, monthB, yearB] = b.dueDateFormatted.split('/').map(Number);
-            const dateB = new Date(yearB, monthB - 1, dayB);
+            const dateA = a.dueDateFormatted !== 'N/A' ? new Date(a.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
+            const dateB = b.dueDateFormatted !== 'N/A' ? new Date(b.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
             return dateA.getTime() - dateB.getTime();
         });
         setUpcomingItems(fetchedUpcomingItems.slice(0,5));
@@ -388,7 +385,7 @@ export default function DashboardPage() {
             <ul className="space-y-3">
               {upcomingItems.map(item => (
                 <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2">
-                  {item.type === 'task' ? <ListChecks className="h-4 w-4 text-sky-500 shrink-0" /> : <Receipt className="h-4 w-4 text-rose-500 shrink-0" />}
+                  {item.type === 'task' ? <ListChecks className="mr-1 h-4 w-4 text-sky-500 shrink-0" /> : <Receipt className="mr-1 h-4 w-4 text-rose-500 shrink-0" />}
                   <Link href={item.href} className="font-medium text-primary hover:underline">
                     {item.name}
                   </Link>
@@ -468,7 +465,6 @@ export default function DashboardPage() {
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent nameKey="count" hideLabel />} />
                   <Pie data={taskStatusData} dataKey="count" nameKey="status" innerRadius={60} strokeWidth={5}>
-                     {/* Label rendering removed from here for cleaner pie chart, legend serves this purpose */}
                   </Pie>
                    <ChartLegend content={<ChartLegendContent nameKey="status" />} />
                 </PieChart>
@@ -480,4 +476,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

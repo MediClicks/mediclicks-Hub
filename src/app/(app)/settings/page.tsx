@@ -20,7 +20,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useAuth } from "@/contexts/auth-context"; // Importar useAuth
+import { useAuth } from "@/contexts/auth-context"; 
 
 const agencyDetailsSchema = z.object({
   agencyName: z.string().min(1, "El nombre de la agencia es obligatorio."),
@@ -69,7 +69,7 @@ export default function SettingsPage() {
   const [isDark, setIsDark] = React.useState(false);
   const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = React.useState(true);
   const { toast } = useToast();
-  const { user } = useAuth(); // Obtener el usuario del contexto de autenticación
+  const { user } = useAuth(); 
 
   const [monthlyRevenueData, setMonthlyRevenueData] = useState<MonthlyRevenueChartData[]>([]);
   const [isLoadingChart, setIsLoadingChart] = useState(true);
@@ -164,7 +164,7 @@ export default function SettingsPage() {
         console.error("Error fetching revenue chart data for settings page: ", err);
         let specificError = "No se pudieron cargar los datos para el gráfico de ingresos.";
         if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
-          specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, créalo (colección 'invoices', campos 'status' ASC, 'issuedDate' ASC) y luego recarga la página. Enlace de ayuda: ${err.message.substring(err.message.indexOf('https://'))}`;
+          specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, créalo (colección 'invoices', campos 'status' ASC, 'issuedDate' ASC) y luego recarga la página. Enlace de ayuda en consola del navegador.`;
         } else if (err.message) {
           specificError = `Error al cargar gráfico: ${err.message}`;
         }
@@ -196,12 +196,12 @@ export default function SettingsPage() {
   const onAgencySubmit = async (data: AgencyDetailsFormValues) => {
     try {
       const agencyDocRef = doc(db, 'settings', 'agencyDetails');
-      const dataToSave: Partial<AgencyDetails> = { // Use Partial as updatedAt is server-generated
+      const dataToSave: Partial<AgencyDetails> = { 
         ...data,
         website: data.website === '' ? undefined : data.website, 
-        updatedAt: serverTimestamp() as Timestamp, // Firestore will convert this
+        updatedAt: serverTimestamp() as Timestamp, 
       };
-      // Remove undefined fields before saving, except for serverTimestamp
+      
       Object.keys(dataToSave).forEach(key => {
         if (dataToSave[key as keyof Partial<AgencyDetails>] === undefined && key !== 'updatedAt') {
           delete dataToSave[key as keyof Partial<AgencyDetails>];
@@ -222,6 +222,7 @@ export default function SettingsPage() {
     }
   };
 
+  const noRevenueData = monthlyRevenueData.length === 0 || monthlyRevenueData.every(d => d.total === 0);
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
@@ -279,7 +280,7 @@ export default function SettingsPage() {
               </div>
               <Button type="submit" disabled={agencyForm.formState.isSubmitting}>
                 {agencyForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Guardar Información de Agencia
+                Guardar Información
               </Button>
             </form>
           )}
@@ -306,7 +307,7 @@ export default function SettingsPage() {
             <Label htmlFor="email">Dirección de Email</Label>
             <Input id="email" type="email" defaultValue={user?.email || "No disponible"} disabled />
           </div>
-          <Button disabled>Guardar Cambios (Deshabilitado)</Button>
+          <Button disabled>Guardar Cambios</Button>
         </CardContent>
       </Card>
 
@@ -353,7 +354,13 @@ export default function SettingsPage() {
               <p className="text-sm whitespace-pre-wrap">{chartError}</p>
             </div>
           )}
-          {!isLoadingChart && !chartError && monthlyRevenueData.length > 0 && (
+          {!isLoadingChart && !chartError && noRevenueData && (
+             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+              <BarChart3 className="h-12 w-12 mb-3 text-gray-400" />
+              <p>No hay datos de ingresos para mostrar.</p>
+            </div>
+          )}
+          {!isLoadingChart && !chartError && !noRevenueData && (
             <ChartContainer config={revenueChartConfig} className="w-full h-full">
               <BarChart accessibilityLayer data={monthlyRevenueData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -373,14 +380,8 @@ export default function SettingsPage() {
               </BarChart>
             </ChartContainer>
           )}
-           {!isLoadingChart && !chartError && monthlyRevenueData.length === 0 && (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              <p>No hay datos de ingresos para mostrar en los últimos 6 meses.</p>
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>
   );
 }
-

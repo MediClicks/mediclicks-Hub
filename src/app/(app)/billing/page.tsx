@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle, CheckSquare, Clock } from "lucide-react";
+import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle } from "lucide-react";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint, getDoc } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -49,7 +48,7 @@ const statusColors: Record<InvoiceStatus, string> = {
 };
 
 function convertFirestoreTimestamps<T extends Record<string, any>>(docData: any): WithConvertedDates<T> {
-  if (!docData) return docData as WithConvertedDates<T>; // Handle undefined input
+  if (!docData) return docData as WithConvertedDates<T>;
   const data = { ...docData } as Partial<WithConvertedDates<T>>;
   for (const key in data) {
     if (data[key as keyof T] instanceof Timestamp) {
@@ -65,11 +64,9 @@ function convertFirestoreTimestamps<T extends Record<string, any>>(docData: any)
   return data as WithConvertedDates<T>;
 }
 
-
 const ALL_FILTER_VALUE = 'All';
 type StatusFilterType = InvoiceStatus | typeof ALL_FILTER_VALUE;
 type ClientFilterType = string | typeof ALL_FILTER_VALUE;
-
 
 const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Vencida'];
 
@@ -78,45 +75,45 @@ export default function BillingPage() {
   const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]);
   const [allClients, setAllClients] = useState<Record<string, WithConvertedDates<Client>>>({}); 
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  const [isLoading, setIsLoading] = useState(true); // General loading for invoices
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = useState(true);
+  
   const [error, setError] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
+  
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
-  const [isClient, setIsClient] = useState(false); 
+  const [isClientSide, setIsClientSide] = useState(false); 
 
   useEffect(() => {
-    setIsClient(true); 
+    setIsClientSide(true); 
   }, []);
 
   const fetchInitialData = useCallback(async () => {
     setIsLoadingClients(true);
     setIsLoadingAgencyDetails(true);
-    let fetchedClientsForFilter: WithConvertedDates<Client>[] = [];
-    let fetchedAllClients: Record<string, WithConvertedDates<Client>> = {};
-    let fetchedAgencyDetails: AgencyDetails | null = null;
-
+    
     try {
       const clientsCollection = collection(db, "clients");
       const clientsQuery = query(clientsCollection, orderBy("name", "asc"));
       const clientsSnapshot = await getDocs(clientsQuery);
-      fetchedClientsForFilter = clientsSnapshot.docs.map(doc => {
+      const fetchedClientsForFilter = clientsSnapshot.docs.map(doc => {
         const data = convertFirestoreTimestamps<Client>(doc.data() as Client);
         return { id: doc.id, ...data };
       });
+      const fetchedAllClients: Record<string, WithConvertedDates<Client>> = {};
       fetchedClientsForFilter.forEach(client => {
         fetchedAllClients[client.id] = client;
       });
       setClientsForFilter(fetchedClientsForFilter);
       setAllClients(fetchedAllClients);
-
     } catch (err) {
       console.error("Error fetching clients: ", err);
-      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes.", variant: "default" });
+      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
     } finally {
       setIsLoadingClients(false);
     }
@@ -125,17 +122,16 @@ export default function BillingPage() {
       const agencyDocRef = doc(db, 'settings', 'agencyDetails');
       const agencySnap = await getDoc(agencyDocRef);
       if (agencySnap.exists()) {
-        fetchedAgencyDetails = agencySnap.data() as AgencyDetails;
+        setAgencyDetails(agencySnap.data() as AgencyDetails);
       } else {
-        fetchedAgencyDetails = {
+        setAgencyDetails({
           agencyName: "Tu Agencia S.L.",
           address: "Calle Falsa 123, Ciudad, CP",
           taxId: "NIF/CIF: X1234567Z",
           contactEmail: "contacto@tuagencia.com",
           contactPhone: "+34 900 000 000"
-        };
+        });
       }
-      setAgencyDetails(fetchedAgencyDetails);
     } catch (err) {
       console.error("Error fetching agency details: ", err);
       toast({ title: "Advertencia", description: "No se pudieron cargar los detalles de la agencia para los PDFs.", variant: "default" });
@@ -143,7 +139,6 @@ export default function BillingPage() {
       setIsLoadingAgencyDetails(false);
     }
   }, [toast]);
-
 
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true);
@@ -183,7 +178,8 @@ export default function BillingPage() {
   }, [fetchInitialData]);
 
   useEffect(() => {
-    if (!isLoadingClients || !isLoadingAgencyDetails) {
+    // Fetch invoices only after clients and agency details attempts are complete
+    if (!isLoadingClients && !isLoadingAgencyDetails) {
         fetchInvoices();
     }
   }, [fetchInvoices, isLoadingClients, isLoadingAgencyDetails]);
@@ -212,12 +208,6 @@ export default function BillingPage() {
     }
   };
 
-  const getEmptyStateIcon = () => {
-    if (statusFilter === 'Pagada') return <CheckSquare className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-    if (statusFilter === 'No Pagada' || statusFilter === 'Vencida') return <Clock className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-    return <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-  };
-
   const getEmptyStateMessage = () => {
     let message = "No se encontraron facturas";
     const filtersApplied: string[] = [];
@@ -241,6 +231,8 @@ export default function BillingPage() {
     ? clientsForFilter.find(c => c.id === clientFilter)?.name
     : null;
 
+  const isLoadingOverall = isLoading || isLoadingClients || isLoadingAgencyDetails;
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -256,17 +248,10 @@ export default function BillingPage() {
             <DropdownMenuContent className="w-56">
               <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={statusFilter} onValueChange={setStatusFilter}>
-                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>
-                  Todas
-                </DropdownMenuRadioItem>
+              <DropdownMenuRadioGroup value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilterType)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
                 {invoiceStatusesForFilter.map(status => (
-                  <DropdownMenuRadioItem
-                    key={status}
-                    value={status}
-                  >
-                    {status}
-                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
@@ -283,14 +268,10 @@ export default function BillingPage() {
             <DropdownMenuContent className="w-64 max-h-72 overflow-y-auto">
               <DropdownMenuLabel>Seleccionar Cliente</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={clientFilter} onValueChange={setClientFilter}>
-                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>
-                  Todos los Clientes
-                </DropdownMenuRadioItem>
+              <DropdownMenuRadioGroup value={clientFilter} onValueChange={(value) => setClientFilter(value as ClientFilterType)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todos los Clientes</DropdownMenuRadioItem>
                 {clientsForFilter.map(client => (
-                  <DropdownMenuRadioItem key={client.id} value={client.id}>
-                    {client.name}
-                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem key={client.id} value={client.id}>{client.name}</DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
@@ -304,14 +285,14 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {(isLoading || isLoadingClients || isLoadingAgencyDetails) && (
+      {isLoadingOverall && (
         <div className="flex justify-center items-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="ml-2 text-muted-foreground">Cargando datos...</p>
         </div>
       )}
 
-      {error && !isLoading && (
+      {error && !isLoadingOverall && (
         <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md whitespace-pre-wrap">
           <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
@@ -319,7 +300,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      {!isLoading && !error && invoices.length > 0 && (
+      {!isLoadingOverall && !error && invoices.length > 0 && (
         <div className="rounded-lg border shadow-sm bg-card">
           <Table>
             <TableHeader>
@@ -368,29 +349,22 @@ export default function BillingPage() {
                       <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)} disabled={isDeleting}>
                         <Trash2 className="h-4 w-4 text-red-600" />
                       </Button>
-                      {/* Temporarily disable PDFDownloadLink from list view to prevent error */}
-                      <Button variant="ghost" size="icon" className="hover:text-accent opacity-50 cursor-not-allowed" title="Descargar PDF (deshabilitado en lista)" disabled>
-                         <Download className="h-4 w-4 text-blue-600 opacity-50" />
-                      </Button>
-                      {/* 
-                      // Original PDFDownloadLink code - re-enable when error is resolved
-                      {isClient && clientForPdf && agencyDetails ? (
+                      {isClientSide && clientForPdf && agencyDetails ? (
                         <PDFDownloadLink
                           document={<InvoicePdfDocument invoice={currentInvoiceDataForPdf} client={clientForPdf} agencyDetails={agencyDetails} />}
                           fileName={`Factura-${invoice.id.substring(0,8).toUpperCase()}.pdf`}
                         >
                           {({ loading }) => (
                             <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled={loading}>
-                              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-600" /> : <Download className="mr-2 h-4 w-4 text-blue-600" />}
+                              {loading ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
                             </Button>
                           )}
                         </PDFDownloadLink>
                       ) : (
-                         <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF no disponible" disabled>
-                           <Download className="h-4 w-4 opacity-50" />
+                         <Button variant="ghost" size="icon" className="hover:text-accent opacity-50 cursor-not-allowed" title="Descargar PDF no disponible" disabled>
+                           <Download className="h-4 w-4 text-blue-600 opacity-50" />
                          </Button>
                       )}
-                      */}
                     </TableCell>
                   </TableRow>
                 );
@@ -400,9 +374,9 @@ export default function BillingPage() {
         </div>
       )}
 
-      {!isLoading && !error && invoices.length === 0 && (
+      {!isLoadingOverall && !error && invoices.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
-          {getEmptyStateIcon()}
+          <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />
           <p className="text-lg">{getEmptyStateMessage()}</p>
           {(statusFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE) && (
             <Button variant="link" className="mt-2" asChild>
