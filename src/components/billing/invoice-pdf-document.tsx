@@ -5,36 +5,18 @@
 'use client';
 
 import React from 'react';
-import { Page, Text, View, Document, StyleSheet, Font } from '@react-pdf/renderer';
-import type { Invoice, Client } from '@/types'; // Assuming WithConvertedDates is handled before passing
-
-interface AgencyDetails {
-  agencyName?: string;
-  address?: string;
-  taxId?: string;
-  contactPhone?: string;
-  contactEmail?: string;
-  website?: string;
-}
+import { Page, Text, View, Document, StyleSheet } from '@react-pdf/renderer';
+import type { Invoice, Client, WithConvertedDates, AgencyDetails, InvoiceItem } from '@/types';
 
 interface InvoicePdfDocumentProps {
-  invoice: Invoice;
-  client: Client | null;
-  agencyDetails: AgencyDetails | null;
+  invoice: WithConvertedDates<Invoice>;
+  client: WithConvertedDates<Client>;
+  agencyDetails: AgencyDetails;
 }
-
-// Register a simple font (optional, but good for consistency)
-// Font.register({
-//   family: 'Roboto',
-//   fonts: [
-//     { src: 'https://cdnjs.cloudflare.com/ajax/libs/ink/3.1.10/fonts/Roboto/roboto-regular-webfont.ttf', fontWeight: 'normal' },
-//     { src: 'https://cdnjs.cloudflare.com/ajax/libs/ink/3.1.10/fonts/Roboto/roboto-bold-webfont.ttf', fontWeight: 'bold' },
-//   ]
-// });
 
 const styles = StyleSheet.create({
   page: {
-    fontFamily: 'Helvetica', // Using a standard font for broad compatibility
+    fontFamily: 'Helvetica',
     fontSize: 10,
     paddingTop: 30,
     paddingLeft: 40,
@@ -61,7 +43,7 @@ const styles = StyleSheet.create({
   invoiceTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#0d3357', // primary color
+    color: '#0d3357',
   },
   invoiceId: {
     fontSize: 10,
@@ -91,6 +73,7 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 15,
   },
   gridColumn: {
     width: '48%',
@@ -105,6 +88,7 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     textAlign: 'right',
+    maxWidth: '60%', // Prevents very long values from breaking layout
   },
   table: {
     // @ts-ignore: display property in @react-pdf/types seems incomplete
@@ -133,6 +117,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     fontWeight: 'bold',
     textAlign: 'center',
+    fontSize: 9,
   },
   tableCol: {
     padding: 5,
@@ -140,6 +125,7 @@ const styles = StyleSheet.create({
     borderColor: '#bfbfbf',
     borderBottomWidth: 1,
     borderRightWidth: 1,
+    fontSize: 9,
   },
   tableColDesc: { width: '50%' },
   tableColQty: { width: '15%', textAlign: 'right' },
@@ -151,18 +137,21 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   totalsBox: {
-    width: '40%',
+    width: '45%', // Increased width for better layout
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 3,
+    marginBottom: 4, // Increased margin
   },
   totalLabel: {
     color: '#555555',
+    fontSize: 10,
   },
   totalValue: {
     fontWeight: 'bold',
+    fontSize: 10,
+    textAlign: 'right',
   },
   grandTotalLabel: {
     fontSize: 12,
@@ -173,6 +162,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: '#0d3357',
+    textAlign: 'right',
   },
   notesSection: {
     marginTop: 20,
@@ -192,17 +182,35 @@ const styles = StyleSheet.create({
 });
 
 const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client, agencyDetails }) => {
-  const formatDate = (date: any) => {
-    if (!date) return 'N/A';
-    return new Date(date).toLocaleDateString('es-ES');
+  const formatDate = (dateInput: any): string => {
+    if (!dateInput) return 'N/A';
+    try {
+      const date = new Date(dateInput);
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return 'Fecha Inválida';
+      }
+      return date.toLocaleDateString('es-ES');
+    } catch (e) {
+      return 'Fecha Inválida';
+    }
   };
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number | undefined | null): string => {
+    if (typeof amount !== 'number' || isNaN(amount)) return formatCurrency(0); // Default to 0 if invalid
     return amount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' });
   };
 
+  const safeInvoiceItems = Array.isArray(invoice?.items) ? invoice.items : [];
+  const subtotal = safeInvoiceItems.reduce((sum, item) => {
+    const quantity = typeof item?.quantity === 'number' ? item.quantity : 0;
+    const unitPrice = typeof item?.unitPrice === 'number' ? item.unitPrice : 0;
+    return sum + quantity * unitPrice;
+  }, 0);
+  const taxAmount = 0; // Assuming 0 tax for now
+
   return (
-    <Document title={`Factura ${invoice?.id?.substring(0,8).toUpperCase()}`}>
+    <Document title={`Factura ${invoice?.id?.substring(0,8).toUpperCase() || 'SIN_ID'}`}>
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>
@@ -216,6 +224,7 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
             <Text style={styles.smallText}>{agencyDetails?.taxId || "NIF/CIF Agencia"}</Text>
             <Text style={styles.smallText}>{agencyDetails?.contactEmail || "Email Agencia"}</Text>
             {agencyDetails?.contactPhone && <Text style={styles.smallText}>Tel: {agencyDetails.contactPhone}</Text>}
+            {agencyDetails?.website && <Text style={styles.smallText}>{agencyDetails.website}</Text>}
           </View>
         </View>
 
@@ -225,10 +234,10 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
             <Text style={styles.sectionTitle}>Facturar a:</Text>
             {client ? (
               <>
-                <Text style={{ fontWeight: 'bold', fontSize: 11, marginBottom: 2 }}>{client.name}</Text>
+                <Text style={{ fontWeight: 'bold', fontSize: 11, marginBottom: 2 }}>{client.name || 'Nombre Cliente N/A'}</Text>
                 {client.clinica && <Text style={styles.smallText}>{client.clinica}</Text>}
-                <Text style={styles.smallText}>{client.email}</Text>
-                {client.telefono && <Text style={styles.smallText}>{client.telefono}</Text>}
+                <Text style={styles.smallText}>{client.email || 'Email N/A'}</Text>
+                {client.telefono && <Text style={styles.smallText}>Tel: {client.telefono}</Text>}
               </>
             ) : (
               <Text style={styles.smallText}>Información del cliente no disponible.</Text>
@@ -255,22 +264,30 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Conceptos</Text>
           <View style={styles.table}>
-            {/* Table Header */}
             <View style={styles.tableHeaderRow}>
               <Text style={[styles.tableColHeader, styles.tableColDesc]}>Descripción</Text>
               <Text style={[styles.tableColHeader, styles.tableColQty]}>Cant.</Text>
               <Text style={[styles.tableColHeader, styles.tableColPrice]}>P. Unit.</Text>
               <Text style={[styles.tableColHeader, styles.tableColTotal]}>Total</Text>
             </View>
-            {/* Table Body */}
-            {invoice?.items?.map((item, index) => (
-              <View key={item.id || index} style={styles.tableRow}>
-                <Text style={[styles.tableCol, styles.tableColDesc]}>{item.description}</Text>
-                <Text style={[styles.tableCol, styles.tableColQty]}>{item.quantity}</Text>
-                <Text style={[styles.tableCol, styles.tableColPrice]}>{formatCurrency(item.unitPrice)}</Text>
-                <Text style={[styles.tableCol, styles.tableColTotal]}>{formatCurrency(item.quantity * item.unitPrice)}</Text>
+            {safeInvoiceItems.map((item: InvoiceItem, index: number) => {
+              const quantity = typeof item?.quantity === 'number' ? item.quantity : 0;
+              const unitPrice = typeof item?.unitPrice === 'number' ? item.unitPrice : 0;
+              const itemTotal = quantity * unitPrice;
+              return (
+                <View key={item?.id || `item-${index}`} style={styles.tableRow}>
+                  <Text style={[styles.tableCol, styles.tableColDesc]}>{item?.description || 'Descripción N/A'}</Text>
+                  <Text style={[styles.tableCol, styles.tableColQty]}>{quantity}</Text>
+                  <Text style={[styles.tableCol, styles.tableColPrice]}>{formatCurrency(unitPrice)}</Text>
+                  <Text style={[styles.tableCol, styles.tableColTotal]}>{formatCurrency(itemTotal)}</Text>
+                </View>
+              );
+            })}
+            {safeInvoiceItems.length === 0 && (
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCol, styles.tableColDesc, {width: '100%', textAlign: 'center'}]}>No hay ítems en esta factura.</Text>
               </View>
-            ))}
+            )}
           </View>
         </View>
 
@@ -279,15 +296,15 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
           <View style={styles.totalsBox}>
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Subtotal:</Text>
-              <Text style={styles.totalValue}>{formatCurrency(invoice?.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) || 0)}</Text>
+              <Text style={styles.totalValue}>{formatCurrency(subtotal)}</Text>
             </View>
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Impuestos (IVA 0%):</Text>
-              <Text style={styles.totalValue}>{formatCurrency(0)}</Text>
+              <Text style={styles.totalValue}>{formatCurrency(taxAmount)}</Text>
             </View>
             <View style={[styles.totalRow, { borderTopWidth: 1, borderTopColor: '#cccccc', paddingTop: 5, marginTop: 5 }]}>
               <Text style={styles.grandTotalLabel}>TOTAL:</Text>
-              <Text style={styles.grandTotalValue}>{formatCurrency(invoice?.totalAmount || 0)}</Text>
+              <Text style={styles.grandTotalValue}>{formatCurrency(invoice?.totalAmount)}</Text>
             </View>
           </View>
         </View>
@@ -302,7 +319,7 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
 
         {/* Footer */}
         <Text style={styles.footer}>
-          Gracias por su confianza.
+          Gracias por su confianza. {agencyDetails?.website ? `Visítanos en ${agencyDetails.website}` : ''}
         </Text>
       </Page>
     </Document>
