@@ -21,13 +21,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { CalendarIcon, Loader2, AlertTriangle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, getHours, getMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates, Task } from '@/types';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, collection, query, orderBy, getDocs, deleteField } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, collection, query, orderBy, getDocs, deleteField, FieldValue } from 'firebase/firestore';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -40,6 +40,8 @@ const taskFormSchema = z.object({
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   priority: z.enum(taskPriorities, { required_error: 'La prioridad es obligatoria.' }),
   status: z.enum(taskStatuses, { required_error: 'El estado es obligatorio.' }),
+  alertDate: z.date().optional().nullable(),
+  alertFired: z.boolean().optional(),
 });
 
 type TaskFormValues = z.infer<typeof taskFormSchema>;
@@ -68,6 +70,16 @@ export default function EditTaskPage() {
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [clientError, setClientError] = useState<string | null>(null);
 
+  const [selectedAlertTime, setSelectedAlertTime] = useState<string | undefined>(undefined);
+
+  const timeOptions = Array.from({ length: 48 }, (_, i) => {
+    const hours = Math.floor(i / 2);
+    const minutes = (i % 2) * 30;
+    const paddedHours = String(hours).padStart(2, '0');
+    const paddedMinutes = String(minutes).padStart(2, '0');
+    return `${paddedHours}:${paddedMinutes}`;
+  });
+
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
     defaultValues: {
@@ -77,6 +89,8 @@ export default function EditTaskPage() {
       status: 'Pendiente',
       clientId: TASK_CLIENT_SELECT_NONE_VALUE, 
       description: '',
+      alertDate: null,
+      alertFired: false,
     },
   });
 
@@ -117,6 +131,18 @@ export default function EditTaskPage() {
           if (docSnap.exists()) {
             const data = docSnap.data() as Task;
             
+            let initialAlertTime: string | undefined = undefined;
+            let initialAlertDate: Date | null = null;
+
+            if (data.alertDate && data.alertDate instanceof Timestamp) {
+              const alertDateObj = data.alertDate.toDate();
+              initialAlertDate = alertDateObj;
+              const hours = String(getHours(alertDateObj)).padStart(2, '0');
+              const minutes = String(getMinutes(alertDateObj)).padStart(2, '0');
+              initialAlertTime = `${hours}:${minutes}`;
+            }
+            setSelectedAlertTime(initialAlertTime);
+
             const formData: TaskFormValues = {
               name: data.name || '',
               description: data.description || '',
@@ -125,6 +151,8 @@ export default function EditTaskPage() {
               dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
               priority: data.priority,
               status: data.status,
+              alertDate: initialAlertDate,
+              alertFired: data.alertFired || false,
             };
             form.reset(formData);
           } else {
@@ -150,6 +178,18 @@ export default function EditTaskPage() {
 
   async function onSubmit(data: TaskFormValues) {
     form.clearErrors();
+
+    let combinedAlertDate: Date | null | undefined = data.alertDate;
+    if (data.alertDate && selectedAlertTime) {
+      const [hours, minutes] = selectedAlertTime.split(':').map(Number);
+      combinedAlertDate = new Date(data.alertDate); 
+      combinedAlertDate.setHours(hours, minutes, 0, 0);
+    } else if (data.alertDate && !selectedAlertTime) {
+      // If date is set but no time, default to start of day (00:00)
+      combinedAlertDate = new Date(data.alertDate);
+      combinedAlertDate.setHours(0, 0, 0, 0);
+    }
+    
     try {
       const taskDocRef = doc(db, 'tasks', taskId);
       
@@ -159,17 +199,37 @@ export default function EditTaskPage() {
       }
       
       const dataToUpdate: Record<string, any> = {
-        ...data,
-        clientName: clientName,
+        name: data.name,
+        assignedTo: data.assignedTo,
+        dueDate: Timestamp.fromDate(data.dueDate), // Always convert to Timestamp
+        priority: data.priority,
+        status: data.status,
         updatedAt: serverTimestamp(),
       };
 
-      if (!dataToUpdate.clientId || dataToUpdate.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
+      // Handle optional description
+      if (data.description) {
+        dataToUpdate.description = data.description;
+      } else {
+        dataToUpdate.description = deleteField();
+      }
+
+      // Handle optional clientId and clientName
+      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
+        dataToUpdate.clientId = data.clientId;
+        dataToUpdate.clientName = clientName;
+      } else {
         dataToUpdate.clientId = deleteField(); 
         dataToUpdate.clientName = deleteField();
       }
-      if (dataToUpdate.description === undefined || dataToUpdate.description === '') {
-        dataToUpdate.description = deleteField();
+      
+      // Handle alertDate and alertFired
+      if (combinedAlertDate) {
+        dataToUpdate.alertDate = Timestamp.fromDate(combinedAlertDate);
+        dataToUpdate.alertFired = false; // Reset alertFired if alertDate is set/changed
+      } else {
+        dataToUpdate.alertDate = deleteField();
+        dataToUpdate.alertFired = deleteField();
       }
       
       await updateDoc(taskDocRef, dataToUpdate);
@@ -233,7 +293,7 @@ export default function EditTaskPage() {
               <FormItem>
                 <FormLabel>Descripción (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Detalles adicionales sobre la tarea..." {...field} />
+                  <Textarea placeholder="Detalles adicionales sobre la tarea..." {...field} value={field.value || ''} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -284,7 +344,7 @@ export default function EditTaskPage() {
               )}
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <FormField
               control={form.control}
               name="dueDate"
@@ -305,6 +365,59 @@ export default function EditTaskPage() {
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
                       <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+             <FormField
+              control={form.control}
+              name="alertDate"
+              render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Fecha y Hora de Alerta (Opcional)</FormLabel>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant={'outline'}
+                          className={cn('w-full pl-3 text-left font-normal', !field.value && 'text-muted-foreground')}
+                        >
+                          {field.value ? (
+                            format(field.value, 'PPP', { locale: es }) + (selectedAlertTime ? ` ${selectedAlertTime}` : ' (00:00)')
+                          ) : (
+                            <span>Seleccionar fecha</span>
+                          )}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={field.value}
+                        onSelect={(date) => {
+                            field.onChange(date || null);
+                            // If date is cleared, also clear selected time
+                            if (!date) setSelectedAlertTime(undefined);
+                        }}
+                        initialFocus
+                        locale={es}
+                      />
+                      <div className="p-3 border-t">
+                        <Select value={selectedAlertTime} onValueChange={setSelectedAlertTime} disabled={!field.value}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar hora (opcional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={undefined as any}>Sin hora específica (00:00)</SelectItem>
+                            {timeOptions.map(time => (
+                              <SelectItem key={time} value={time}>{time}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -355,6 +468,13 @@ export default function EditTaskPage() {
                 </FormItem>
               )}
             />
+            {form.watch('alertDate') && (
+                 <FormItem className="md:col-span-1 flex flex-col justify-end">
+                    <p className="text-xs text-muted-foreground">
+                        Alerta disparada: {form.watch('alertFired') ? 'Sí' : 'No'}
+                    </p>
+                 </FormItem>
+            )}
           </div>
           <Button type="submit" disabled={form.formState.isSubmitting || isLoadingTask || isLoadingClients}>
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
