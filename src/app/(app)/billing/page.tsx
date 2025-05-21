@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types";
+import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails, InvoiceItem } from "@/types";
 import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle } from "lucide-react";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint, getDoc } from 'firebase/firestore';
@@ -113,7 +113,7 @@ export default function BillingPage() {
       setAllClients(fetchedAllClients);
     } catch (err) {
       console.error("Error fetching clients: ", err);
-      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
+      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro y PDFs.", variant: "default" });
     } finally {
       setIsLoadingClients(false);
     }
@@ -319,8 +319,14 @@ export default function BillingPage() {
                 const clientForPdf = allClients[invoice.clientId];
                 const currentInvoiceDataForPdf = {
                   ...invoice,
-                  items: Array.isArray(invoice.items) ? invoice.items : [],
+                  items: (Array.isArray(invoice.items) ? invoice.items : []).map(item => ({
+                    description: item.description || "N/A",
+                    quantity: typeof item.quantity === 'number' ? item.quantity : 0,
+                    unitPrice: typeof item.unitPrice === 'number' ? item.unitPrice : 0,
+                    id: item.id || `item-${Math.random()}` // Ensure some ID for PDF keys if missing
+                  })) as InvoiceItem[],
                 };
+
                 return (
                   <TableRow key={invoice.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
@@ -346,8 +352,15 @@ export default function BillingPage() {
                           <Edit2 className="h-4 w-4 text-yellow-600" />
                         </Link>
                       </Button>
-                      <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)} disabled={isDeleting}>
-                        <Trash2 className="h-4 w-4 text-red-600" />
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="hover:text-destructive" 
+                        title="Eliminar Factura" 
+                        onClick={() => setInvoiceToDelete(invoice)} 
+                        disabled={isDeleting}
+                       >
+                        {isDeleting && invoiceToDelete?.id === invoice.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
                       {isClientSide && clientForPdf && agencyDetails ? (
                         <PDFDownloadLink
@@ -355,8 +368,8 @@ export default function BillingPage() {
                           fileName={`Factura-${invoice.id.substring(0,8).toUpperCase()}.pdf`}
                         >
                           {({ loading }) => (
-                            <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled={loading}>
-                              {loading ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
+                            <Button variant="ghost" size="icon" className="hover:text-accent text-blue-600" title="Descargar PDF" disabled={loading}>
+                              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                             </Button>
                           )}
                         </PDFDownloadLink>
@@ -409,3 +422,4 @@ export default function BillingPage() {
     </div>
   );
 }
+
