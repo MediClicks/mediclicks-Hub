@@ -13,9 +13,9 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Lock, Mail, LogIn } from 'lucide-react';
+import { Lock, Mail, LogIn, Loader2 } from 'lucide-react'; // Added Loader2 here
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/auth-context'; // Crearemos este contexto
+import { useAuth } from '@/contexts/auth-context';
 import Image from 'next/image';
 
 export default function LoginPage() {
@@ -31,18 +31,18 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
 
-    // **Simulación de Login (TEMPORAL Y NO SEGURO)**
-    // En una implementación real, aquí llamarías a Firebase Auth
-    // Por ahora, solo verificamos credenciales hardcodeadas (muy inseguro)
-    // y asumimos que el login es exitoso para mostrar el flujo.
-    // ¡ESTO DEBE SER REEMPLAZADO POR FIREBASE AUTH!
-    if (email === 'admin@mediclicks.hub' && password === 'password123') {
-      await login(email, password); // El login del contexto actualizará el estado
+    try {
+      await login(email, password);
       router.push('/dashboard');
-    } else {
-      setError('Credenciales incorrectas. Intenta de nuevo.');
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Ocurrió un error inesperado.');
+      }
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
