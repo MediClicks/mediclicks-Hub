@@ -31,10 +31,10 @@ import { collection, doc, getDoc, updateDoc, serverTimestamp, getDocs, query, or
 
 const invoiceStatuses: InvoiceStatus[] = ['No Pagada', 'Pagada', 'Vencida'];
 
-let itemIdCounter = 0; // For client-side unique keys for new items
+let itemIdCounter = 0;
 
 const invoiceItemSchema = z.object({
-  id: z.string(), // For react-hook-form key, not Firestore ID for item
+  id: z.string(),
   description: z.string().min(1, { message: 'La descripción es obligatoria.' }),
   quantity: z.coerce.number().min(1, { message: 'Cantidad debe ser al menos 1.' }),
   unitPrice: z.coerce.number().min(0, { message: 'El precio no puede ser negativo.' }),
@@ -51,7 +51,6 @@ const invoiceFormSchema = z.object({
 
 type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
-// Function to convert Firestore Timestamps to JS Date objects for clients (for dropdown)
 function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
    const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
@@ -79,9 +78,8 @@ export default function EditInvoicePage() {
     defaultValues: {
       clientId: '',
       status: 'No Pagada',
-      items: [], // Will be populated from fetched invoice
+      items: [],
       notes: '',
-      // Dates will be set from fetched data
     },
   });
 
@@ -126,25 +124,25 @@ export default function EditInvoicePage() {
 
           if (docSnap.exists()) {
             const data = docSnap.data() as Invoice;
-            
+
+            itemIdCounter = data.items.length;
+
             const formData: InvoiceFormValues = {
               clientId: data.clientId,
               issuedDate: data.issuedDate instanceof Timestamp ? data.issuedDate.toDate() : new Date(data.issuedDate),
               dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
               status: data.status,
-              items: data.items.map((item, index) => ({ // Add client-side unique ID for useFieldArray
+              items: data.items.map((item, index) => ({
                 ...item,
-                id: `item-${index}-${Date.now()}` // Ensure unique ID for existing items
+                id: `item-${index}-${Date.now()}`
               })),
               notes: data.notes || '',
             };
-            form.reset(formData); // This also updates useFieldArray's `fields`
-            // Initialize itemIdCounter based on existing items to avoid collisions if user adds more
-            itemIdCounter = data.items.length; 
+            form.reset(formData);
           } else {
             setInvoiceNotFound(true);
             toast({ title: 'Error', description: 'Factura no encontrada.', variant: 'destructive' });
-            router.push('/billing'); 
+            router.push('/billing');
           }
         } catch (error) {
           console.error("Error fetching invoice: ", error);
@@ -172,22 +170,23 @@ export default function EditInvoicePage() {
     try {
       const invoiceDocRef = doc(db, 'invoices', invoiceId);
       const clientName = clientsList.find(c => c.id === data.clientId)?.name;
-      
+
       const invoiceDataToUpdate: any = {
         ...data,
-        clientName: clientName, 
+        clientName: clientName,
         totalAmount: totalAmount,
         updatedAt: serverTimestamp(),
-        // Remove client-side 'id' from items before saving to Firestore
         items: data.items.map(({ id, ...rest }) => rest),
       };
 
-      if (invoiceDataToUpdate.notes === undefined || invoiceDataToUpdate.notes === '') {
+      if (data.notes && data.notes.trim() !== '') {
+        invoiceDataToUpdate.notes = data.notes;
+      } else {
         invoiceDataToUpdate.notes = deleteField();
       }
-      
+
       await updateDoc(invoiceDocRef, invoiceDataToUpdate);
-      
+
       toast({
         title: 'Factura Actualizada',
         description: `La factura para ${clientName || 'el cliente seleccionado'} ha sido actualizada.`,
@@ -203,7 +202,7 @@ export default function EditInvoicePage() {
       });
     }
   }
-  
+
   if (isLoadingInvoice || isLoadingClients) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -235,8 +234,8 @@ export default function EditInvoicePage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Cliente</FormLabel>
-                  <Select 
-                    onValueChange={field.onChange} 
+                  <Select
+                    onValueChange={field.onChange}
                     value={field.value}
                     disabled={isLoadingClients || !!clientError}
                   >
@@ -393,7 +392,7 @@ export default function EditInvoicePage() {
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem
             </Button>
           </div>
-          
+
           <div className="text-right text-xl font-semibold">
             Total: {totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}
           </div>
@@ -405,7 +404,7 @@ export default function EditInvoicePage() {
               <FormItem>
                 <FormLabel>Notas Adicionales (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} />
+                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} value={field.value || ''} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -419,4 +418,3 @@ export default function EditInvoicePage() {
     </div>
   );
 }
-

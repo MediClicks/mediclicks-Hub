@@ -87,7 +87,7 @@ export default function EditTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
-      clientId: TASK_CLIENT_SELECT_NONE_VALUE, 
+      clientId: TASK_CLIENT_SELECT_NONE_VALUE,
       description: '',
       alertDate: null,
       alertFired: false,
@@ -130,7 +130,7 @@ export default function EditTaskPage() {
 
           if (docSnap.exists()) {
             const data = docSnap.data() as Task;
-            
+
             let initialAlertTime: string | undefined = undefined;
             let initialAlertDate: Date | null = null;
 
@@ -158,7 +158,7 @@ export default function EditTaskPage() {
           } else {
             setTaskNotFound(true);
             toast({ title: 'Error', description: 'Tarea no encontrada.', variant: 'destructive' });
-            router.push('/tasks'); 
+            router.push('/tasks');
           }
         } catch (error) {
           console.error("Error fetching task: ", error);
@@ -182,56 +182,52 @@ export default function EditTaskPage() {
     let combinedAlertDate: Date | null | undefined = data.alertDate;
     if (data.alertDate && selectedAlertTime) {
       const [hours, minutes] = selectedAlertTime.split(':').map(Number);
-      combinedAlertDate = new Date(data.alertDate); 
+      combinedAlertDate = new Date(data.alertDate);
       combinedAlertDate.setHours(hours, minutes, 0, 0);
     } else if (data.alertDate && !selectedAlertTime) {
-      // If date is set but no time, default to start of day (00:00)
       combinedAlertDate = new Date(data.alertDate);
       combinedAlertDate.setHours(0, 0, 0, 0);
     }
-    
+
     try {
       const taskDocRef = doc(db, 'tasks', taskId);
-      
+
       let clientName: string | undefined = undefined;
       if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
         clientName = clientsList.find(c => c.id === data.clientId)?.name;
       }
-      
+
       const dataToUpdate: Record<string, any> = {
         name: data.name,
         assignedTo: data.assignedTo,
-        dueDate: Timestamp.fromDate(data.dueDate), // Always convert to Timestamp
+        dueDate: Timestamp.fromDate(data.dueDate),
         priority: data.priority,
         status: data.status,
         updatedAt: serverTimestamp(),
       };
 
-      // Handle optional description
-      if (data.description) {
+      if (data.description && data.description.trim() !== '') {
         dataToUpdate.description = data.description;
       } else {
         dataToUpdate.description = deleteField();
       }
 
-      // Handle optional clientId and clientName
       if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
         dataToUpdate.clientId = data.clientId;
         dataToUpdate.clientName = clientName;
       } else {
-        dataToUpdate.clientId = deleteField(); 
+        dataToUpdate.clientId = deleteField();
         dataToUpdate.clientName = deleteField();
       }
-      
-      // Handle alertDate and alertFired
+
       if (combinedAlertDate) {
         dataToUpdate.alertDate = Timestamp.fromDate(combinedAlertDate);
-        dataToUpdate.alertFired = false; // Reset alertFired if alertDate is set/changed
+        dataToUpdate.alertFired = false;
       } else {
         dataToUpdate.alertDate = deleteField();
         dataToUpdate.alertFired = deleteField();
       }
-      
+
       await updateDoc(taskDocRef, dataToUpdate);
 
       toast({
@@ -320,7 +316,7 @@ export default function EditTaskPage() {
                 <FormItem>
                   <FormLabel>Cliente (Opcional)</FormLabel>
                   <Select
-                    value={field.value || TASK_CLIENT_SELECT_NONE_VALUE} 
+                    value={field.value || TASK_CLIENT_SELECT_NONE_VALUE}
                     onValueChange={(selectedValue) => {
                       field.onChange(selectedValue === TASK_CLIENT_SELECT_NONE_VALUE ? undefined : selectedValue);
                     }}
@@ -399,7 +395,6 @@ export default function EditTaskPage() {
                         selected={field.value}
                         onSelect={(date) => {
                             field.onChange(date || null);
-                            // If date is cleared, also clear selected time
                             if (!date) setSelectedAlertTime(undefined);
                         }}
                         initialFocus

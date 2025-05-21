@@ -37,14 +37,14 @@ let serviceItemIdCounter = 0;
 let socialItemIdCounter = 0;
 
 const contractedServiceClientSchema = z.object({
-  id: z.string(), 
+  id: z.string(),
   serviceName: z.string().min(1, { message: 'Debe seleccionar un servicio.' }),
   price: z.coerce.number().min(0, { message: 'El precio no puede ser negativo.' }),
   paymentModality: z.enum(paymentModalities, { required_error: 'La modalidad de pago es obligatoria.' }),
 });
 
 const socialMediaAccountClientSchema = z.object({
-  id: z.string(), 
+  id: z.string(),
   platform: z.string().min(1, { message: 'La plataforma es obligatoria.' }),
   username: z.string().min(1, { message: 'El usuario es obligatorio.' }),
   password: z.string().optional(),
@@ -64,8 +64,8 @@ const clientFormSchema = z.object({
   vencimientoWeb: z.date().optional().nullable(),
   contractedServices: z.array(contractedServiceClientSchema).optional(),
   socialMediaAccounts: z.array(socialMediaAccountClientSchema).optional(),
-  credencialesRedesUsuario: z.string().optional(), 
-  credencialesRedesContrasena: z.string().optional(), 
+  credencialesRedesUsuario: z.string().optional(),
+  credencialesRedesContrasena: z.string().optional(),
 });
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
@@ -122,7 +122,7 @@ export default function EditClientPage() {
     control: form.control,
     name: "socialMediaAccounts"
   });
-  
+
   useEffect(() => {
     const fetchServiceDefinitions = async () => {
       setIsLoadingServices(true);
@@ -157,7 +157,7 @@ export default function EditClientPage() {
 
           if (docSnap.exists()) {
             const data = docSnap.data() as Client;
-            
+
             serviceItemIdCounter = data.contractedServices?.length || 0;
             socialItemIdCounter = data.socialMediaAccounts?.length || 0;
 
@@ -175,11 +175,11 @@ export default function EditClientPage() {
               vencimientoWeb: data.vencimientoWeb ? (data.vencimientoWeb as Timestamp).toDate() : null,
               contractedServices: (data.contractedServices || []).map((service, index) => ({
                 ...service,
-                id: `service-${index}-${Date.now()}` 
+                id: `service-${index}-${Date.now()}`
               })),
               socialMediaAccounts: (data.socialMediaAccounts || []).map((account, index) => ({
                 ...account,
-                id: `social-${index}-${Date.now()}` 
+                id: `social-${index}-${Date.now()}`
               })),
               credencialesRedesUsuario: data.credencialesRedesUsuario || '',
               credencialesRedesContrasena: data.credencialesRedesContrasena || '',
@@ -210,7 +210,7 @@ export default function EditClientPage() {
     form.clearErrors();
     try {
       const clientDocRef = doc(db, 'clients', clientId);
-      
+
       const dataToUpdate: Record<string, any> = {
         name: data.name,
         email: data.email,
@@ -219,36 +219,39 @@ export default function EditClientPage() {
         updatedAt: serverTimestamp(),
       };
 
+      // Handle optional string fields
       (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
-         if (key === 'name' || key === 'email' || key === 'contractStartDate' || key === 'pagado' || 
-            key === 'contractedServices' || key === 'socialMediaAccounts') {
-          return; 
+         if (key === 'name' || key === 'email' || key === 'contractStartDate' || key === 'pagado' ||
+            key === 'contractedServices' || key === 'socialMediaAccounts' || key === 'vencimientoWeb') {
+          return;
         }
-        if (key === 'vencimientoWeb') {
-          dataToUpdate[key] = data[key] ? Timestamp.fromDate(data[key] as Date) : deleteField();
-        } else if (data[key] !== undefined && data[key] !== '' && data[key] !== null) {
+        if (data[key] !== undefined && data[key] !== null && (data[key] as string).trim() !== '') {
           dataToUpdate[key] = data[key];
         } else {
-          dataToUpdate[key] = deleteField();
+          dataToUpdate[key] = deleteField(); // Delete if empty string, null, or undefined
         }
       });
       
+      // Handle vencimientoWeb (date or null)
+      dataToUpdate.vencimientoWeb = data.vencimientoWeb ? Timestamp.fromDate(data.vencimientoWeb as Date) : deleteField();
+
       if (data.contractedServices && data.contractedServices.length > 0) {
         dataToUpdate.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
       } else {
-        dataToUpdate.contractedServices = deleteField(); 
+        dataToUpdate.contractedServices = deleteField();
       }
 
       if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
         dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
           const account: any = {...rest};
           if(password && password.trim() !== '') account.password = password;
+          // If password was cleared or never set, it won't be included
           return account;
         });
       } else {
-        dataToUpdate.socialMediaAccounts = deleteField(); 
+        dataToUpdate.socialMediaAccounts = deleteField();
       }
-      
+
       await updateDoc(clientDocRef, dataToUpdate);
 
       toast({
@@ -290,7 +293,7 @@ export default function EditClientPage() {
       <h1 className="text-3xl font-bold tracking-tight">Editar Cliente: {form.watch('name')}</h1>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          
+
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Información Básica</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
@@ -401,7 +404,7 @@ export default function EditClientPage() {
               </FormItem>
             )}
           />
-          
+
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Servicios Contratados</h2>
           <div className="space-y-4">
             {serviceFields.map((item, index) => (
@@ -426,12 +429,12 @@ export default function EditClientPage() {
                       >
                         <FormControl>
                            <SelectTrigger>
-                             <SelectValue 
+                             <SelectValue
                                 placeholder={
-                                  isLoadingServices ? "Cargando servicios..." : 
-                                  (serviceError ? "Error al cargar servicios" : 
+                                  isLoadingServices ? "Cargando servicios..." :
+                                  (serviceError ? "Error al cargar servicios" :
                                   (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
-                                } 
+                                }
                               />
                           </SelectTrigger>
                         </FormControl>
@@ -494,6 +497,7 @@ export default function EditClientPage() {
               variant="outline"
               size="sm"
               onClick={() => appendService({ id: `service-${serviceItemIdCounter++}-${Date.now()}`, serviceName: '', price: 0, paymentModality: 'Mensual' })}
+              disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Servicio
             </Button>
@@ -617,7 +621,7 @@ export default function EditClientPage() {
               Por seguridad, considere usar un gestor de contraseñas seguro y no almacenar contraseñas sensibles directamente aquí si es posible.
             </FormDescription>
           </div>
-          
+
           <FormField
               control={form.control}
               name="credencialesRedesUsuario"
@@ -670,5 +674,3 @@ export default function EditClientPage() {
     </div>
   );
 }
-
-    
