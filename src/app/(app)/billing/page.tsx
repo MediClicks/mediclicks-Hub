@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails, InvoiceItem, ServiceDefinition, PaymentModality, ContractedServiceClient, SocialMediaAccountClient } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle } from "lucide-react";
+import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle, Calendar as CalendarIconLucide } from "lucide-react";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint, getDoc } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
@@ -38,8 +38,11 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
-import { PDFDownloadLink } from '@react-pdf/renderer';
-import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format, addDays, startOfDay, endOfDay } from "date-fns";
+import { es } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
 
 const statusColors: Record<InvoiceStatus, string> = {
   Pagada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
@@ -73,12 +76,10 @@ const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Venci
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
   const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]);
-  const [allClients, setAllClients] = useState<Record<string, WithConvertedDates<Client>>>({});
-  const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
+  // No longer need allClients and agencyDetails state here as PDF download is disabled from list view
 
   const [isLoading, setIsLoading] = useState(true); // General loading for invoices table
-  const [isLoadingClients, setIsLoadingClients] = useState(true); // Loading for client filter dropdown and PDF data
-  const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = useState(true); // Loading for agency details PDF data
+  const [isLoadingClients, setIsLoadingClients] = useState(true); // Loading for client filter dropdown
 
   const [error, setError] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
@@ -87,17 +88,10 @@ export default function BillingPage() {
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
-  const [isClientSide, setIsClientSide] = useState(false);
-
-  useEffect(() => {
-    setIsClientSide(true);
-  }, []);
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(undefined);
 
   const fetchInitialData = useCallback(async () => {
     setIsLoadingClients(true);
-    setIsLoadingAgencyDetails(true);
-
-    // Fetch Clients for filter and PDF
     try {
       const clientsCollection = collection(db, "clients");
       const clientsQuery = query(clientsCollection, orderBy("name", "asc"));
@@ -106,35 +100,12 @@ export default function BillingPage() {
         const data = convertFirestoreTimestamps<Client>(doc.data() as Client);
         return { id: doc.id, ...data };
       });
-      const fetchedAllClients: Record<string, WithConvertedDates<Client>> = {};
-      fetchedClientsForFilter.forEach(client => {
-        fetchedAllClients[client.id] = client;
-      });
       setClientsForFilter(fetchedClientsForFilter);
-      setAllClients(fetchedAllClients);
     } catch (err) {
       console.error("Error fetching clients: ", err);
-      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro y PDFs.", variant: "default" });
+      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
     } finally {
       setIsLoadingClients(false);
-    }
-
-    // Fetch Agency Details for PDF
-    try {
-      const agencyDocRef = doc(db, 'settings', 'agencyDetails');
-      const agencySnap = await getDoc(agencyDocRef);
-      if (agencySnap.exists()) {
-        setAgencyDetails(agencySnap.data() as AgencyDetails);
-      } else {
-        console.warn("Agency details not found in settings. PDF will use placeholders.");
-        setAgencyDetails(null); // Explicitly set to null if not found
-      }
-    } catch (err) {
-      console.error("Error fetching agency details: ", err);
-      toast({ title: "Advertencia", description: "No se pudieron cargar los detalles de la agencia para los PDFs.", variant: "default" });
-      setAgencyDetails(null); // Set to null on error
-    } finally {
-      setIsLoadingAgencyDetails(false);
     }
   }, [toast]);
 
@@ -143,13 +114,19 @@ export default function BillingPage() {
     setError(null);
     try {
       const invoicesCollection = collection(db, "invoices");
-      const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
+      const queryConstraints: QueryConstraint[] = [orderBy("issuedDate", "desc")]; // Default sort by issuedDate
 
       if (statusFilter !== ALL_FILTER_VALUE) {
-        queryConstraints.unshift(where("status", "==", statusFilter));
+        queryConstraints.push(where("status", "==", statusFilter));
       }
       if (clientFilter !== ALL_FILTER_VALUE) {
-        queryConstraints.unshift(where("clientId", "==", clientFilter));
+        queryConstraints.push(where("clientId", "==", clientFilter));
+      }
+      if (dateRangeFilter?.from) {
+        queryConstraints.push(where("issuedDate", ">=", Timestamp.fromDate(startOfDay(dateRangeFilter.from))));
+      }
+      if (dateRangeFilter?.to) {
+        queryConstraints.push(where("issuedDate", "<=", Timestamp.fromDate(endOfDay(dateRangeFilter.to))));
       }
 
       const q = query(invoicesCollection, ...queryConstraints);
@@ -169,17 +146,17 @@ export default function BillingPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, clientFilter]);
+  }, [statusFilter, clientFilter, dateRangeFilter]);
 
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData]);
 
   useEffect(() => {
-    if (!isLoadingClients && !isLoadingAgencyDetails) {
+    if (!isLoadingClients) { // Only fetch invoices after clients (for filter) are loaded
         fetchInvoices();
     }
-  }, [fetchInvoices, isLoadingClients, isLoadingAgencyDetails]);
+  }, [fetchInvoices, isLoadingClients]);
 
 
   const handleDeleteInvoice = async () => {
@@ -215,9 +192,16 @@ export default function BillingPage() {
     if (clientFilter !== ALL_FILTER_VALUE && clientName) {
       filtersApplied.push(`cliente "${clientName}"`);
     }
+    if (dateRangeFilter?.from || dateRangeFilter?.to) {
+      let rangeStr = "rango de fechas ";
+      if (dateRangeFilter.from) rangeStr += `desde ${format(dateRangeFilter.from, "dd/MM/yy")}`;
+      if (dateRangeFilter.to) rangeStr += ` ${dateRangeFilter.from ? 'hasta' : 'hasta'} ${format(dateRangeFilter.to, "dd/MM/yy")}`;
+      filtersApplied.push(rangeStr.trim());
+    }
+
 
     if (filtersApplied.length > 0) {
-      message += ` con ${filtersApplied.join(' y ')}.`;
+      message += ` con ${filtersApplied.join(', ')}.`;
     } else {
       message += ".";
     }
@@ -228,7 +212,7 @@ export default function BillingPage() {
     ? clientsForFilter.find(c => c.id === clientFilter)?.name
     : null;
 
-  const isLoadingOverall = isLoading || isLoadingClients || isLoadingAgencyDetails;
+  const isLoadingOverall = isLoading || isLoadingClients;
 
   return (
     <div className="space-y-8">
@@ -274,6 +258,48 @@ export default function BillingPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={"outline"}
+                className={cn(
+                  "w-[260px] justify-start text-left font-normal",
+                  !dateRangeFilter && "text-muted-foreground"
+                )}
+              >
+                <CalendarIconLucide className="mr-2 h-4 w-4 text-muted-foreground" />
+                {dateRangeFilter?.from ? (
+                  dateRangeFilter.to ? (
+                    <>
+                      {format(dateRangeFilter.from, "LLL dd, y", { locale: es })} -{" "}
+                      {format(dateRangeFilter.to, "LLL dd, y", { locale: es })}
+                    </>
+                  ) : (
+                    format(dateRangeFilter.from, "LLL dd, y", { locale: es })
+                  )
+                ) : (
+                  <span>Seleccionar rango</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={dateRangeFilter?.from}
+                selected={dateRangeFilter}
+                onSelect={setDateRangeFilter}
+                numberOfMonths={2}
+                locale={es}
+              />
+            </PopoverContent>
+          </Popover>
+          {dateRangeFilter && (
+             <Button variant="ghost" size="sm" onClick={() => setDateRangeFilter(undefined)}>Limpiar Fechas</Button>
+          )}
+
+
           <Button asChild>
             <Link href="/billing/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Crear Nueva Factura
@@ -313,79 +339,6 @@ export default function BillingPage() {
             </TableHeader>
             <TableBody>
               {invoices.map(invoice => {
-                const clientForPdf = allClients[invoice.clientId];
-                
-                const currentInvoiceDataForPdf: WithConvertedDates<Invoice> = {
-                  id: String(invoice?.id || `invoice-pdf-${Date.now()}`),
-                  clientId: String(invoice?.clientId || ""),
-                  clientName: String(invoice?.clientName || "Cliente N/A"),
-                  issuedDate: invoice?.issuedDate instanceof Date ? invoice.issuedDate : new Date(0),
-                  dueDate: invoice?.dueDate instanceof Date ? invoice.dueDate : new Date(0),
-                  status: (invoice?.status as InvoiceStatus) || "No Pagada",
-                  items: (Array.isArray(invoice?.items) ? invoice.items : []).map((item, index) => ({
-                    id: String(item?.id || `item-pdf-item-${index}-${Date.now()}`),
-                    description: String(item?.description || "N/A"),
-                    quantity: Number.isFinite(item?.quantity as number) ? Number(item.quantity) : 0,
-                    unitPrice: Number.isFinite(item?.unitPrice as number) ? Number(item.unitPrice) : 0,
-                  })) as InvoiceItem[],
-                  totalAmount: Number.isFinite(invoice?.totalAmount as number) ? Number(invoice.totalAmount) : 0,
-                  notes: typeof invoice?.notes === 'string' ? invoice.notes : undefined,
-                  createdAt: invoice?.createdAt instanceof Date ? invoice.createdAt : new Date(0),
-                  updatedAt: invoice?.updatedAt instanceof Date ? invoice.updatedAt : new Date(0),
-                };
-                
-                let sanitizedClientForPdf: WithConvertedDates<Client> | undefined = undefined;
-                if (clientForPdf) {
-                  sanitizedClientForPdf = {
-                    id: String(clientForPdf?.id || `client-pdf-${Date.now()}`),
-                    name: String(clientForPdf?.name || "Cliente N/A"),
-                    email: String(clientForPdf?.email || "email@ejemplo.com"),
-                    clinica: typeof clientForPdf?.clinica === 'string' ? clientForPdf.clinica : undefined,
-                    telefono: typeof clientForPdf?.telefono === 'string' ? clientForPdf.telefono : undefined,
-                    avatarUrl: typeof clientForPdf?.avatarUrl === 'string' ? clientForPdf.avatarUrl : undefined,
-                    services: Array.isArray(clientForPdf?.services) ? clientForPdf.services.map(s => ({...s})) : [],
-                    contractedServices: Array.isArray(clientForPdf?.contractedServices) ? clientForPdf.contractedServices.map(s => ({
-                      serviceName: String(s?.serviceName || "N/A"),
-                      price: Number.isFinite(s?.price as number) ? Number(s.price) : 0,
-                      paymentModality: (s?.paymentModality as PaymentModality) || "Único",
-                    })) : [],
-                    socialMediaAccounts: Array.isArray(clientForPdf?.socialMediaAccounts) ? clientForPdf.socialMediaAccounts.map(s => ({
-                      platform: String(s?.platform || "N/A"),
-                      username: String(s?.username || "N/A"),
-                      password: typeof s?.password === 'string' ? s.password : undefined,
-                    })) : [],
-                    contractStartDate: clientForPdf?.contractStartDate instanceof Date ? clientForPdf.contractStartDate : new Date(0),
-                    nextBillingDate: undefined, // Removed field
-                    profileSummary: String(clientForPdf?.profileSummary || ""),
-                    serviciosActivosGeneral: undefined, // Removed field
-                    pagado: typeof clientForPdf?.pagado === 'boolean' ? clientForPdf.pagado : false,
-                    notas: undefined, // Removed field
-                    dominioWeb: typeof clientForPdf?.dominioWeb === 'string' ? clientForPdf.dominioWeb : undefined,
-                    tipoServicioWeb: typeof clientForPdf?.tipoServicioWeb === 'string' ? clientForPdf.tipoServicioWeb : undefined,
-                    vencimientoWeb: clientForPdf?.vencimientoWeb instanceof Date ? clientForPdf.vencimientoWeb : undefined,
-                    plataformasRedesSociales: undefined, // Removed field
-                    detallesRedesSociales: undefined, // Removed field
-                    serviciosContratadosAdicionales: undefined, // Removed field
-                    configuracionRedesSociales: undefined, // Removed field
-                    credencialesRedesUsuario: typeof clientForPdf?.credencialesRedesUsuario === 'string' ? clientForPdf.credencialesRedesUsuario : undefined, // Legacy field
-                    credencialesRedesContrasena: typeof clientForPdf?.credencialesRedesContrasena === 'string' ? clientForPdf.credencialesRedesContrasena : undefined, // Legacy field
-                    createdAt: clientForPdf?.createdAt instanceof Date ? clientForPdf.createdAt : new Date(0),
-                    updatedAt: clientForPdf?.updatedAt instanceof Date ? clientForPdf.updatedAt : new Date(0),
-                  };
-                }
-                
-                const safeAgencyDetails: AgencyDetails = agencyDetails || {
-                    agencyName: "Tu Agencia S.L.",
-                    address: "Calle Falsa 123, Ciudad, CP",
-                    taxId: "NIF/CIF: X1234567Z",
-                    contactEmail: "contacto@tuagencia.com",
-                    contactPhone: "+34 900 000 000",
-                    website: "https://www.tuagencia.com"
-                };
-
-                // Condition for rendering PDF download link - ensure all necessary data is present
-                const canRenderPdfLink = isClientSide && currentInvoiceDataForPdf && sanitizedClientForPdf && safeAgencyDetails;
-
                 return (
                   <TableRow key={invoice.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
@@ -394,19 +347,19 @@ export default function BillingPage() {
                       </Link>
                     </TableCell>
                     <TableCell>{invoice.clientName || 'N/A'}</TableCell>
-                    <TableCell>{invoice.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
+                    <TableCell>{(invoice.totalAmount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                     <TableCell>{invoice.issuedDate ? new Date(invoice.issuedDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
                     <TableCell>{invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'}</TableCell>
                     <TableCell>
                       <Badge className={cn("border text-xs", statusColors[invoice.status])}>{invoice.status}</Badge>
                     </TableCell>
                     <TableCell className="text-right space-x-1">
-                      <Button variant="ghost" size="icon" className="hover:text-primary" title="Ver Factura" asChild>
+                      <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" title="Ver Factura" asChild>
                         <Link href={`/billing/${invoice.id}/view`}>
                           <Eye className="h-4 w-4 text-sky-600" />
                         </Link>
                       </Button>
-                      <Button variant="ghost" size="icon" className="hover:text-yellow-500" title="Editar Factura" asChild>
+                      <Button variant="ghost" size="icon" className="hover:text-yellow-500 h-8 w-8" title="Editar Factura" asChild>
                         <Link href={`/billing/${invoice.id}/edit`}>
                           <Edit2 className="h-4 w-4 text-yellow-600" />
                         </Link>
@@ -414,35 +367,16 @@ export default function BillingPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="hover:text-destructive"
+                        className="hover:text-destructive h-8 w-8"
                         title="Eliminar Factura"
                         onClick={() => setInvoiceToDelete(invoice)}
                         disabled={isDeleting && invoiceToDelete?.id === invoice.id}
                        >
                         {isDeleting && invoiceToDelete?.id === invoice.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
-                      {/* Temporarily disabling PDFDownloadLink in the list view due to persistent 'hasOwnProperty' error */}
-                      <Button variant="ghost" size="icon" className="text-blue-600 opacity-50 cursor-not-allowed" title="Descargar PDF (deshabilitado en lista)" disabled>
+                       <Button variant="ghost" size="icon" className="text-blue-600 opacity-50 cursor-not-allowed h-8 w-8" title="Descargar PDF (deshabilitado en lista)" disabled>
                         <Download className="h-4 w-4 opacity-50" />
                       </Button>
-                      {/* 
-                      {canRenderPdfLink ? (
-                        <PDFDownloadLink
-                          document={<InvoicePdfDocument invoice={currentInvoiceDataForPdf} client={sanitizedClientForPdf} agencyDetails={safeAgencyDetails} />}
-                          fileName={`factura-${currentInvoiceDataForPdf.id.substring(0,8).toLowerCase()}.pdf`}
-                        >
-                          {({ loading }) => (
-                            <Button variant="ghost" size="icon" className="hover:text-accent text-blue-600" title="Descargar PDF" disabled={loading || isLoadingClients || isLoadingAgencyDetails}>
-                              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
-                            </Button>
-                          )}
-                        </PDFDownloadLink>
-                      ) : (
-                         <Button variant="ghost" size="icon" className="text-blue-600 opacity-50 cursor-not-allowed" title="Descargar PDF no disponible" disabled>
-                           <Download className="h-4 w-4 opacity-50" />
-                         </Button>
-                      )}
-                      */}
                     </TableCell>
                   </TableRow>
                 );
@@ -456,7 +390,7 @@ export default function BillingPage() {
         <div className="text-center py-12 text-muted-foreground">
           <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {(statusFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE) && (
+          {(statusFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE && !dateRangeFilter) && (
             <Button variant="link" className="mt-2" asChild>
               <Link href="/billing/add">Crea tu primera factura</Link>
             </Button>
@@ -488,3 +422,4 @@ export default function BillingPage() {
   );
 }
 
+    
