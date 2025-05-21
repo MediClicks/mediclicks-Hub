@@ -20,6 +20,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useAuth } from "@/contexts/auth-context"; // Importar useAuth
 
 const agencyDetailsSchema = z.object({
   agencyName: z.string().min(1, "El nombre de la agencia es obligatorio."),
@@ -68,6 +69,7 @@ export default function SettingsPage() {
   const [isDark, setIsDark] = React.useState(false);
   const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = React.useState(true);
   const { toast } = useToast();
+  const { user } = useAuth(); // Obtener el usuario del contexto de autenticación
 
   const [monthlyRevenueData, setMonthlyRevenueData] = useState<MonthlyRevenueChartData[]>([]);
   const [isLoadingChart, setIsLoadingChart] = useState(true);
@@ -86,8 +88,14 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    const isCurrentlyDark = document.documentElement.classList.contains('dark');
-    setIsDark(isCurrentlyDark);
+    const theme = localStorage.getItem('theme');
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      setIsDark(true);
+    } else {
+      document.documentElement.classList.remove('dark');
+      setIsDark(false);
+    }
 
     const fetchAgencyDetails = async () => {
       setIsLoadingAgencyDetails(true);
@@ -154,14 +162,16 @@ export default function SettingsPage() {
 
       } catch (err: any) {
         console.error("Error fetching revenue chart data for settings page: ", err);
+        let specificError = "No se pudieron cargar los datos para el gráfico de ingresos.";
         if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
-          setChartError(`Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, créalo (colección 'invoices', campos 'status' ASC, 'issuedDate' ASC) y luego recarga la página.`);
-        } else {
-          setChartError("No se pudieron cargar los datos para el gráfico de ingresos.");
+          specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, créalo (colección 'invoices', campos 'status' ASC, 'issuedDate' ASC) y luego recarga la página. Enlace de ayuda: ${err.message.substring(err.message.indexOf('https://'))}`;
+        } else if (err.message) {
+          specificError = `Error al cargar gráfico: ${err.message}`;
         }
+        setChartError(specificError);
         toast({
           title: "Error en Gráfico",
-          description: chartError || "Error al cargar datos del gráfico de ingresos.",
+          description: specificError,
           variant: "destructive",
         });
       } finally {
@@ -170,7 +180,7 @@ export default function SettingsPage() {
     };
     fetchRevenueChartData();
 
-  }, [agencyForm, toast, chartError]); // Added chartError to dependency array to re-trigger toast if it changes.
+  }, [agencyForm, toast]);
 
   const toggleDarkMode = (checked: boolean) => {
     setIsDark(checked);
@@ -186,11 +196,17 @@ export default function SettingsPage() {
   const onAgencySubmit = async (data: AgencyDetailsFormValues) => {
     try {
       const agencyDocRef = doc(db, 'settings', 'agencyDetails');
-      const dataToSave: AgencyDetails = {
+      const dataToSave: Partial<AgencyDetails> = { // Use Partial as updatedAt is server-generated
         ...data,
         website: data.website === '' ? undefined : data.website, 
-        updatedAt: serverTimestamp() as unknown as Timestamp, 
+        updatedAt: serverTimestamp() as Timestamp, // Firestore will convert this
       };
+      // Remove undefined fields before saving, except for serverTimestamp
+      Object.keys(dataToSave).forEach(key => {
+        if (dataToSave[key as keyof Partial<AgencyDetails>] === undefined && key !== 'updatedAt') {
+          delete dataToSave[key as keyof Partial<AgencyDetails>];
+        }
+      });
       await setDoc(agencyDocRef, dataToSave, { merge: true });
       toast({
         title: "Información Guardada",
@@ -273,24 +289,24 @@ export default function SettingsPage() {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>Información del Perfil</CardTitle>
-          <CardDescription>Actualiza tus datos personales (funcionalidad placeholder).</CardDescription>
+          <CardDescription>Tus datos de inicio de sesión.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="firstName">Nombre</Label>
-              <Input id="firstName" defaultValue="Admin" disabled />
+              <Input id="firstName" defaultValue={user?.displayName?.split(' ')[0] || "Usuario"} disabled />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="lastName">Apellidos</Label>
-              <Input id="lastName" defaultValue="Usuario" disabled />
+              <Input id="lastName" defaultValue={user?.displayName?.split(' ').slice(1).join(' ') || "App"} disabled />
             </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="email">Dirección de Email</Label>
-            <Input id="email" type="email" defaultValue="admin@mediclicks.hub" disabled />
+            <Input id="email" type="email" defaultValue={user?.email || "No disponible"} disabled />
           </div>
-          <Button disabled>Guardar Cambios</Button>
+          <Button disabled>Guardar Cambios (Deshabilitado)</Button>
         </CardContent>
       </Card>
 
@@ -332,9 +348,9 @@ export default function SettingsPage() {
             </div>
           )}
           {!isLoadingChart && chartError && (
-            <div className="flex flex-col items-center justify-center h-full text-destructive">
+            <div className="flex flex-col items-center justify-center h-full text-destructive text-center">
               <AlertTriangle className="h-8 w-8 mb-2" />
-              <p className="text-center text-sm">{chartError}</p>
+              <p className="text-sm whitespace-pre-wrap">{chartError}</p>
             </div>
           )}
           {!isLoadingChart && !chartError && monthlyRevenueData.length > 0 && (
