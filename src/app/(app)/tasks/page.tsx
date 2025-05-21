@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation'; // Added useRouter
 import {
   Table,
   TableBody,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff, UserCircle, Calendar as CalendarIconLucide } from "lucide-react";
+import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff, UserCircle, Calendar as CalendarIconLucide, X } from "lucide-react"; // Added X for Clear Filters
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,7 +74,6 @@ function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   return data as WithConvertedDates<Task>;
 }
 
-// Helper to convert Firestore Timestamps for Clients (for dropdown)
 function convertClientTimestamps(docData: any): WithConvertedDates<Client> {
   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
@@ -90,9 +89,13 @@ const ALL_FILTER_VALUE = 'All';
 type StatusFilterType = TaskStatus | typeof ALL_FILTER_VALUE;
 type PriorityFilterType = TaskPriority | typeof ALL_FILTER_VALUE;
 type ClientFilterType = string | typeof ALL_FILTER_VALUE;
+type AlertStatusFilterType = 'Activa' | 'Programada' | 'Disparada' | typeof ALL_FILTER_VALUE;
+
 
 const taskStatusesForFilter: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
 const taskPrioritiesForFilter: TaskPriority[] = ['Baja', 'Media', 'Alta'];
+const alertStatusesForFilter: AlertStatusFilterType[] = ['Activa', 'Programada', 'Disparada'];
+
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<WithConvertedDates<Task>[]>([]);
@@ -104,15 +107,29 @@ export default function TasksPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
 
+  const router = useRouter();
   const searchParams = useSearchParams();
   const dueFilterParam = searchParams.get('due');
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilterType>(ALL_FILTER_VALUE);
   const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
-  const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(
-    dueFilterParam === 'today' ? { from: startOfDay(new Date()), to: endOfDay(new Date()) } : undefined
-  );
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(undefined);
+  const [alertStatusFilter, setAlertStatusFilter] = useState<AlertStatusFilterType>(ALL_FILTER_VALUE);
+
+  useEffect(() => {
+    if (dueFilterParam === 'today') {
+      const todayRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
+      setDateRangeFilter(todayRange);
+    } else {
+        // If dueFilterParam is not 'today' or is absent, ensure dateRangeFilter is undefined unless user explicitly sets it
+        // This prevents an infinite loop if the user clears the date filter after coming from `due=today`
+        if (dueFilterParam !== null) { // only clear if the param was there and is not 'today' now
+          setDateRangeFilter(undefined);
+        }
+    }
+  }, [dueFilterParam]);
+
 
   const fetchInitialData = useCallback(async () => {
     setIsLoadingClients(true);
@@ -138,6 +155,8 @@ export default function TasksPage() {
     setError(null);
     try {
       const tasksCollection = collection(db, "tasks");
+      // Default sort by createdAt, but if dueDate filters are active, Firestore might prefer sorting by dueDate first.
+      // For simplicity, we'll keep createdAt as primary sort unless a dueDate filter makes it impossible.
       const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
 
       if (statusFilter !== ALL_FILTER_VALUE) {
@@ -153,15 +172,29 @@ export default function TasksPage() {
         queryConstraints.push(where("dueDate", ">=", Timestamp.fromDate(startOfDay(dateRangeFilter.from))));
       }
       if (dateRangeFilter?.to) {
+        // If only 'from' is set, and 'to' is undefined, but you want to filter up to a certain point (e.g. end of 'from' day)
+        // you might adjust the 'to' date. For range, 'to' should be inclusive of the end of the day.
         queryConstraints.push(where("dueDate", "<=", Timestamp.fromDate(endOfDay(dateRangeFilter.to))));
       }
 
+      const now = Timestamp.now();
+      if (alertStatusFilter === 'Activa') {
+        queryConstraints.push(where("alertDate", "<=", now));
+        queryConstraints.push(where("alertFired", "==", false));
+      } else if (alertStatusFilter === 'Programada') {
+        queryConstraints.push(where("alertDate", ">", now));
+        // Optionally: queryConstraints.push(where("alertFired", "==", false)); if only non-fired future alerts
+      } else if (alertStatusFilter === 'Disparada') {
+        queryConstraints.push(where("alertFired", "==", true));
+      }
+
+
       const q = query(tasksCollection, ...queryConstraints);
       const querySnapshot = await getDocs(q);
-      const tasksData = querySnapshot.docs.map(doc => {
-        const data = doc.data();
+      const tasksData = querySnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
         const convertedData = convertTimestampsToDates(data as Task);
-        return { id: doc.id, ...convertedData };
+        return { id: docSnap.id, ...convertedData };
       });
       setTasks(tasksData);
     } catch (err: any) {
@@ -174,25 +207,14 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter]);
+  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter]);
 
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData]);
 
   useEffect(() => {
-    // If dueFilterParam changes and is 'today', update dateRangeFilter
-    if (dueFilterParam === 'today') {
-      const todayRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
-      // Only update if it's different to avoid infinite loop if dateRangeFilter itself triggers re-render
-      if (dateRangeFilter?.from?.getTime() !== todayRange.from.getTime() || dateRangeFilter?.to?.getTime() !== todayRange.to.getTime()){
-        setDateRangeFilter(todayRange);
-      }
-    }
-  }, [dueFilterParam, dateRangeFilter]); // Add dateRangeFilter to dependencies
-
-  useEffect(() => {
-    if (!isLoadingClients) { // Only fetch tasks after clients (for filter) are loaded or if no clients needed
+    if (!isLoadingClients) { 
         fetchTasks();
     }
   }, [fetchTasks, isLoadingClients]);
@@ -208,6 +230,7 @@ export default function TasksPage() {
         description: `La tarea "${taskToDelete.name}" ha sido eliminada correctamente.`,
       });
       setTasks(prevTasks => prevTasks.filter(task => task.id !== taskToDelete.id));
+      setTaskToDelete(null); 
     } catch (error) {
       console.error("Error eliminando tarea: ", error);
       toast({
@@ -217,7 +240,18 @@ export default function TasksPage() {
       });
     } finally {
       setIsDeleting(false);
-      setTaskToDelete(null); 
+    }
+  };
+
+  const clearAllFilters = () => {
+    setStatusFilter(ALL_FILTER_VALUE);
+    setPriorityFilter(ALL_FILTER_VALUE);
+    setClientFilter(ALL_FILTER_VALUE);
+    setDateRangeFilter(undefined);
+    setAlertStatusFilter(ALL_FILTER_VALUE);
+    // Clear URL params if 'due=today' was set
+    if (searchParams.has('due')) {
+      router.replace('/tasks', { scroll: false });
     }
   };
 
@@ -236,9 +270,12 @@ export default function TasksPage() {
     }
     if (dateRangeFilter?.from || dateRangeFilter?.to) {
       let rangeStr = "rango de fechas ";
-      if (dateRangeFilter.from) rangeStr += `desde ${format(dateRangeFilter.from, "dd/MM/yy")}`;
-      if (dateRangeFilter.to) rangeStr += ` ${dateRangeFilter.from ? 'hasta' : 'hasta'} ${format(dateRangeFilter.to, "dd/MM/yy")}`;
+      if (dateRangeFilter.from) rangeStr += `desde ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`;
+      if (dateRangeFilter.to) rangeStr += ` ${dateRangeFilter.from ? 'hasta' : 'hasta'} ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}`;
       filtersApplied.push(rangeStr.trim());
+    }
+    if (alertStatusFilter !== ALL_FILTER_VALUE) {
+      filtersApplied.push(`estado de alerta "${alertStatusFilter}"`);
     }
 
     if (filtersApplied.length > 0) {
@@ -261,12 +298,18 @@ export default function TasksPage() {
     : null;
 
   const isLoadingOverall = isLoading || isLoadingClients;
+  
+  const activeFiltersCount = [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter].filter(
+    (f) => f !== ALL_FILTER_VALUE && f !== undefined
+  ).length + (dueFilterParam === 'today' && !dateRangeFilter ? 1 : 0);
+
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tareas</h1>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Status Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
@@ -286,6 +329,7 @@ export default function TasksPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Priority Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
@@ -305,6 +349,7 @@ export default function TasksPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Client Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" disabled={isLoadingClients}>
@@ -325,6 +370,7 @@ export default function TasksPage() {
             </DropdownMenuContent>
           </DropdownMenu>
           
+          {/* Date Range Filter */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -334,7 +380,7 @@ export default function TasksPage() {
                   "w-[260px] justify-start text-left font-normal",
                   !dateRangeFilter && "text-muted-foreground"
                 )}
-                disabled={dueFilterParam === 'today'}
+                // disabled={dueFilterParam === 'today'} // Keep enabled to allow user to change from "today"
               >
                 <CalendarIconLucide className="mr-2 h-4 w-4 text-muted-foreground" />
                 {dateRangeFilter?.from ? (
@@ -347,7 +393,7 @@ export default function TasksPage() {
                     format(dateRangeFilter.from, "LLL dd, y", { locale: es })
                   )
                 ) : (
-                  <span>Seleccionar rango</span>
+                  <span>Vencimiento</span>
                 )}
               </Button>
             </PopoverTrigger>
@@ -363,12 +409,31 @@ export default function TasksPage() {
               />
             </PopoverContent>
           </Popover>
-          {(dateRangeFilter || dueFilterParam === 'today') && (
-             <Button variant="ghost" size="sm" onClick={() => {
-               setDateRangeFilter(undefined);
-               // If you want to clear the URL param as well, you'd need to use router.push
-               // For now, this just clears the local state, which will refetch all dates
-             }}>Limpiar Fechas</Button>
+
+           {/* Alert Status Filter */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <BellRing className="mr-2 h-4 w-4 text-muted-foreground" />
+                {alertStatusFilter === ALL_FILTER_VALUE ? "Estado Alerta" : `Alerta: ${alertStatusFilter}`}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56">
+              <DropdownMenuLabel>Estado de Alerta</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={alertStatusFilter} onValueChange={(value) => setAlertStatusFilter(value as AlertStatusFilterType)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
+                {alertStatusesForFilter.map(status => (
+                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {activeFiltersCount > 0 && (
+             <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-destructive hover:text-destructive/80">
+                <X className="mr-1 h-4 w-4" /> Limpiar Filtros ({activeFiltersCount})
+             </Button>
           )}
 
           <Button asChild>
@@ -418,7 +483,7 @@ export default function TasksPage() {
                 const alertDateExists = task.alertDate && task.alertDate instanceof Date;
                 const isAlertDatePast = alertDateExists && isPast(task.alertDate as Date);
                 const isAlertActive = isAlertDatePast && !task.alertFired;
-                const isAlertProcessed = isAlertDatePast && task.alertFired;
+                const isAlertProcessed = task.alertFired === true; // Explicitly check for true
                 
                 return (
                   <TableRow 
@@ -430,11 +495,11 @@ export default function TasksPage() {
                     )}
                   >
                     <TableCell className="font-medium">
-                      <Link href={`/tasks/${task.id}/edit`} className="hover:underline text-primary flex items-center gap-2">
+                      <Link href={`/tasks/${task.id}/edit`} className="hover:underline text-primary flex items-center gap-1.5">
                         {isTaskOverdue && <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" title="Tarea Vencida" />}
                         {isTaskDueSoon && !isTaskOverdue && <Clock className="h-4 w-4 text-amber-600 shrink-0" title="Tarea Próxima a Vencer"/>}
                         {isAlertActive && <BellRing className="h-4 w-4 text-orange-500 shrink-0" title="Alerta Activa"/>}
-                        {isAlertProcessed && <BellOff className="h-4 w-4 text-slate-500 shrink-0" title="Alerta Procesada"/>}
+                        {isAlertProcessed && !isAlertActive && <BellOff className="h-4 w-4 text-slate-500 shrink-0" title="Alerta Atendida/Disparada"/>}
                         <span>{task.name}</span>
                       </Link>
                     </TableCell>
@@ -461,7 +526,7 @@ export default function TasksPage() {
                         onClick={() => setTaskToDelete(task)} 
                         disabled={isDeleting && taskToDelete?.id === task.id}
                       >
-                        {isDeleting && taskToDelete?.id === task.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                        {isDeleting && taskToDelete?.id === task.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -476,7 +541,7 @@ export default function TasksPage() {
          <div className="text-center py-12 text-muted-foreground">
           {getEmptyStateIcon()}
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE && !dateRangeFilter) && (
+          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE && !dateRangeFilter && alertStatusFilter === ALL_FILTER_VALUE) && (
             <Button variant="link" className="mt-2" asChild>
               <Link href="/tasks/add">Agrega tu primera tarea</Link>
             </Button>
@@ -511,3 +576,4 @@ export default function TasksPage() {
   );
 }
 
+    
