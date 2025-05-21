@@ -2,8 +2,9 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
@@ -29,6 +30,7 @@ interface RecentActivityItem {
   statusOrClient: string;
   date: Date;
   statusType?: TaskStatus | InvoiceStatus;
+  href: string;
 }
 
 interface UpcomingItem {
@@ -36,6 +38,7 @@ interface UpcomingItem {
   name: string;
   dueDateFormatted: string;
   type: 'task' | 'invoice';
+  href: string;
 }
 
 interface MonthlyRevenueChartData {
@@ -160,7 +163,7 @@ export default function DashboardPage() {
         });
 
         const revenueByMonth: Record<string, number> = {};
-        const sixMonthsAgo = startOfMonth(subMonths(now, 5)); // Current month + 5 past months
+        const sixMonthsAgo = startOfMonth(subMonths(now, 5)); 
 
         const allPaidInvoicesQuery = query(invoicesCollectionRef, 
           where("status", "==", "Pagada"),
@@ -181,12 +184,11 @@ export default function DashboardPage() {
           const dateCursor = subMonths(now, i);
           const monthYearKey = format(dateCursor, 'LLL yy', { locale: es });
           formattedRevenueData.push({
-            month: monthYearKey.charAt(0).toUpperCase() + monthYearKey.slice(1), // Capitalize month
+            month: monthYearKey.charAt(0).toUpperCase() + monthYearKey.slice(1), 
             total: revenueByMonth[monthYearKey] || 0,
           });
         }
         setMonthlyRevenueData(formattedRevenueData);
-
 
         const recentTasksQuery = query(tasksCollectionRef, orderBy("createdAt", "desc"), limit(3));
         const recentInvoicesQuery = query(invoicesCollectionRef, orderBy("createdAt", "desc"), limit(2));
@@ -202,6 +204,7 @@ export default function DashboardPage() {
           fetchedRecentActivity.push({ 
             id: doc.id, type: 'task', name: task.name, 
             statusOrClient: task.status, date: task.createdAt!, statusType: task.status,
+            href: `/tasks/${doc.id}/edit`
           });
         });
         recentInvoicesSnap.docs.forEach(doc => {
@@ -209,6 +212,7 @@ export default function DashboardPage() {
           fetchedRecentActivity.push({ 
             id: doc.id, type: 'invoice', name: `Factura para ${invoice.clientName || 'N/A'}`, 
             statusOrClient: invoice.status, date: invoice.createdAt!, statusType: invoice.status,
+            href: `/billing/${doc.id}/view`
           });
         });
         fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -238,7 +242,8 @@ export default function DashboardPage() {
           const task = convertFirestoreTimestamps(doc.data() as Task);
           fetchedUpcomingItems.push({ 
             id: doc.id, type: 'task', name: task.name, 
-            dueDateFormatted: task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A'
+            dueDateFormatted: task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A',
+            href: `/tasks/${doc.id}/edit`
           });
         });
         upcomingInvoicesSnap.docs.forEach(doc => {
@@ -246,7 +251,8 @@ export default function DashboardPage() {
           fetchedUpcomingItems.push({ 
             id: doc.id, type: 'invoice', 
             name: `Factura ${doc.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
-            dueDateFormatted: invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'
+            dueDateFormatted: invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A',
+            href: `/billing/${doc.id}/view`
           });
         });
         fetchedUpcomingItems.sort((a, b) => {
@@ -301,6 +307,7 @@ export default function DashboardPage() {
           value={stats?.totalClients ?? 0} 
           icon={Users}
           description="Clientes activos gestionados"
+          className="bg-card border-primary"
           href="/clients"
         />
         <SummaryCard 
@@ -309,7 +316,7 @@ export default function DashboardPage() {
           icon={Briefcase}
           description="Tareas actualmente en desarrollo"
           className="bg-sky-600 border-sky-500"
-          href="/tasks" // Podríamos añadir ?status=En Progreso en el futuro
+          href="/tasks?status=En+Progreso"
         />
         <SummaryCard 
           title="Tareas Pendientes" 
@@ -317,7 +324,7 @@ export default function DashboardPage() {
           icon={ListTodo}
           description="Tareas que requieren atención"
           className="bg-amber-600 border-amber-500"
-          href="/tasks" // Podríamos añadir ?status=Pendiente en el futuro
+          href="/tasks?status=Pendiente"
         />
         <SummaryCard 
           title="Ingresos Este Mes" 
@@ -325,7 +332,7 @@ export default function DashboardPage() {
           icon={DollarSign}
           description="Basado en facturas pagadas"
           className="bg-green-600 border-green-500"
-          href="/billing"
+          href="/billing?status=Pagada"
         />
       </div>
       
@@ -344,7 +351,9 @@ export default function DashboardPage() {
                 {recentActivity.map(item => (
                   <li key={item.id} className="text-sm text-muted-foreground flex justify-between items-center">
                     <div>
-                      <span className="font-medium text-foreground">{item.name}</span>
+                      <Link href={item.href} className="font-medium text-primary hover:underline">
+                        {item.name}
+                      </Link>
                       <span className="text-xs ml-2">({new Date(item.date).toLocaleDateString('es-ES')})</span>
                     </div>
                     {item.statusType && (
@@ -372,8 +381,12 @@ export default function DashboardPage() {
            {upcomingItems.length > 0 ? (
             <ul className="space-y-3">
               {upcomingItems.map(item => (
-                <li key={item.id} className="text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">{item.name}</span> - Vence el {item.dueDateFormatted}
+                <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2">
+                  {item.type === 'task' ? <ListChecks className="h-4 w-4 text-sky-500 shrink-0" /> : <Receipt className="h-4 w-4 text-rose-500 shrink-0" />}
+                  <Link href={item.href} className="font-medium text-primary hover:underline">
+                    {item.name}
+                  </Link>
+                   - Vence el {item.dueDateFormatted}
                 </li>
               ))}
             </ul>
@@ -394,7 +407,7 @@ export default function DashboardPage() {
             <CardDescription>Total de facturas pagadas por mes.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] pt-6">
-            {monthlyRevenueData.length > 0 ? (
+            {monthlyRevenueData.length > 0 && monthlyRevenueData.some(d => d.total > 0) ? (
               <ChartContainer config={revenueChartConfig} className="w-full h-full">
                 <BarChart accessibilityLayer data={monthlyRevenueData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -435,18 +448,7 @@ export default function DashboardPage() {
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent nameKey="count" hideLabel />} />
                   <Pie data={taskStatusData} dataKey="count" nameKey="status" innerRadius={60} strokeWidth={5}>
-                     {taskStatusData.map((entry) => (
-                      <text
-                        key={`label-${entry.status}`}
-                        x={0} // These positionings are relative to the center of the pie
-                        y={0}
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                        className="fill-foreground text-xs font-semibold"
-                       >
-                        {entry.status}
-                      </text>
-                    ))}
+                     {/* Label rendering removed from here for cleaner pie chart, legend serves this purpose */}
                   </Pie>
                    <ChartLegend content={<ChartLegendContent nameKey="status" />} />
                 </PieChart>
