@@ -1,13 +1,12 @@
 
 'use client';
 
-import Image from 'next/image';
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates } from "@/types";
-import { Briefcase, CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Briefcase, CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -98,10 +97,29 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         <CardContent className="p-4 space-y-3 flex-grow">
           <div>
             <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-              <Briefcase className="mr-2 h-4 w-4 text-primary" /> Servicios Activos Generales
+              <Briefcase className="mr-2 h-4 w-4 text-primary" /> Servicios Activos
             </h4>
              <p className="text-xs text-foreground line-clamp-2">{client.serviciosActivosGeneral || 'No especificado'}</p>
           </div>
+
+          {client.profileSummary && (
+            <div>
+              <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
+                <UserCircle className="mr-2 h-4 w-4 text-primary" /> Resumen del Perfil
+              </h4>
+              <p className="text-xs text-foreground line-clamp-2">{client.profileSummary}</p>
+            </div>
+          )}
+
+          {client.plataformasRedesSociales && (
+             <div>
+              <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
+                <Share2 className="mr-2 h-4 w-4 text-primary" /> Redes Sociales
+              </h4>
+              <p className="text-xs text-foreground line-clamp-2">{client.plataformasRedesSociales}</p>
+            </div>
+          )}
+
 
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -136,7 +154,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
               </Link>
             </Button>
             <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-red-400/20 hover:border-red-500" onClick={() => setShowDeleteDialog(true)} disabled={isDeleting}>
-              <Trash2 className="h-4 w-4 text-red-600" />
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
               <span className="sr-only">Eliminar Cliente</span>
             </Button>
           </div>
@@ -160,7 +178,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar este cliente?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará permanentemente el cliente "{client.name}" y todos sus datos asociados.
+              Esta acción no se puede deshacer. Se eliminará permanentemente el cliente "{client.name}" y todos sus datos asociados (las tareas y facturas no se eliminarán automáticamente).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
