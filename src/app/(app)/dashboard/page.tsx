@@ -35,7 +35,7 @@ interface RecentActivityItem {
 
 interface UpcomingItem {
   id: string;
-  name: string; // Will include type and client name for context
+  name: string; 
   dueDateFormatted: string;
   type: 'task' | 'invoice';
   href: string;
@@ -176,7 +176,8 @@ export default function DashboardPage() {
         const allPaidInvoicesSnap = await getDocs(allPaidInvoicesQuery);
 
         allPaidInvoicesSnap.docs.forEach(doc => {
-          const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
+          const invoiceData = doc.data() as Invoice;
+          const invoice = convertFirestoreTimestamps(invoiceData);
           if (invoice?.issuedDate) {
             const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
             revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + (invoice.totalAmount || 0);
@@ -204,7 +205,8 @@ export default function DashboardPage() {
 
         const fetchedRecentActivity: RecentActivityItem[] = [];
         recentTasksSnap.docs.forEach(doc => {
-          const task = convertFirestoreTimestamps(doc.data() as Task);
+          const taskData = doc.data() as Task;
+          const task = convertFirestoreTimestamps(taskData);
           if (task && task.createdAt) {
             fetchedRecentActivity.push({ 
               id: doc.id, type: 'task', name: task.name || "Tarea sin nombre", 
@@ -214,10 +216,11 @@ export default function DashboardPage() {
           }
         });
         recentInvoicesSnap.docs.forEach(doc => {
-          const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
+          const invoiceData = doc.data() as Invoice;
+          const invoice = convertFirestoreTimestamps(invoiceData);
           if (invoice && invoice.createdAt) {
             fetchedRecentActivity.push({ 
-              id: doc.id, type: 'invoice', name: `Factura para ${invoice.clientName || 'N/A'}`, 
+              id: doc.id, type: 'invoice', name: `Factura ${doc.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
               statusOrClient: invoice.status, date: new Date(invoice.createdAt), statusType: invoice.status,
               href: `/billing/${doc.id}/view`
             });
@@ -247,7 +250,8 @@ export default function DashboardPage() {
         
         const fetchedUpcomingItems: UpcomingItem[] = [];
         upcomingTasksSnap.docs.forEach(doc => {
-          const task = convertFirestoreTimestamps(doc.data() as Task);
+          const taskData = doc.data() as Task;
+          const task = convertFirestoreTimestamps(taskData);
           if (task && task.dueDate) {
             let taskDisplayName = `Tarea: ${task.name || "Tarea sin nombre"}`;
             if (task.clientName) {
@@ -261,7 +265,8 @@ export default function DashboardPage() {
           }
         });
         upcomingInvoicesSnap.docs.forEach(doc => {
-          const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
+          const invoiceData = doc.data() as Invoice;
+          const invoice = convertFirestoreTimestamps(invoiceData);
           if (invoice && invoice.dueDate) {
             fetchedUpcomingItems.push({ 
               id: doc.id, type: 'invoice', 
@@ -272,8 +277,13 @@ export default function DashboardPage() {
           }
         });
         fetchedUpcomingItems.sort((a, b) => {
-            const dateA = a.dueDateFormatted !== 'N/A' ? new Date(a.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
-            const dateB = b.dueDateFormatted !== 'N/A' ? new Date(b.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
+            // Safely parse dates
+            const dateAIsValid = a.dueDateFormatted && !isNaN(new Date(a.dueDateFormatted.split('/').reverse().join('-')).getTime());
+            const dateBIsValid = b.dueDateFormatted && !isNaN(new Date(b.dueDateFormatted.split('/').reverse().join('-')).getTime());
+
+            const dateA = dateAIsValid ? new Date(a.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
+            const dateB = dateBIsValid ? new Date(b.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
+            
             return dateA.getTime() - dateB.getTime();
         });
         setUpcomingItems(fetchedUpcomingItems.slice(0,5));
@@ -368,15 +378,17 @@ export default function DashboardPage() {
             {recentActivity.length > 0 ? (
               <ul className="space-y-3">
                 {recentActivity.map(item => (
-                  <li key={item.id} className="text-sm text-muted-foreground flex justify-between items-center">
-                    <div>
-                      <Link href={item.href} className="font-medium text-primary hover:underline">
+                  <li key={item.id} className="text-sm text-muted-foreground flex justify-between items-center hover:bg-muted/50 p-2 rounded-md transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
+                        {item.type === 'task' && <ListChecks className="inline-block mr-2 h-4 w-4 text-sky-600 align-text-bottom" />}
+                        {item.type === 'invoice' && <Receipt className="inline-block mr-2 h-4 w-4 text-rose-600 align-text-bottom" />}
                         {item.name}
                       </Link>
-                      <span className="text-xs ml-2">({new Date(item.date).toLocaleDateString('es-ES')})</span>
+                      <span className="text-xs ml-1">({new Date(item.date).toLocaleDateString('es-ES')})</span>
                     </div>
                     {item.statusType && (
-                       <Badge className={cn("text-white text-xs border", getStatusColorClass(item.statusType, item.type))}>
+                       <Badge className={cn("text-white text-xs border ml-2 shrink-0", getStatusColorClass(item.statusType, item.type))}>
                          {item.statusOrClient}
                        </Badge>
                     )}
@@ -384,7 +396,7 @@ export default function DashboardPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No hay actividad reciente.</p>
+              <p className="text-sm text-muted-foreground text-center py-4">No hay actividad reciente.</p>
             )}
           </CardContent>
         </Card>
@@ -400,17 +412,19 @@ export default function DashboardPage() {
            {upcomingItems.length > 0 ? (
             <ul className="space-y-3">
               {upcomingItems.map(item => (
-                <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2">
-                  {item.type === 'task' ? <ListChecks className="mr-1 h-4 w-4 text-sky-500 shrink-0" /> : <Receipt className="mr-1 h-4 w-4 text-rose-500 shrink-0" />}
-                  <Link href={item.href} className="font-medium text-primary hover:underline">
-                    {item.name}
-                  </Link>
-                   - Vence el {item.dueDateFormatted}
+                <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2 hover:bg-muted/50 p-2 rounded-md transition-colors">
+                  {item.type === 'task' ? <ListChecks className="h-5 w-5 text-sky-600 shrink-0" /> : <Receipt className="h-5 w-5 text-rose-600 shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
+                      {item.name}
+                    </Link>
+                    <span className="text-xs">Vence: {item.dueDateFormatted}</span>
+                  </div>
                 </li>
               ))}
             </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No hay vencimientos próximos.</p>
+              <p className="text-sm text-muted-foreground text-center py-4">No hay vencimientos próximos.</p>
             )}
           </CardContent>
         </Card>
