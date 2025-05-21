@@ -47,9 +47,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // onAuthStateChanged will handle setting the user and redirecting
       // No need to explicitly setUser here or push route, AppLayout handles redirection based on auth state
     } catch (error: any) {
-      // Firebase Auth errors have a 'code' property
-      console.error("Firebase login error:", error.code, error.message);
-      throw error; // Re-throw the error so LoginPage can handle it
+      // Firebase Auth errors have a 'code' property.
+      // The error is re-thrown and handled (including logging) in LoginPage.
+      throw error; 
     }
   };
 
