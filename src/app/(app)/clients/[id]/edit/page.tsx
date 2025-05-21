@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Loader2, PlusCircle, Trash2 } from 'lucide-react';
+import { CalendarIcon, Loader2, PlusCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
@@ -28,8 +28,8 @@ import { es } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, deleteField } from 'firebase/firestore';
-import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality } from '@/types';
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, deleteField, collection, query, orderBy, getDocs } from 'firebase/firestore';
+import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types';
 
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
@@ -38,14 +38,14 @@ let socialItemIdCounter = 0;
 
 // Schemas for form validation including client-side ID for useFieldArray
 const contractedServiceClientSchema = z.object({
-  id: z.string(), // For react-hook-form key
-  serviceName: z.string().min(1, { message: 'El nombre del servicio es obligatorio.' }),
+  id: z.string(), 
+  serviceName: z.string().min(1, { message: 'Debe seleccionar un servicio.' }),
   price: z.coerce.number().min(0, { message: 'El precio no puede ser negativo.' }),
   paymentModality: z.enum(paymentModalities, { required_error: 'La modalidad de pago es obligatoria.' }),
 });
 
 const socialMediaAccountClientSchema = z.object({
-  id: z.string(), // For react-hook-form key
+  id: z.string(), 
   platform: z.string().min(1, { message: 'La plataforma es obligatoria.' }),
   username: z.string().min(1, { message: 'El usuario es obligatorio.' }),
   password: z.string().optional(),
@@ -54,6 +54,7 @@ const socialMediaAccountClientSchema = z.object({
 const clientFormSchema = z.object({
   name: z.string().min(2, { message: 'El nombre debe tener al menos 2 caracteres.' }),
   email: z.string().email({ message: 'Por favor, introduce un email válido.' }),
+  avatarUrl: z.string().url({ message: "Debe ser una URL válida." }).optional().or(z.literal('')),
   clinica: z.string().optional(),
   telefono: z.string().optional(),
   contractStartDate: z.date({ required_error: 'La fecha de inicio de contrato es obligatoria.' }),
@@ -64,11 +65,22 @@ const clientFormSchema = z.object({
   vencimientoWeb: z.date().optional().nullable(),
   contractedServices: z.array(contractedServiceClientSchema).optional(),
   socialMediaAccounts: z.array(socialMediaAccountClientSchema).optional(),
-  credencialesRedesUsuario: z.string().optional(), // Kept for backward compatibility if needed, but new structure is preferred
-  credencialesRedesContrasena: z.string().optional(), // Kept for backward compatibility
+  credencialesRedesUsuario: z.string().optional(), 
+  credencialesRedesContrasena: z.string().optional(), 
 });
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
+
+// Function to convert Firestore Timestamps to JS Date objects
+function convertServiceDefinitionTimestamps(docData: any): WithConvertedDates<ServiceDefinition> {
+   const data = { ...docData } as Partial<WithConvertedDates<ServiceDefinition>>;
+  for (const key in data) {
+    if (data[key as keyof ServiceDefinition] instanceof Timestamp) {
+      data[key as keyof ServiceDefinition] = (data[key as keyof ServiceDefinition] as Timestamp).toDate() as any;
+    }
+  }
+  return data as WithConvertedDates<ServiceDefinition>;
+}
 
 export default function EditClientPage() {
   const router = useRouter();
@@ -79,11 +91,16 @@ export default function EditClientPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [clientNotFound, setClientNotFound] = useState(false);
 
+  const [serviceDefinitions, setServiceDefinitions] = useState<WithConvertedDates<ServiceDefinition>[]>([]);
+  const [isLoadingServices, setIsLoadingServices] = useState(true);
+  const [serviceError, setServiceError] = useState<string | null>(null);
+
   const form = useForm<ClientFormValues>({
     resolver: zodResolver(clientFormSchema),
     defaultValues: {
       name: '',
       email: '',
+      avatarUrl: '',
       clinica: '',
       telefono: '',
       profileSummary: '',
@@ -107,6 +124,29 @@ export default function EditClientPage() {
     control: form.control,
     name: "socialMediaAccounts"
   });
+  
+  useEffect(() => {
+    const fetchServiceDefinitions = async () => {
+      setIsLoadingServices(true);
+      setServiceError(null);
+      try {
+        const servicesCollection = collection(db, "appServices");
+        const q = query(servicesCollection, orderBy("name", "asc"));
+        const querySnapshot = await getDocs(q);
+        const fetchedServices = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return { id: doc.id, ...convertServiceDefinitionTimestamps(data) };
+        });
+        setServiceDefinitions(fetchedServices);
+      } catch (err) {
+        console.error("Error fetching service definitions: ", err);
+        setServiceError('No se pudieron cargar las definiciones de servicios.');
+      } finally {
+        setIsLoadingServices(false);
+      }
+    };
+    fetchServiceDefinitions();
+  }, []);
 
   useEffect(() => {
     if (clientId) {
@@ -126,6 +166,7 @@ export default function EditClientPage() {
             const formData: ClientFormValues = {
               name: data.name || '',
               email: data.email || '',
+              avatarUrl: data.avatarUrl || '',
               clinica: data.clinica || '',
               telefono: data.telefono || '',
               contractStartDate: data.contractStartDate ? (data.contractStartDate as Timestamp).toDate() : new Date(),
@@ -136,11 +177,11 @@ export default function EditClientPage() {
               vencimientoWeb: data.vencimientoWeb ? (data.vencimientoWeb as Timestamp).toDate() : null,
               contractedServices: (data.contractedServices || []).map((service, index) => ({
                 ...service,
-                id: `service-${index}-${Date.now()}` // Ensure unique client-side ID
+                id: `service-${index}-${Date.now()}` 
               })),
               socialMediaAccounts: (data.socialMediaAccounts || []).map((account, index) => ({
                 ...account,
-                id: `social-${index}-${Date.now()}` // Ensure unique client-side ID
+                id: `social-${index}-${Date.now()}` 
               })),
               credencialesRedesUsuario: data.credencialesRedesUsuario || '',
               credencialesRedesContrasena: data.credencialesRedesContrasena || '',
@@ -172,50 +213,47 @@ export default function EditClientPage() {
     try {
       const clientDocRef = doc(db, 'clients', clientId);
       
-      const dataToUpdate: Record<string, any> = {};
-      // Handle top-level optional fields
-      (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
-        if (key === 'contractedServices' || key === 'socialMediaAccounts') return; // Handled separately
+      const dataToUpdate: Record<string, any> = {
+        name: data.name,
+        email: data.email,
+        contractStartDate: data.contractStartDate ? Timestamp.fromDate(data.contractStartDate) : deleteField(),
+        pagado: data.pagado,
+        updatedAt: serverTimestamp(),
+      };
 
-        if (data[key] === undefined || data[key] === '') {
-          if (key === 'vencimientoWeb' && data[key] === null) { // vencimientoWeb being null means delete
-            dataToUpdate[key] = deleteField();
-          } else if (data[key] === '' && key !== 'vencimientoWeb' ) { // delete other empty string fields
-             dataToUpdate[key] = deleteField();
-          }
-        } else {
+      // Handle optional fields
+      (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
+         if (key === 'name' || key === 'email' || key === 'contractStartDate' || key === 'pagado' || 
+            key === 'contractedServices' || key === 'socialMediaAccounts') {
+          return; 
+        }
+        if (key === 'vencimientoWeb') {
+          dataToUpdate[key] = data[key] ? Timestamp.fromDate(data[key] as Date) : deleteField();
+        } else if (data[key] !== undefined && data[key] !== '' && data[key] !== null) {
           dataToUpdate[key] = data[key];
+        } else {
+          dataToUpdate[key] = deleteField();
         }
       });
-      
-      if (data.vencimientoWeb === null) {
-        dataToUpdate.vencimientoWeb = deleteField();
-      } else if (data.vencimientoWeb instanceof Date){ // Ensure it's a date if provided
-        dataToUpdate.vencimientoWeb = Timestamp.fromDate(data.vencimientoWeb);
-      }
-      // If vencimientoWeb was initially undefined and not touched, it won't be in dataToUpdate
-      // So, ensure it's deleted if not explicitly set to a date or null (which means delete)
-      if (!('vencimientoWeb' in dataToUpdate) && !data.vencimientoWeb) {
-         delete dataToUpdate.vencimientoWeb;
-      }
       
       // Handle contractedServices: remove client-side id
       if (data.contractedServices && data.contractedServices.length > 0) {
         dataToUpdate.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
       } else {
-        dataToUpdate.contractedServices = deleteField(); // Or an empty array: []
+        dataToUpdate.contractedServices = deleteField(); 
       }
 
-      // Handle socialMediaAccounts: remove client-side id
+      // Handle socialMediaAccounts: remove client-side id and optional empty password
       if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
-        dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, ...rest }) => rest);
+        dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
+          const account: any = {...rest};
+          if(password && password.trim() !== '') account.password = password;
+          return account;
+        });
       } else {
-        dataToUpdate.socialMediaAccounts = deleteField(); // Or an empty array: []
+        dataToUpdate.socialMediaAccounts = deleteField(); 
       }
       
-      dataToUpdate.contractStartDate = Timestamp.fromDate(data.contractStartDate);
-      dataToUpdate.updatedAt = serverTimestamp();
-
       await updateDoc(clientDocRef, dataToUpdate);
 
       toast({
@@ -233,7 +271,7 @@ export default function EditClientPage() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || isLoadingServices) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -281,6 +319,19 @@ export default function EditClientPage() {
                   <FormLabel>Email de Contacto</FormLabel>
                   <FormControl>
                     <Input type="email" placeholder="Ej: contacto@sonrisas.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="avatarUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>URL del Avatar (Opcional)</FormLabel>
+                  <FormControl>
+                    <Input type="url" placeholder="https://ejemplo.com/logo.png" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -366,18 +417,35 @@ export default function EditClientPage() {
                   render={({ field }) => (
                     <FormItem className="md:col-span-4">
                       {index === 0 && <FormLabel>Nombre Servicio/Paquete</FormLabel>}
-                      <FormControl>
-                         {/* TODO: Reemplazar con Select dinámico cargado desde Configuración/Servicios */}
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Seleccionar servicio" />
+                      <Select
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          const selectedService = serviceDefinitions.find(s => s.name === value);
+                          if (selectedService) {
+                            form.setValue(`contractedServices.${index}.price`, selectedService.price);
+                            form.setValue(`contractedServices.${index}.paymentModality`, selectedService.paymentModality);
+                          }
+                        }}
+                        value={field.value}
+                        disabled={isLoadingServices || !!serviceError}
+                      >
+                        <FormControl>
+                           <SelectTrigger>
+                            <SelectValue placeholder={
+                              isLoadingServices ? "Cargando servicios..." : 
+                              (serviceError ? "Error al cargar" : 
+                              (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
+                            } />
                           </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="placeholder_servicio_1">Placeholder Servicio 1</SelectItem>
-                            <SelectItem value="placeholder_servicio_2">Placeholder Servicio 2</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormControl>
+                        </FormControl>
+                        <SelectContent>
+                          {serviceError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {serviceError}</div>}
+                          {!isLoadingServices && !serviceError && serviceDefinitions.length === 0 && <div className="p-2 text-sm text-muted-foreground">No hay servicios. Crea uno en Configuración.</div>}
+                          {serviceDefinitions.map(serviceDef => (
+                            <SelectItem key={serviceDef.id} value={serviceDef.name}>{serviceDef.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -598,7 +666,7 @@ export default function EditClientPage() {
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={form.formState.isSubmitting || isLoading}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoading || isLoadingServices}>
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>

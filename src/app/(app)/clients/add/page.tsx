@@ -1,8 +1,9 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,89 +19,174 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase'; // Import Firestore instance
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'; // Import Firestore functions
+import { db } from '@/lib/firebase'; 
+import { collection, addDoc, serverTimestamp, Timestamp, deleteField, getDocs, query, orderBy } from 'firebase/firestore';
+import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types';
 
-// Define Zod schema for client form validation
+const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
+
+let serviceItemIdCounter = 0;
+let socialItemIdCounter = 0;
+
+const contractedServiceClientSchema = z.object({
+  id: z.string(), 
+  serviceName: z.string().min(1, { message: 'Debe seleccionar un servicio.' }),
+  price: z.coerce.number().min(0, { message: 'El precio no puede ser negativo.' }),
+  paymentModality: z.enum(paymentModalities, { required_error: 'La modalidad de pago es obligatoria.' }),
+});
+
+const socialMediaAccountClientSchema = z.object({
+  id: z.string(),
+  platform: z.string().min(1, { message: 'La plataforma es obligatoria.' }),
+  username: z.string().min(1, { message: 'El usuario es obligatorio.' }),
+  password: z.string().optional(),
+});
+
 const clientFormSchema = z.object({
   name: z.string().min(2, { message: 'El nombre debe tener al menos 2 caracteres.' }),
   email: z.string().email({ message: 'Por favor, introduce un email válido.' }),
+  avatarUrl: z.string().url({ message: "Debe ser una URL válida." }).optional().or(z.literal('')),
   clinica: z.string().optional(),
   telefono: z.string().optional(),
   contractStartDate: z.date({ required_error: 'La fecha de inicio de contrato es obligatoria.' }),
-  nextBillingDate: z.date({ required_error: 'La próxima fecha de facturación es obligatoria.' }),
   profileSummary: z.string().min(10, { message: 'El resumen del perfil debe tener al menos 10 caracteres.' }).optional(),
-  serviciosActivosGeneral: z.string().optional(),
   pagado: z.boolean().default(false).optional(),
-  notas: z.string().optional(),
   dominioWeb: z.string().optional(),
   tipoServicioWeb: z.string().optional(),
   vencimientoWeb: z.date().optional().nullable(),
-  plataformasRedesSociales: z.string().optional(),
-  detallesRedesSociales: z.string().optional(),
-  serviciosContratadosAdicionales: z.string().optional(),
-  configuracionRedesSociales: z.string().optional(),
-  credencialesRedesUsuario: z.string().optional(),
-  credencialesRedesContrasena: z.string().optional(),
+  contractedServices: z.array(contractedServiceClientSchema).optional(),
+  socialMediaAccounts: z.array(socialMediaAccountClientSchema).optional(),
+  credencialesRedesUsuario: z.string().optional(), 
+  credencialesRedesContrasena: z.string().optional(), 
 });
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
+// Function to convert Firestore Timestamps to JS Date objects
+function convertServiceDefinitionTimestamps(docData: any): WithConvertedDates<ServiceDefinition> {
+   const data = { ...docData } as Partial<WithConvertedDates<ServiceDefinition>>;
+  for (const key in data) {
+    if (data[key as keyof ServiceDefinition] instanceof Timestamp) {
+      data[key as keyof ServiceDefinition] = (data[key as keyof ServiceDefinition] as Timestamp).toDate() as any;
+    }
+  }
+  return data as WithConvertedDates<ServiceDefinition>;
+}
+
+
 export default function AddClientPage() {
   const router = useRouter();
   const { toast } = useToast();
+
+  const [serviceDefinitions, setServiceDefinitions] = useState<WithConvertedDates<ServiceDefinition>[]>([]);
+  const [isLoadingServices, setIsLoadingServices] = useState(true);
+  const [serviceError, setServiceError] = useState<string | null>(null);
 
   const form = useForm<ClientFormValues>({
     resolver: zodResolver(clientFormSchema),
     defaultValues: {
       name: '',
       email: '',
+      avatarUrl: '',
       clinica: '',
       telefono: '',
-      // contractStartDate and nextBillingDate will be Date objects, react-hook-form handles undefined for these with date pickers
       profileSummary: '',
-      serviciosActivosGeneral: '',
       pagado: false,
-      notas: '',
       dominioWeb: '',
       tipoServicioWeb: '',
-      vencimientoWeb: null, // Initialize as null for optional date
-      plataformasRedesSociales: '',
-      detallesRedesSociales: '',
-      serviciosContratadosAdicionales: '',
-      configuracionRedesSociales: '',
+      vencimientoWeb: null,
+      contractedServices: [],
+      socialMediaAccounts: [],
       credencialesRedesUsuario: '',
       credencialesRedesContrasena: '',
     },
   });
 
+  const { fields: serviceFields, append: appendService, remove: removeService } = useFieldArray({
+    control: form.control,
+    name: "contractedServices"
+  });
+
+  const { fields: socialFields, append: appendSocial, remove: removeSocial } = useFieldArray({
+    control: form.control,
+    name: "socialMediaAccounts"
+  });
+  
+  useEffect(() => {
+    const fetchServiceDefinitions = async () => {
+      setIsLoadingServices(true);
+      setServiceError(null);
+      try {
+        const servicesCollection = collection(db, "appServices");
+        const q = query(servicesCollection, orderBy("name", "asc"));
+        const querySnapshot = await getDocs(q);
+        const fetchedServices = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return { id: doc.id, ...convertServiceDefinitionTimestamps(data) };
+        });
+        setServiceDefinitions(fetchedServices);
+      } catch (err) {
+        console.error("Error fetching service definitions: ", err);
+        setServiceError('No se pudieron cargar las definiciones de servicios.');
+      } finally {
+        setIsLoadingServices(false);
+      }
+    };
+    fetchServiceDefinitions();
+  }, []);
+
   async function onSubmit(data: ClientFormValues) {
     form.clearErrors(); 
     try {
       const clientData: Record<string, any> = {
-        ...data,
+        name: data.name,
+        email: data.email,
+        contractStartDate: data.contractStartDate ? Timestamp.fromDate(data.contractStartDate) : deleteField(),
+        pagado: data.pagado,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 
-      // Remove optional fields if they are empty strings or specifically handle dates
-      Object.keys(clientData).forEach(key => {
-        if (clientData[key] === '' || clientData[key] === undefined) {
-           if (key !== 'vencimientoWeb') { // vencimientoWeb is handled separately if null
-            delete clientData[key];
-          }
+      // Handle optional fields
+      (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
+        if (key === 'name' || key === 'email' || key === 'contractStartDate' || key === 'pagado' || 
+            key === 'contractedServices' || key === 'socialMediaAccounts') {
+          return; // Already handled or handled separately
+        }
+
+        if (key === 'vencimientoWeb') {
+          clientData[key] = data[key] ? Timestamp.fromDate(data[key] as Date) : deleteField();
+        } else if (data[key] !== undefined && data[key] !== '' && data[key] !== null) {
+          clientData[key] = data[key];
+        } else {
+          clientData[key] = deleteField();
         }
       });
       
-      if (data.vencimientoWeb === null) {
-        delete clientData.vencimientoWeb; // Don't store null, remove field if cleared
+      // Handle contractedServices: remove client-side id before saving
+      if (data.contractedServices && data.contractedServices.length > 0) {
+        clientData.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
+      } else {
+        clientData.contractedServices = deleteField(); // Or an empty array: []
+      }
+
+      // Handle socialMediaAccounts: remove client-side id and optional empty password
+      if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
+        clientData.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
+            const account: any = {...rest};
+            if(password && password.trim() !== '') account.password = password;
+            return account;
+        });
+      } else {
+        clientData.socialMediaAccounts = deleteField(); // Or an empty array: []
       }
 
 
@@ -109,7 +195,7 @@ export default function AddClientPage() {
 
       toast({
         title: 'Cliente Creado',
-        description: `El cliente ${data.name} ha sido agregado exitosamente a Firestore.`,
+        description: `El cliente ${data.name} ha sido agregado exitosamente.`,
       });
       router.push('/clients');
     } catch (e) {
@@ -127,12 +213,7 @@ export default function AddClientPage() {
       <h1 className="text-3xl font-bold tracking-tight">Agregar Nuevo Cliente</h1>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          {form.formState.errors.root?.serverError && (
-            <FormMessage className="text-destructive">
-              {form.formState.errors.root.serverError.message}
-            </FormMessage>
-          )}
-
+          
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Información Básica</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
@@ -156,6 +237,19 @@ export default function AddClientPage() {
                   <FormLabel>Email de Contacto</FormLabel>
                   <FormControl>
                     <Input type="email" placeholder="Ej: contacto@sonrisas.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="avatarUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>URL del Avatar (Opcional)</FormLabel>
+                  <FormControl>
+                    <Input type="url" placeholder="https://ejemplo.com/logo.png" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -198,68 +292,15 @@ export default function AddClientPage() {
                       <FormControl>
                         <Button
                           variant={'outline'}
-                          className={cn(
-                            'w-full pl-3 text-left font-normal',
-                            !field.value && 'text-muted-foreground'
-                          )}
+                          className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
                         >
-                          {field.value ? (
-                            format(field.value, 'PPP', { locale: es })
-                          ) : (
-                            <span>Seleccionar fecha</span>
-                          )}
+                          {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                         </Button>
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                        disabled={(date) => date > new Date() || date < new Date('1900-01-01')}
-                        initialFocus
-                        locale={es}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="nextBillingDate"
-              render={({ field }) => (
-                <FormItem className="flex flex-col">
-                  <FormLabel>Próxima Fecha de Facturación</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant={'outline'}
-                          className={cn(
-                            'w-full pl-3 text-left font-normal',
-                            !field.value && 'text-muted-foreground'
-                          )}
-                        >
-                          {field.value ? (
-                            format(field.value, 'PPP', { locale: es })
-                          ) : (
-                            <span>Seleccionar fecha</span>
-                          )}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                        initialFocus
-                        locale={es}
-                      />
+                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} disabled={(date) => date > new Date() || date < new Date('1900-01-01')} initialFocus locale={es} />
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -276,11 +317,7 @@ export default function AddClientPage() {
               <FormItem>
                 <FormLabel>Resumen del Perfil (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea
-                    placeholder="Describe la marca, valores, público objetivo, tono deseado, etc."
-                    className="resize-y min-h-[100px]"
-                    {...field}
-                  />
+                  <Textarea placeholder="Describe la marca, valores, público objetivo, tono deseado, etc." className="resize-y min-h-[100px]" {...field} />
                 </FormControl>
                 <FormDescription>Esta información ayudará a generar mejores sugerencias de contenido.</FormDescription>
                 <FormMessage />
@@ -288,34 +325,99 @@ export default function AddClientPage() {
             )}
           />
           
-          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Detalles Adicionales de Servicios</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FormField
-              control={form.control}
-              name="serviciosActivosGeneral"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Servicios Activos Generales (Opcional)</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Ej: Marketing digital completo, SEO local, campañas en Google Ads" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="serviciosContratadosAdicionales"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Otros Servicios Contratados (Opcional)</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Ej: Diseño gráfico para eventos, consultoría estratégica trimestral" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Servicios Contratados</h2>
+          <div className="space-y-4">
+            {serviceFields.map((item, index) => (
+              <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-2 items-end p-3 border rounded-md bg-secondary/30">
+                <FormField
+                  control={form.control}
+                  name={`contractedServices.${index}.serviceName`}
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-4">
+                      {index === 0 && <FormLabel>Nombre Servicio/Paquete</FormLabel>}
+                      <Select
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          const selectedService = serviceDefinitions.find(s => s.name === value);
+                          if (selectedService) {
+                            form.setValue(`contractedServices.${index}.price`, selectedService.price);
+                            form.setValue(`contractedServices.${index}.paymentModality`, selectedService.paymentModality);
+                          }
+                        }}
+                        value={field.value}
+                        disabled={isLoadingServices || !!serviceError}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={
+                              isLoadingServices ? "Cargando servicios..." : 
+                              (serviceError ? "Error al cargar" : 
+                              (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
+                            } />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {serviceError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {serviceError}</div>}
+                          {!isLoadingServices && !serviceError && serviceDefinitions.length === 0 && <div className="p-2 text-sm text-muted-foreground">No hay servicios. Crea uno en Configuración.</div>}
+                          {serviceDefinitions.map(serviceDef => (
+                            <SelectItem key={serviceDef.id} value={serviceDef.name}>{serviceDef.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`contractedServices.${index}.price`}
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-3">
+                       {index === 0 && <FormLabel>Precio</FormLabel>}
+                      <FormControl>
+                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`contractedServices.${index}.paymentModality`}
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-3">
+                      {index === 0 && <FormLabel>Modalidad Pago</FormLabel>}
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar modalidad" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {paymentModalities.map(modality => (
+                            <SelectItem key={modality} value={modality}>{modality}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 <div className="md:col-span-2 flex items-end justify-end">
+                    <Button type="button" variant="destructive" size="icon" onClick={() => removeService(index)} className="h-9 w-9">
+                        <Trash2 className="h-4 w-4 text-destructive-foreground" />
+                    </Button>
+                 </div>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => appendService({ id: `service-${serviceItemIdCounter++}-${Date.now()}`, serviceName: '', price: 0, paymentModality: 'Mensual' })}
+            >
+              <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Servicio
+            </Button>
           </div>
 
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Información Web</h2>
@@ -357,28 +459,15 @@ export default function AddClientPage() {
                       <FormControl>
                         <Button
                           variant={'outline'}
-                          className={cn(
-                            'w-full pl-3 text-left font-normal',
-                            !field.value && 'text-muted-foreground'
-                          )}
+                          className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
                         >
-                          {field.value ? (
-                            format(field.value, 'PPP', { locale: es })
-                          ) : (
-                            <span>Seleccionar fecha</span>
-                          )}
+                          {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                         </Button>
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={(date) => field.onChange(date || null)}
-                        initialFocus
-                        locale={es}
-                      />
+                      <Calendar mode="single" selected={field.value} onSelect={(date) => field.onChange(date || null)} initialFocus locale={es} />
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -387,90 +476,96 @@ export default function AddClientPage() {
             />
           </div>
 
-          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Redes Sociales</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FormField
-              control={form.control}
-              name="plataformasRedesSociales"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Plataformas (Separadas por coma, Opcional)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ej: Instagram, Facebook, LinkedIn" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="detallesRedesSociales"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Detalles/Estrategia Redes Sociales (Opcional)</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Objetivos, tipo de contenido, frecuencia..." {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="configuracionRedesSociales"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Configuración Adicional RRSS (Opcional)</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Herramientas conectadas, accesos especiales..." {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-             <FormField
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Cuentas de Redes Sociales</h2>
+          <div className="space-y-4">
+            {socialFields.map((item, index) => (
+              <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-2 items-end p-3 border rounded-md bg-secondary/30">
+                <FormField
+                  control={form.control}
+                  name={`socialMediaAccounts.${index}.platform`}
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-3">
+                      {index === 0 && <FormLabel>Plataforma</FormLabel>}
+                      <FormControl>
+                        <Input placeholder="Ej: Instagram" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`socialMediaAccounts.${index}.username`}
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-4">
+                       {index === 0 && <FormLabel>Usuario</FormLabel>}
+                      <FormControl>
+                        <Input placeholder="Nombre de usuario" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={`socialMediaAccounts.${index}.password`}
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-3">
+                       {index === 0 && <FormLabel>Contraseña (Opcional)</FormLabel>}
+                      <FormControl>
+                        <Input type="password" placeholder="Contraseña" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 <div className="md:col-span-2 flex items-end justify-end">
+                    <Button type="button" variant="destructive" size="icon" onClick={() => removeSocial(index)} className="h-9 w-9">
+                        <Trash2 className="h-4 w-4 text-destructive-foreground" />
+                    </Button>
+                 </div>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => appendSocial({ id: `social-${socialItemIdCounter++}-${Date.now()}`, platform: '', username: '', password: '' })}
+            >
+              <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Cuenta Social
+            </Button>
+            <FormDescription className="text-xs text-muted-foreground">
+              Por seguridad, considere usar un gestor de contraseñas seguro y no almacenar contraseñas sensibles directamente aquí si es posible.
+            </FormDescription>
+          </div>
+          
+          {/* Legacy Social Fields - Kept for potential backward compatibility, can be removed if not needed */}
+          <FormField
               control={form.control}
               name="credencialesRedesUsuario"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Usuario Credenciales RRSS (Opcional)</FormLabel>
+                <FormItem className="hidden">
+                  <FormLabel>Usuario Credenciales RRSS (Legacy)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Usuario genérico o específico" {...field} />
+                    <Input {...field} />
                   </FormControl>
-                  <FormMessage />
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="credencialesRedesContrasena"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Contraseña Credenciales RRSS (Opcional)</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="Contraseña segura" {...field} />
-                  </FormControl>
-                   <FormDescription>Almacenar de forma segura. Considerar gestor de contraseñas.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-          
-          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Otros</h2>
           <FormField
             control={form.control}
-            name="notas"
+            name="credencialesRedesContrasena"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Notas Adicionales (Opcional)</FormLabel>
+              <FormItem className="hidden">
+                <FormLabel>Contraseña Credenciales RRSS (Legacy)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Cualquier otra información relevante sobre el cliente." {...field} />
+                  <Input type="password" {...field} />
                 </FormControl>
-                <FormMessage />
               </FormItem>
             )}
           />
+          
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Otros</h2>
           <FormField
             control={form.control}
             name="pagado"
@@ -488,12 +583,11 @@ export default function AddClientPage() {
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting ? 'Guardando en Firestore...' : 'Guardar Cliente'}
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingServices}>
+            {form.formState.isSubmitting ? 'Guardando Cliente...' : 'Guardar Cliente'}
           </Button>
         </form>
       </Form>
     </div>
   );
 }
-

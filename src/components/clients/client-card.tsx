@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates } from "@/types";
-import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe } from 'lucide-react'; // Removed Briefcase, Share2
+import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -34,11 +34,14 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  const formatDate = (dateInput: Date | string | undefined) => {
+  const formatDate = (dateInput: Date | string | undefined | null) => {
     if (!dateInput) return 'N/A';
     try {
       const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
-      return date.toLocaleDateString('es-ES');
+      if (date instanceof Date && !isNaN(date.valueOf())) {
+        return date.toLocaleDateString('es-ES');
+      }
+      return 'Fecha inválida';
     } catch (e) {
       return 'Fecha inválida';
     }
@@ -109,7 +112,6 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             </div>
           )}
 
-          {/* Display summary of contracted services */}
            {(client.contractedServices && client.contractedServices.length > 0) && (
             <div>
               <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
@@ -129,7 +131,6 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
               </h4>
               <p>{formatDate(client.contractStartDate)}</p>
             </div>
-            {/* NextBillingDate was removed, so this part is removed */}
           </div>
 
           {client.dominioWeb && (
