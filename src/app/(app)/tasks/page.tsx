@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
+import { useSearchParams } from 'next/navigation';
 import {
   Table,
   TableBody,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff } from "lucide-react";
+import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff, UserCircle, Calendar as CalendarIconLucide } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,12 +34,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format, isPast, isToday, isTomorrow, startOfDay, endOfDay } from "date-fns";
+import { es } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
+
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
-import type { Task, TaskStatus, TaskPriority, WithConvertedDates } from '@/types';
+import type { Task, TaskStatus, TaskPriority, WithConvertedDates, Client } from '@/types';
 import { cn } from '@/lib/utils';
-import { isPast, isToday, isTomorrow, startOfDay } from 'date-fns';
 
 const statusColors: Record<TaskStatus, string> = {
   Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600 text-white",
@@ -68,22 +74,64 @@ function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   return data as WithConvertedDates<Task>;
 }
 
+// Helper to convert Firestore Timestamps for Clients (for dropdown)
+function convertClientTimestamps(docData: any): WithConvertedDates<Client> {
+  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
+  for (const key in data) {
+    if (data[key as keyof Client] instanceof Timestamp) {
+      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
+    }
+  }
+  return data as WithConvertedDates<Client>;
+}
+
+
 const ALL_FILTER_VALUE = 'All';
 type StatusFilterType = TaskStatus | typeof ALL_FILTER_VALUE;
 type PriorityFilterType = TaskPriority | typeof ALL_FILTER_VALUE;
+type ClientFilterType = string | typeof ALL_FILTER_VALUE;
 
 const taskStatusesForFilter: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
 const taskPrioritiesForFilter: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<WithConvertedDates<Task>[]>([]);
+  const [clients, setClients] = useState<WithConvertedDates<Client>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<WithConvertedDates<Task> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
+
+  const searchParams = useSearchParams();
+  const dueFilterParam = searchParams.get('due');
+
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilterType>(ALL_FILTER_VALUE);
+  const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(
+    dueFilterParam === 'today' ? { from: startOfDay(new Date()), to: endOfDay(new Date()) } : undefined
+  );
+
+  const fetchInitialData = useCallback(async () => {
+    setIsLoadingClients(true);
+    try {
+      const clientsCollection = collection(db, "clients");
+      const clientsQuery = query(clientsCollection, orderBy("name", "asc"));
+      const clientsSnapshot = await getDocs(clientsQuery);
+      const fetchedClients = clientsSnapshot.docs.map(doc => {
+        const data = convertClientTimestamps(doc.data() as Client);
+        return { id: doc.id, ...data };
+      });
+      setClients(fetchedClients);
+    } catch (err) {
+      console.error("Error fetching clients: ", err);
+      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
+    } finally {
+      setIsLoadingClients(false);
+    }
+  }, [toast]);
 
   const fetchTasks = useCallback(async () => {
     setIsLoading(true);
@@ -93,10 +141,19 @@ export default function TasksPage() {
       const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
 
       if (statusFilter !== ALL_FILTER_VALUE) {
-        queryConstraints.unshift(where("status", "==", statusFilter));
+        queryConstraints.push(where("status", "==", statusFilter));
       }
       if (priorityFilter !== ALL_FILTER_VALUE) {
-        queryConstraints.unshift(where("priority", "==", priorityFilter));
+        queryConstraints.push(where("priority", "==", priorityFilter));
+      }
+      if (clientFilter !== ALL_FILTER_VALUE) {
+        queryConstraints.push(where("clientId", "==", clientFilter));
+      }
+      if (dateRangeFilter?.from) {
+        queryConstraints.push(where("dueDate", ">=", Timestamp.fromDate(startOfDay(dateRangeFilter.from))));
+      }
+      if (dateRangeFilter?.to) {
+        queryConstraints.push(where("dueDate", "<=", Timestamp.fromDate(endOfDay(dateRangeFilter.to))));
       }
 
       const q = query(tasksCollection, ...queryConstraints);
@@ -117,11 +174,29 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter]);
+  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter]);
 
   useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  useEffect(() => {
+    // If dueFilterParam changes and is 'today', update dateRangeFilter
+    if (dueFilterParam === 'today') {
+      const todayRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
+      // Only update if it's different to avoid infinite loop if dateRangeFilter itself triggers re-render
+      if (dateRangeFilter?.from?.getTime() !== todayRange.from.getTime() || dateRangeFilter?.to?.getTime() !== todayRange.to.getTime()){
+        setDateRangeFilter(todayRange);
+      }
+    }
+  }, [dueFilterParam, dateRangeFilter]); // Add dateRangeFilter to dependencies
+
+  useEffect(() => {
+    if (!isLoadingClients) { // Only fetch tasks after clients (for filter) are loaded or if no clients needed
+        fetchTasks();
+    }
+  }, [fetchTasks, isLoadingClients]);
+
 
   const handleDeleteTask = async () => {
     if (!taskToDelete) return;
@@ -146,13 +221,6 @@ export default function TasksPage() {
     }
   };
 
-  const getEmptyStateIcon = () => {
-    if (statusFilter === 'Pendiente') return <Clock className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-    if (statusFilter === 'En Progreso') return <ListTodo className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-    if (statusFilter === 'Completada') return <CheckSquare className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-    return <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-  };
-
   const getEmptyStateMessage = () => {
     let message = "No se encontraron tareas";
     const filtersApplied: string[] = [];
@@ -162,15 +230,37 @@ export default function TasksPage() {
     if (priorityFilter !== ALL_FILTER_VALUE) {
       filtersApplied.push(`prioridad "${priorityFilter}"`);
     }
+    const clientName = clientFilter !== ALL_FILTER_VALUE ? clients.find(c => c.id === clientFilter)?.name : null;
+    if (clientFilter !== ALL_FILTER_VALUE && clientName) {
+      filtersApplied.push(`cliente "${clientName}"`);
+    }
+    if (dateRangeFilter?.from || dateRangeFilter?.to) {
+      let rangeStr = "rango de fechas ";
+      if (dateRangeFilter.from) rangeStr += `desde ${format(dateRangeFilter.from, "dd/MM/yy")}`;
+      if (dateRangeFilter.to) rangeStr += ` ${dateRangeFilter.from ? 'hasta' : 'hasta'} ${format(dateRangeFilter.to, "dd/MM/yy")}`;
+      filtersApplied.push(rangeStr.trim());
+    }
 
     if (filtersApplied.length > 0) {
-      message += ` con ${filtersApplied.join(' y ')}.`;
+      message += ` con ${filtersApplied.join(', ')}.`;
     } else {
       message += ".";
     }
     return message;
   };
 
+  const getEmptyStateIcon = () => {
+    if (statusFilter === 'Pendiente') return <Clock className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    if (statusFilter === 'En Progreso') return <ListTodo className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    if (statusFilter === 'Completada') return <CheckSquare className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+    return <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
+  };
+
+  const currentFilteredClientName = clientFilter !== ALL_FILTER_VALUE
+    ? clients.find(c => c.id === clientFilter)?.name
+    : null;
+
+  const isLoadingOverall = isLoading || isLoadingClients;
 
   return (
     <div className="space-y-8">
@@ -215,6 +305,72 @@ export default function TasksPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={isLoadingClients}>
+                <UserCircle className="mr-2 h-4 w-4 text-muted-foreground" />
+                {isLoadingClients && "Cargando clientes..."}
+                {!isLoadingClients && (currentFilteredClientName ? `Cliente: ${currentFilteredClientName}` : "Filtrar por Cliente")}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-64 max-h-72 overflow-y-auto">
+              <DropdownMenuLabel>Seleccionar Cliente</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={clientFilter} onValueChange={(value) => setClientFilter(value as ClientFilterType)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todos los Clientes</DropdownMenuRadioItem>
+                {clients.map(client => (
+                  <DropdownMenuRadioItem key={client.id} value={client.id}>{client.name}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={"outline"}
+                className={cn(
+                  "w-[260px] justify-start text-left font-normal",
+                  !dateRangeFilter && "text-muted-foreground"
+                )}
+                disabled={dueFilterParam === 'today'}
+              >
+                <CalendarIconLucide className="mr-2 h-4 w-4 text-muted-foreground" />
+                {dateRangeFilter?.from ? (
+                  dateRangeFilter.to ? (
+                    <>
+                      {format(dateRangeFilter.from, "LLL dd, y", { locale: es })} -{" "}
+                      {format(dateRangeFilter.to, "LLL dd, y", { locale: es })}
+                    </>
+                  ) : (
+                    format(dateRangeFilter.from, "LLL dd, y", { locale: es })
+                  )
+                ) : (
+                  <span>Seleccionar rango</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={dateRangeFilter?.from}
+                selected={dateRangeFilter}
+                onSelect={setDateRangeFilter}
+                numberOfMonths={2}
+                locale={es}
+              />
+            </PopoverContent>
+          </Popover>
+          {(dateRangeFilter || dueFilterParam === 'today') && (
+             <Button variant="ghost" size="sm" onClick={() => {
+               setDateRangeFilter(undefined);
+               // If you want to clear the URL param as well, you'd need to use router.push
+               // For now, this just clears the local state, which will refetch all dates
+             }}>Limpiar Fechas</Button>
+          )}
+
           <Button asChild>
             <Link href="/tasks/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Agregar Nueva Tarea
@@ -223,14 +379,14 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {isLoading && (
+      {isLoadingOverall && (
         <div className="flex justify-center items-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="ml-2 text-muted-foreground">Cargando tareas...</p>
         </div>
       )}
 
-      {error && !isLoading && (
+      {error && !isLoadingOverall && (
         <div className="text-center py-12 text-destructive bg-destructive/10 p-4 rounded-md whitespace-pre-wrap">
           <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-destructive" />
           <p className="text-lg">{error}</p>
@@ -238,7 +394,7 @@ export default function TasksPage() {
         </div>
       )}
 
-      {!isLoading && !error && tasks.length > 0 && (
+      {!isLoadingOverall && !error && tasks.length > 0 && (
         <div className="rounded-lg border shadow-sm bg-card">
           <Table>
             <TableHeader>
@@ -305,7 +461,7 @@ export default function TasksPage() {
                         onClick={() => setTaskToDelete(task)} 
                         disabled={isDeleting && taskToDelete?.id === task.id}
                       >
-                        {isDeleting && taskToDelete?.id === task.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600"/> : <Trash2 className="h-4 w-4 text-red-600" />}
+                        {isDeleting && taskToDelete?.id === task.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -316,11 +472,11 @@ export default function TasksPage() {
         </div>
       )}
 
-      {!isLoading && !error && tasks.length === 0 && (
+      {!isLoadingOverall && !error && tasks.length === 0 && (
          <div className="text-center py-12 text-muted-foreground">
           {getEmptyStateIcon()}
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE) && (
+          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE && !dateRangeFilter) && (
             <Button variant="link" className="mt-2" asChild>
               <Link href="/tasks/add">Agrega tu primera tarea</Link>
             </Button>
