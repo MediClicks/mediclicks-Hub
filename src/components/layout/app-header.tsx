@@ -15,7 +15,7 @@ interface AppHeaderProps {
 
 export function AppHeader({ pageTitle }: AppHeaderProps) {
   const [isDark, setIsDark] = React.useState(false);
-  const { logout, user } = useAuth(); // Get user from auth context
+  const { logout, user } = useAuth(); 
 
   React.useEffect(() => {
     const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -61,10 +61,12 @@ export function AppHeader({ pageTitle }: AppHeaderProps) {
           <DropdownMenuContent className="w-56" align="end" forceMount>
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{user?.displayName || "Usuario"}</p>
-                <p className="text-xs leading-none text-muted-foreground">
-                  {user?.email || "Cargando email..."}
-                </p>
+                <p className="text-sm font-medium leading-none">{user?.displayName || (user?.email ? "Usuario" : "Cargando...")}</p>
+                {user?.email && (
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {user.email}
+                  </p>
+                )}
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

@@ -310,7 +310,7 @@ export default function DashboardPage() {
           value={stats?.totalClients ?? 0} 
           icon={Users}
           description="Clientes activos gestionados"
-          className="bg-card border-primary"
+          className="border-primary" // Example: blue border
           href="/clients"
         />
         <SummaryCard 
@@ -318,7 +318,7 @@ export default function DashboardPage() {
           value={stats?.tasksInProgress ?? 0} 
           icon={Briefcase}
           description="Tareas actualmente en desarrollo"
-          className="bg-sky-600 border-sky-500"
+          className="border-sky-500" // Example: sky blue border
           href="/tasks?status=En+Progreso"
         />
         <SummaryCard 
@@ -326,7 +326,7 @@ export default function DashboardPage() {
           value={stats?.pendingTasks ?? 0} 
           icon={ListTodo}
           description="Tareas que requieren atención"
-          className="bg-amber-600 border-amber-500"
+          className="border-amber-500" // Example: amber border
           href="/tasks?status=Pendiente"
         />
         <SummaryCard 
@@ -334,7 +334,7 @@ export default function DashboardPage() {
           value={stats?.revenueThisMonth ?? 'Calculando...'} 
           icon={DollarSign}
           description="Basado en facturas pagadas"
-          className="bg-green-600 border-green-500"
+          className="border-green-500" // Example: green border
           href="/billing?status=Pagada"
         />
       </div>
@@ -409,11 +409,9 @@ export default function DashboardPage() {
             </CardTitle>
             <CardDescription>Total de facturas pagadas por mes.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] pt-6">
+          <CardContent className="h-[300px] pt-6 flex items-center justify-center">
             {isLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
             ) : noRevenueData ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <TrendingUp className="h-12 w-12 mb-3 text-gray-400" />
@@ -452,9 +450,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="h-[300px] flex items-center justify-center pt-4">
              {isLoading ? (
-                <div className="flex items-center justify-center h-full">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
              ) : noTaskStatusData ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <ListTodo className="h-12 w-12 mb-3 text-gray-400" />

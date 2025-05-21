@@ -11,25 +11,25 @@ interface SummaryCardProps {
   value: string | number;
   icon: LucideIcon;
   description?: string;
-  className?: string;
-  href?: string; // Nueva propiedad para el enlace
+  className?: string; // For border color, e.g., "border-primary", "border-sky-500"
+  href?: string;
 }
 
 export function SummaryCard({ title, value, icon: Icon, description, className, href }: SummaryCardProps) {
   const cardContent = (
     <Card className={cn(
-      "shadow-lg hover:shadow-xl transition-shadow duration-300 text-primary-foreground p-4 rounded-lg border-2 border-primary-foreground/20",
-      className,
-      href ? "hover:bg-primary/80" : "" // Ligero cambio al hacer hover si es un enlace
+      "shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-lg border-l-4 bg-card text-card-foreground",
+      className, // This will apply the border color class
+      href ? "hover:bg-muted/50" : ""
     )}>
-      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 p-0 mb-2">
-        <CardTitle className="text-sm font-medium opacity-90">{title}</CardTitle>
-        <Icon className="h-7 w-7 text-primary-foreground opacity-80" />
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-3 px-4">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <Icon className={cn("h-6 w-6 text-muted-foreground", className?.replace("border-", "text-"))} /> 
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="text-3xl font-bold">{value}</div>
+      <CardContent className="px-4 pb-3">
+        <div className="text-2xl font-bold text-foreground">{value}</div>
         {description && (
-          <p className="text-xs text-primary-foreground opacity-75 pt-1">{description}</p>
+          <p className="text-xs text-muted-foreground pt-1">{description}</p>
         )}
       </CardContent>
     </Card>
