@@ -76,7 +76,7 @@ const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Venci
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
   const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]);
-  const [allClients, setAllClients] = useState<Record<string, WithConvertedDates<Client>>>({}); // Store all clients by ID for PDF
+  const [allClients, setAllClients] = useState<Record<string, WithConvertedDates<Client>>>({}); 
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
@@ -87,10 +87,10 @@ export default function BillingPage() {
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
-  const [isClient, setIsClient] = useState(false); // For client-side rendering of PDFLink
+  const [isClient, setIsClient] = useState(false); 
 
   useEffect(() => {
-    setIsClient(true); // Ensure PDFDownloadLink only renders on client
+    setIsClient(true); 
   }, []);
 
   const fetchInitialData = useCallback(async () => {
@@ -101,7 +101,6 @@ export default function BillingPage() {
     let fetchedAgencyDetails: AgencyDetails | null = null;
 
     try {
-      // Fetch Clients for filter and PDF
       const clientsCollection = collection(db, "clients");
       const clientsQuery = query(clientsCollection, orderBy("name", "asc"));
       const clientsSnapshot = await getDocs(clientsQuery);
@@ -123,17 +122,17 @@ export default function BillingPage() {
     }
 
     try {
-      // Fetch Agency Details for PDF
       const agencyDocRef = doc(db, 'settings', 'agencyDetails');
       const agencySnap = await getDoc(agencyDocRef);
       if (agencySnap.exists()) {
         fetchedAgencyDetails = agencySnap.data() as AgencyDetails;
       } else {
-        // Default if not configured, good for PDF fallback
         fetchedAgencyDetails = {
           agencyName: "Tu Agencia S.L.",
           address: "Calle Falsa 123, Ciudad, CP",
           taxId: "NIF/CIF: X1234567Z",
+          contactEmail: "contacto@tuagencia.com",
+          contactPhone: "+34 900 000 000"
         };
       }
       setAgencyDetails(fetchedAgencyDetails);
@@ -184,7 +183,6 @@ export default function BillingPage() {
   }, [fetchInitialData]);
 
   useEffect(() => {
-    // Fetch invoices only after initial data (clients, agency details) might be needed or has started loading
     if (!isLoadingClients || !isLoadingAgencyDetails) {
         fetchInvoices();
     }
@@ -258,21 +256,19 @@ export default function BillingPage() {
             <DropdownMenuContent className="w-56">
               <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={statusFilter === ALL_FILTER_VALUE}
-                onCheckedChange={() => setStatusFilter(ALL_FILTER_VALUE)}
-              >
-                Todas
-              </DropdownMenuCheckboxItem>
-              {invoiceStatusesForFilter.map(status => (
-                <DropdownMenuCheckboxItem
-                  key={status}
-                  checked={statusFilter === status}
-                  onCheckedChange={() => setStatusFilter(statusFilter === status ? ALL_FILTER_VALUE : status)}
-                >
-                  {status}
-                </DropdownMenuCheckboxItem>
-              ))}
+              <DropdownMenuRadioGroup value={statusFilter} onValueChange={setStatusFilter}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>
+                  Todas
+                </DropdownMenuRadioItem>
+                {invoiceStatusesForFilter.map(status => (
+                  <DropdownMenuRadioItem
+                    key={status}
+                    value={status}
+                  >
+                    {status}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -340,10 +336,14 @@ export default function BillingPage() {
             <TableBody>
               {invoices.map(invoice => {
                 const clientForPdf = allClients[invoice.clientId];
+                const currentInvoiceDataForPdf = {
+                  ...invoice,
+                  items: Array.isArray(invoice.items) ? invoice.items : [],
+                };
                 return (
                   <TableRow key={invoice.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
-                      <Link href={`/billing/${invoice.id}/view`} className="hover:underline text-primary">
+                       <Link href={`/billing/${invoice.id}/view`} className="hover:underline text-primary">
                         {invoice.id.substring(0, 8).toUpperCase()}
                       </Link>
                     </TableCell>
@@ -368,14 +368,20 @@ export default function BillingPage() {
                       <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)} disabled={isDeleting}>
                         <Trash2 className="h-4 w-4 text-red-600" />
                       </Button>
+                      {/* Temporarily disable PDFDownloadLink from list view to prevent error */}
+                      <Button variant="ghost" size="icon" className="hover:text-accent opacity-50 cursor-not-allowed" title="Descargar PDF (deshabilitado en lista)" disabled>
+                         <Download className="h-4 w-4 text-blue-600 opacity-50" />
+                      </Button>
+                      {/* 
+                      // Original PDFDownloadLink code - re-enable when error is resolved
                       {isClient && clientForPdf && agencyDetails ? (
                         <PDFDownloadLink
-                          document={<InvoicePdfDocument invoice={invoice} client={clientForPdf} agencyDetails={agencyDetails} />}
+                          document={<InvoicePdfDocument invoice={currentInvoiceDataForPdf} client={clientForPdf} agencyDetails={agencyDetails} />}
                           fileName={`Factura-${invoice.id.substring(0,8).toUpperCase()}.pdf`}
                         >
                           {({ loading }) => (
                             <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled={loading}>
-                              {loading ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
+                              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-600" /> : <Download className="mr-2 h-4 w-4 text-blue-600" />}
                             </Button>
                           )}
                         </PDFDownloadLink>
@@ -384,6 +390,7 @@ export default function BillingPage() {
                            <Download className="h-4 w-4 opacity-50" />
                          </Button>
                       )}
+                      */}
                     </TableCell>
                   </TableRow>
                 );
@@ -428,4 +435,3 @@ export default function BillingPage() {
     </div>
   );
 }
-
