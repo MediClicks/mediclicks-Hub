@@ -30,7 +30,6 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, deleteField } from 'firebase/firestore';
 import type { Client } from '@/types';
 
-// Zod schema for client form validation (same as add page)
 const clientFormSchema = z.object({
   name: z.string().min(2, { message: 'El nombre debe tener al menos 2 caracteres.' }),
   email: z.string().email({ message: 'Por favor, introduce un email válido.' }),
@@ -44,7 +43,7 @@ const clientFormSchema = z.object({
   notas: z.string().optional(),
   dominioWeb: z.string().optional(),
   tipoServicioWeb: z.string().optional(),
-  vencimientoWeb: z.date().optional().nullable(), // Allow null for clearing
+  vencimientoWeb: z.date().optional().nullable(), 
   plataformasRedesSociales: z.string().optional(),
   detallesRedesSociales: z.string().optional(),
   serviciosContratadosAdicionales: z.string().optional(),
@@ -66,19 +65,18 @@ export default function EditClientPage() {
 
   const form = useForm<ClientFormValues>({
     resolver: zodResolver(clientFormSchema),
-    defaultValues: { // Initialize with empty/default structure
+    defaultValues: { 
       name: '',
       email: '',
       clinica: '',
       telefono: '',
-      // contractStartDate and nextBillingDate will be set from fetched data
       profileSummary: '',
       serviciosActivosGeneral: '',
       pagado: false,
       notas: '',
       dominioWeb: '',
       tipoServicioWeb: '',
-      vencimientoWeb: undefined, // Date or undefined
+      vencimientoWeb: null, 
       plataformasRedesSociales: '',
       detallesRedesSociales: '',
       serviciosContratadosAdicionales: '',
@@ -113,7 +111,7 @@ export default function EditClientPage() {
               notas: data.notas || '',
               dominioWeb: data.dominioWeb || '',
               tipoServicioWeb: data.tipoServicioWeb || '',
-              vencimientoWeb: data.vencimientoWeb ? (data.vencimientoWeb as Timestamp).toDate() : null, // null if not present for optional date
+              vencimientoWeb: data.vencimientoWeb ? (data.vencimientoWeb as Timestamp).toDate() : null,
               plataformasRedesSociales: data.plataformasRedesSociales || '',
               detallesRedesSociales: data.detallesRedesSociales || '',
               serviciosContratadosAdicionales: data.serviciosContratadosAdicionales || '',
@@ -148,31 +146,25 @@ export default function EditClientPage() {
     try {
       const clientDocRef = doc(db, 'clients', clientId);
       
-      // Prepare data for Firestore update, ensuring optional fields are handled
       const dataToUpdate: Record<string, any> = {};
       (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
-        if (data[key] !== undefined) {
+        if (data[key] !== undefined && data[key] !== '') {
           dataToUpdate[key] = data[key];
+        } else if (key === 'vencimientoWeb' && data[key] === null) {
+            dataToUpdate[key] = deleteField(); // Explicitly delete if date is cleared to null
+        } else if (data[key] === '' && key !== 'vencimientoWeb') {
+             dataToUpdate[key] = deleteField(); // Delete other empty string fields
         }
       });
       
-      // Handle optional date: if null (cleared), delete the field from Firestore
       if (data.vencimientoWeb === null) {
         dataToUpdate.vencimientoWeb = deleteField();
-      } else if (data.vencimientoWeb === undefined) { // If it was never set and remains undefined
-         delete dataToUpdate.vencimientoWeb; // Don't send undefined
-      }
-
-
-      // Remove any other undefined top-level properties to prevent Firestore errors
-      for (const key in dataToUpdate) {
-        if (dataToUpdate[key] === undefined) {
-          // If it's an optional string field that became undefined (should not happen with defaultValues=''), 
-          // or if we explicitly want to remove it if it becomes undefined.
-          // For safety, let's ensure no undefined values are sent.
-          // Zod schema should prevent most direct undefined values, but date pickers might yield undefined.
-          delete dataToUpdate[key]; 
-        }
+      } else if (data.vencimientoWeb instanceof Date){
+        dataToUpdate.vencimientoWeb = data.vencimientoWeb;
+      } else {
+        // If it was undefined initially and not touched, it won't be in dataToUpdate
+        // If it was a date and then somehow became undefined (unlikely with picker), this also handles it
+        if (!('vencimientoWeb' in dataToUpdate)) delete dataToUpdate.vencimientoWeb;
       }
       
       dataToUpdate.updatedAt = serverTimestamp();
@@ -218,8 +210,8 @@ export default function EditClientPage() {
       <h1 className="text-3xl font-bold tracking-tight">Editar Cliente: {form.watch('name')}</h1>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          {/* Form fields are identical to add/page.tsx, so they are omitted here for brevity but should be included */}
-          {/* Basic Info Section */}
+          
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Información Básica</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
@@ -252,7 +244,7 @@ export default function EditClientPage() {
               name="clinica"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Nombre de la Clínica (si aplica)</FormLabel>
+                  <FormLabel>Nombre de la Clínica (Opcional)</FormLabel>
                   <FormControl>
                     <Input placeholder="Ej: Sonrisas Centro" {...field} />
                   </FormControl>
@@ -265,7 +257,7 @@ export default function EditClientPage() {
               name="telefono"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Teléfono</FormLabel>
+                  <FormLabel>Teléfono (Opcional)</FormLabel>
                   <FormControl>
                     <Input placeholder="Ej: +34 900 123 456" {...field} />
                   </FormControl>
@@ -327,13 +319,13 @@ export default function EditClientPage() {
             />
           </div>
 
-          {/* Profile Summary for AI */}
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Perfil del Cliente (para IA)</h2>
           <FormField
             control={form.control}
             name="profileSummary"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Resumen del Perfil del Cliente (para IA)</FormLabel>
+                <FormLabel>Resumen del Perfil (Opcional)</FormLabel>
                 <FormControl>
                   <Textarea placeholder="Describe la marca, valores, público objetivo, tono deseado, etc." className="resize-y min-h-[100px]" {...field} />
                 </FormControl>
@@ -343,15 +335,14 @@ export default function EditClientPage() {
             )}
           />
           
-          {/* Additional Details Section */}
-          <h2 className="text-xl font-semibold border-b pb-2">Detalles Adicionales</h2>
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Detalles Adicionales de Servicios</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
               name="serviciosActivosGeneral"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Servicios Activos Generales (Descripción)</FormLabel>
+                  <FormLabel>Servicios Activos Generales (Opcional)</FormLabel>
                   <FormControl>
                     <Textarea placeholder="Ej: Marketing digital completo, SEO local, campañas en Google Ads" {...field} />
                   </FormControl>
@@ -364,7 +355,7 @@ export default function EditClientPage() {
               name="serviciosContratadosAdicionales"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Otros Servicios Contratados (Descripción)</FormLabel>
+                  <FormLabel>Otros Servicios Contratados (Opcional)</FormLabel>
                   <FormControl>
                     <Textarea placeholder="Ej: Diseño gráfico para eventos, consultoría estratégica trimestral" {...field} />
                   </FormControl>
@@ -374,15 +365,14 @@ export default function EditClientPage() {
             />
           </div>
 
-          {/* Web Information Section */}
-          <h2 className="text-xl font-semibold border-b pb-2">Información Web</h2>
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Información Web</h2>
            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <FormField
               control={form.control}
               name="dominioWeb"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Dominio Web</FormLabel>
+                  <FormLabel>Dominio Web (Opcional)</FormLabel>
                   <FormControl>
                     <Input placeholder="Ej: www.sonrisas.com" {...field} />
                   </FormControl>
@@ -395,7 +385,7 @@ export default function EditClientPage() {
               name="tipoServicioWeb"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Tipo de Servicio Web (Hosting, etc.)</FormLabel>
+                  <FormLabel>Tipo de Servicio Web (Opcional)</FormLabel>
                   <FormControl>
                     <Input placeholder="Ej: Hosting Compartido Pro" {...field} />
                   </FormControl>
@@ -408,7 +398,7 @@ export default function EditClientPage() {
               name="vencimientoWeb"
               render={({ field }) => (
                 <FormItem className="flex flex-col">
-                  <FormLabel>Vencimiento Servicio Web</FormLabel>
+                  <FormLabel>Vencimiento Servicio Web (Opcional)</FormLabel>
                    <Popover>
                     <PopoverTrigger asChild>
                       <FormControl>
@@ -431,15 +421,14 @@ export default function EditClientPage() {
             />
           </div>
 
-          {/* Social Media Section */}
-          <h2 className="text-xl font-semibold border-b pb-2">Redes Sociales</h2>
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Redes Sociales</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
               name="plataformasRedesSociales"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Plataformas (Separadas por coma)</FormLabel>
+                  <FormLabel>Plataformas (Separadas por coma, Opcional)</FormLabel>
                   <FormControl>
                     <Input placeholder="Ej: Instagram, Facebook, LinkedIn" {...field} />
                   </FormControl>
@@ -452,7 +441,7 @@ export default function EditClientPage() {
               name="detallesRedesSociales"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Detalles/Estrategia Redes Sociales</FormLabel>
+                  <FormLabel>Detalles/Estrategia Redes Sociales (Opcional)</FormLabel>
                   <FormControl>
                     <Textarea placeholder="Objetivos, tipo de contenido, frecuencia..." {...field} />
                   </FormControl>
@@ -465,7 +454,7 @@ export default function EditClientPage() {
               name="configuracionRedesSociales"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Configuración Adicional RRSS</FormLabel>
+                  <FormLabel>Configuración Adicional RRSS (Opcional)</FormLabel>
                   <FormControl>
                     <Textarea placeholder="Herramientas conectadas, accesos especiales..." {...field} />
                   </FormControl>
@@ -478,7 +467,7 @@ export default function EditClientPage() {
               name="credencialesRedesUsuario"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Usuario Credenciales RRSS (si se comparten)</FormLabel>
+                  <FormLabel>Usuario Credenciales RRSS (Opcional)</FormLabel>
                   <FormControl>
                     <Input placeholder="Usuario genérico o específico" {...field} />
                   </FormControl>
@@ -491,7 +480,7 @@ export default function EditClientPage() {
               name="credencialesRedesContrasena"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Contraseña Credenciales RRSS</FormLabel>
+                  <FormLabel>Contraseña Credenciales RRSS (Opcional)</FormLabel>
                   <FormControl>
                     <Input type="password" placeholder="Contraseña segura" {...field} />
                   </FormControl>
@@ -502,13 +491,13 @@ export default function EditClientPage() {
             />
           </div>
           
-          {/* Notes and Payment Status */}
+          <h2 className="text-xl font-semibold border-b pb-2 mt-6">Otros</h2>
           <FormField
             control={form.control}
             name="notas"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Notas Adicionales</FormLabel>
+                <FormLabel>Notas Adicionales (Opcional)</FormLabel>
                 <FormControl>
                   <Textarea placeholder="Cualquier otra información relevante sobre el cliente." {...field} />
                 </FormControl>
