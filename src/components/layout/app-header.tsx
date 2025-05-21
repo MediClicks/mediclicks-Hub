@@ -1,10 +1,13 @@
 
+'use client';
+
 import Link from 'next/link';
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { User, LogOut, Settings as SettingsIcon, Sun, Moon } from "lucide-react";
-import * as React from 'react'; // Import React for useEffect and useState
+import * as React from 'react';
+import { useAuth } from '@/contexts/auth-context'; // Importar useAuth
 
 interface AppHeaderProps {
   pageTitle: string;
@@ -12,9 +15,9 @@ interface AppHeaderProps {
 
 export function AppHeader({ pageTitle }: AppHeaderProps) {
   const [isDark, setIsDark] = React.useState(false);
+  const { logout } = useAuth(); // Obtener la función logout
 
   React.useEffect(() => {
-    // Check initial theme from localStorage or system preference
     const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -36,7 +39,6 @@ export function AppHeader({ pageTitle }: AppHeaderProps) {
       setIsDark(true);
     }
   };
-
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background/80 backdrop-blur-md px-4 sm:h-16 sm:px-6">
@@ -79,7 +81,7 @@ export function AppHeader({ pageTitle }: AppHeaderProps) {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled> {/* Lógica de logout a implementar */}
+            <DropdownMenuItem onClick={logout}> {/* Usar la función logout del contexto */}
               <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />
               <span>Cerrar Sesión</span>
             </DropdownMenuItem>

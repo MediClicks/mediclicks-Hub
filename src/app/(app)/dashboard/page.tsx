@@ -10,6 +10,10 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus } from '@/types';
 import { cn } from '@/lib/utils';
+import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
+import { format, subMonths, startOfMonth, endOfMonth, getMonth, getYear } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface DashboardStats {
   totalClients: number;
@@ -22,19 +26,29 @@ interface RecentActivityItem {
   id: string;
   type: 'task' | 'invoice';
   name: string;
-  statusOrClient: string; // Status for tasks, ClientName for invoices
+  statusOrClient: string;
   date: Date;
   statusType?: TaskStatus | InvoiceStatus;
 }
 
 interface UpcomingItem {
   id: string;
-  name: string; // Task name or Invoice ID + Client
+  name: string;
   dueDateFormatted: string;
   type: 'task' | 'invoice';
 }
 
-// Helper function to convert Firestore Timestamps in fetched data
+interface MonthlyRevenueChartData {
+  month: string;
+  total: number;
+}
+
+interface TaskStatusChartData {
+  status: string;
+  count: number;
+  fill: string;
+}
+
 function convertFirestoreTimestamps<T extends Record<string, any>>(data: T): WithConvertedDates<T> {
   const convertedData = { ...data } as any;
   for (const key in convertedData) {
@@ -54,29 +68,48 @@ function convertFirestoreTimestamps<T extends Record<string, any>>(data: T): Wit
 }
 
 const taskStatusColors: Record<TaskStatus, string> = {
-  Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600",
-  "En Progreso": "bg-sky-500 border-sky-600 hover:bg-sky-600",
-  Completada: "bg-green-500 border-green-600 hover:bg-green-600",
+  Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600 text-white",
+  "En Progreso": "bg-sky-500 border-sky-600 hover:bg-sky-600 text-white",
+  Completada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
 };
 
 const invoiceStatusColors: Record<InvoiceStatus, string> = {
-  Pagada: "bg-green-500 border-green-600 hover:bg-green-600",
-  "No Pagada": "bg-yellow-500 border-yellow-600 hover:bg-yellow-600",
-  Vencida: "bg-red-500 border-red-600 hover:bg-red-600",
+  Pagada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
+  "No Pagada": "bg-yellow-500 border-yellow-600 hover:bg-yellow-600 text-white",
+  Vencida: "bg-red-500 border-red-600 hover:bg-red-600 text-white",
 };
 
-const getStatusColor = (status: TaskStatus | InvoiceStatus, type: 'task' | 'invoice') => {
+const getStatusColorClass = (status: TaskStatus | InvoiceStatus, type: 'task' | 'invoice') => {
   if (type === 'task') {
     return taskStatusColors[status as TaskStatus] || 'bg-gray-400 border-gray-500';
   }
   return invoiceStatusColors[status as InvoiceStatus] || 'bg-gray-400 border-gray-500';
 };
 
+const chartColors = {
+  revenue: "hsl(var(--chart-1))",
+  pending: "hsl(var(--chart-2))",
+  inProgress: "hsl(var(--chart-3))",
+  completed: "hsl(var(--chart-4))",
+};
+
+const taskStatusChartConfig = {
+  tasks: { label: "Tareas" },
+  Pendiente: { label: "Pendiente", color: chartColors.pending },
+  "En Progreso": { label: "En Progreso", color: chartColors.inProgress },
+  Completada: { label: "Completada", color: chartColors.completed },
+} satisfies ChartConfig;
+
+const revenueChartConfig = {
+  revenue: { label: "Ingresos", color: chartColors.revenue },
+} satisfies ChartConfig;
 
 export default function DashboardPage() {
   const [stats, setStats] = React.useState<DashboardStats | null>(null);
   const [recentActivity, setRecentActivity] = React.useState<RecentActivityItem[]>([]);
   const [upcomingItems, setUpcomingItems] = React.useState<UpcomingItem[]>([]);
+  const [monthlyRevenueData, setMonthlyRevenueData] = React.useState<MonthlyRevenueChartData[]>([]);
+  const [taskStatusData, setTaskStatusData] = React.useState<TaskStatusChartData[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -85,50 +118,78 @@ export default function DashboardPage() {
       setIsLoading(true);
       setError(null);
       try {
-        // Fetch Clients Count
+        const now = new Date();
+
         const clientsSnapshot = await getCountFromServer(collection(db, "clients"));
         const totalClients = clientsSnapshot.data().count;
 
-        // Fetch Tasks for counts
-        const tasksCollection = collection(db, "tasks");
-        const tasksInProgressSnapshot = await getCountFromServer(query(tasksCollection, where("status", "==", "En Progreso")));
+        const tasksCollectionRef = collection(db, "tasks");
+        const tasksInProgressSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "En Progreso")));
         const tasksInProgress = tasksInProgressSnapshot.data().count;
         
-        const pendingTasksSnapshot = await getCountFromServer(query(tasksCollection, where("status", "==", "Pendiente")));
+        const pendingTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Pendiente")));
         const pendingTasks = pendingTasksSnapshot.data().count;
-
-        // Fetch Invoices for revenue
-        let revenue = 0;
-        let firstDayOfMonth: Date | null = null;
-        let lastDayOfMonth: Date | null = null;
         
-        // Ensure date calculations happen client-side to avoid hydration mismatch
-        // This useEffect runs only on the client.
-        const now = new Date(); 
-        firstDayOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
-        lastDayOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999));
+        const completedTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Completada")));
+        const completedTasks = completedTasksSnapshot.data().count;
 
+        setTaskStatusData([
+          { status: "Pendiente", count: pendingTasks, fill: chartColors.pending },
+          { status: "En Progreso", count: tasksInProgress, fill: chartColors.inProgress },
+          { status: "Completada", count: completedTasks, fill: chartColors.completed },
+        ]);
 
-        const invoicesCollection = collection(db, "invoices");
-        const paidInvoicesQuery = query(invoicesCollection, 
+        const invoicesCollectionRef = collection(db, "invoices");
+        const currentMonthStart = startOfMonth(now);
+        const currentMonthEnd = endOfMonth(now);
+        
+        const paidInvoicesThisMonthQuery = query(invoicesCollectionRef, 
           where("status", "==", "Pagada"),
-          where("issuedDate", ">=", Timestamp.fromDate(firstDayOfMonth)),
-          where("issuedDate", "<=", Timestamp.fromDate(lastDayOfMonth))
+          where("issuedDate", ">=", Timestamp.fromDate(currentMonthStart)),
+          where("issuedDate", "<=", Timestamp.fromDate(currentMonthEnd))
         );
-        const paidInvoicesSnapshot = await getDocs(paidInvoicesQuery);
-        revenue = paidInvoicesSnapshot.docs
+        const paidInvoicesThisMonthSnap = await getDocs(paidInvoicesThisMonthQuery);
+        const revenueThisMonthAmount = paidInvoicesThisMonthSnap.docs
           .reduce((sum, doc) => sum + (doc.data().totalAmount || 0), 0);
         
         setStats({
           totalClients,
           tasksInProgress,
           pendingTasks,
-          revenueThisMonth: revenue.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })
+          revenueThisMonth: revenueThisMonthAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })
         });
 
-        // Fetch Recent Activity (last 3 tasks and last 2 invoices)
-        const recentTasksQuery = query(collection(db, "tasks"), orderBy("createdAt", "desc"), limit(3));
-        const recentInvoicesQuery = query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(2));
+        const revenueByMonth: Record<string, number> = {};
+        const sixMonthsAgo = startOfMonth(subMonths(now, 5)); // Current month + 5 past months
+
+        const allPaidInvoicesQuery = query(invoicesCollectionRef, 
+          where("status", "==", "Pagada"),
+          where("issuedDate", ">=", Timestamp.fromDate(sixMonthsAgo))
+        );
+        const allPaidInvoicesSnap = await getDocs(allPaidInvoicesQuery);
+
+        allPaidInvoicesSnap.docs.forEach(doc => {
+          const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
+          if (invoice.issuedDate) {
+            const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
+            revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + invoice.totalAmount;
+          }
+        });
+        
+        const formattedRevenueData: MonthlyRevenueChartData[] = [];
+        for (let i = 5; i >= 0; i--) {
+          const dateCursor = subMonths(now, i);
+          const monthYearKey = format(dateCursor, 'LLL yy', { locale: es });
+          formattedRevenueData.push({
+            month: monthYearKey.charAt(0).toUpperCase() + monthYearKey.slice(1), // Capitalize month
+            total: revenueByMonth[monthYearKey] || 0,
+          });
+        }
+        setMonthlyRevenueData(formattedRevenueData);
+
+
+        const recentTasksQuery = query(tasksCollectionRef, orderBy("createdAt", "desc"), limit(3));
+        const recentInvoicesQuery = query(invoicesCollectionRef, orderBy("createdAt", "desc"), limit(2));
         
         const [recentTasksSnap, recentInvoicesSnap] = await Promise.all([
           getDocs(recentTasksQuery),
@@ -139,39 +200,28 @@ export default function DashboardPage() {
         recentTasksSnap.docs.forEach(doc => {
           const task = convertFirestoreTimestamps(doc.data() as Task);
           fetchedRecentActivity.push({ 
-            id: doc.id, 
-            type: 'task', 
-            name: task.name, 
-            statusOrClient: task.status, 
-            date: task.createdAt!,
-            statusType: task.status,
+            id: doc.id, type: 'task', name: task.name, 
+            statusOrClient: task.status, date: task.createdAt!, statusType: task.status,
           });
         });
         recentInvoicesSnap.docs.forEach(doc => {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
           fetchedRecentActivity.push({ 
-            id: doc.id, 
-            type: 'invoice', 
-            name: `Factura para ${invoice.clientName || 'N/A'}`, 
-            statusOrClient: invoice.status, 
-            date: invoice.createdAt!,
-            statusType: invoice.status,
+            id: doc.id, type: 'invoice', name: `Factura para ${invoice.clientName || 'N/A'}`, 
+            statusOrClient: invoice.status, date: invoice.createdAt!, statusType: invoice.status,
           });
         });
         fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
         setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
-
-        // Fetch Upcoming Items (tasks not completed, invoices not paid, due in future)
         const upcomingCutoffDate = Timestamp.fromDate(now); 
-
-        const upcomingTasksQuery = query(collection(db, "tasks"), 
+        const upcomingTasksQuery = query(tasksCollectionRef, 
           where("status", "in", ["Pendiente", "En Progreso"]), 
           where("dueDate", ">", upcomingCutoffDate),
           orderBy("dueDate", "asc"),
           limit(3)
         );
-        const upcomingInvoicesQuery = query(collection(db, "invoices"), 
+        const upcomingInvoicesQuery = query(invoicesCollectionRef, 
           where("status", "==", "No Pagada"), 
           where("dueDate", ">", upcomingCutoffDate),
           orderBy("dueDate", "asc"),
@@ -187,22 +237,18 @@ export default function DashboardPage() {
         upcomingTasksSnap.docs.forEach(doc => {
           const task = convertFirestoreTimestamps(doc.data() as Task);
           fetchedUpcomingItems.push({ 
-            id: doc.id, 
-            type: 'task', 
-            name: task.name, 
+            id: doc.id, type: 'task', name: task.name, 
             dueDateFormatted: task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A'
           });
         });
         upcomingInvoicesSnap.docs.forEach(doc => {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
           fetchedUpcomingItems.push({ 
-            id: doc.id, 
-            type: 'invoice', 
+            id: doc.id, type: 'invoice', 
             name: `Factura ${doc.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
             dueDateFormatted: invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('es-ES') : 'N/A'
           });
         });
-        // Sort combined upcoming items by due date
         fetchedUpcomingItems.sort((a, b) => {
             const dateA = new Date(a.dueDateFormatted.split('/').reverse().join('-'));
             const dateB = new Date(b.dueDateFormatted.split('/').reverse().join('-'));
@@ -212,11 +258,12 @@ export default function DashboardPage() {
 
       } catch (err) {
         console.error("Error fetching dashboard data: ", err);
-        setError("No se pudieron cargar los datos del panel. Intenta de nuevo más tarde.");
-        if (err instanceof Error && err.message.includes("indexes?create_composite")) {
+        if (err instanceof Error && (err.message.includes("index") || err.message.includes("Index"))) {
             setError(`Se requiere un índice de Firestore. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
         } else if (err instanceof Error) {
            setError(`Error al cargar datos: ${err.message}`);
+        } else {
+           setError("No se pudieron cargar los datos del panel. Intenta de nuevo más tarde.");
         }
       } finally {
         setIsLoading(false);
@@ -254,6 +301,7 @@ export default function DashboardPage() {
           value={stats?.totalClients ?? 0} 
           icon={Users}
           description="Clientes activos gestionados"
+          href="/clients"
         />
         <SummaryCard 
           title="Tareas en Progreso" 
@@ -261,6 +309,7 @@ export default function DashboardPage() {
           icon={Briefcase}
           description="Tareas actualmente en desarrollo"
           className="bg-sky-600 border-sky-500"
+          href="/tasks" // Podríamos añadir ?status=En Progreso en el futuro
         />
         <SummaryCard 
           title="Tareas Pendientes" 
@@ -268,6 +317,7 @@ export default function DashboardPage() {
           icon={ListTodo}
           description="Tareas que requieren atención"
           className="bg-amber-600 border-amber-500"
+          href="/tasks" // Podríamos añadir ?status=Pendiente en el futuro
         />
         <SummaryCard 
           title="Ingresos Este Mes" 
@@ -275,6 +325,7 @@ export default function DashboardPage() {
           icon={DollarSign}
           description="Basado en facturas pagadas"
           className="bg-green-600 border-green-500"
+          href="/billing"
         />
       </div>
       
@@ -297,7 +348,7 @@ export default function DashboardPage() {
                       <span className="text-xs ml-2">({new Date(item.date).toLocaleDateString('es-ES')})</span>
                     </div>
                     {item.statusType && (
-                       <Badge className={cn("text-white text-xs border", getStatusColor(item.statusType, item.type))}>
+                       <Badge className={cn("text-white text-xs border", getStatusColorClass(item.statusType, item.type))}>
                          {item.statusOrClient}
                        </Badge>
                     )}
@@ -333,34 +384,82 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Placeholder for charts */}
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="text-xl flex items-center">
               <TrendingUp className="mr-2 h-5 w-5 text-primary" />
-              Rendimiento General (Placeholder)
+              Ingresos Últimos 6 Meses
             </CardTitle>
-            <CardDescription>Visualización de métricas clave.</CardDescription>
+            <CardDescription>Total de facturas pagadas por mes.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground bg-secondary/30 rounded-b-lg">
-            <p>Gráficos de rendimiento se mostrarán aquí.</p>
+          <CardContent className="h-[300px] pt-6">
+            {monthlyRevenueData.length > 0 ? (
+              <ChartContainer config={revenueChartConfig} className="w-full h-full">
+                <BarChart accessibilityLayer data={monthlyRevenueData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="month"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value) => value.slice(0, 3)}
+                  />
+                  <YAxis tickFormatter={(value) => `$${value/1000}k`} />
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent indicator="line" />}
+                  />
+                  <Bar dataKey="total" fill="var(--color-revenue)" radius={4} />
+                </BarChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                {isLoading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : <p>No hay datos de ingresos para mostrar.</p>}
+              </div>
+            )}
           </CardContent>
         </Card>
+        
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="text-xl flex items-center">
-              <DollarSign className="mr-2 h-5 w-5 text-primary" />
-              Análisis Financiero (Placeholder)
+              <ListTodo className="mr-2 h-5 w-5 text-primary" />
+              Distribución de Tareas por Estado
             </CardTitle>
-            <CardDescription>Desglose de ingresos y gastos.</CardDescription>
+            <CardDescription>Proporción de tareas por estado actual.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] flex items-center justify-center text-muted-foreground bg-secondary/30 rounded-b-lg">
-            <p>Gráficos financieros se mostrarán aquí.</p>
+          <CardContent className="h-[300px] flex items-center justify-center pt-4">
+             {taskStatusData.some(d => d.count > 0) ? (
+              <ChartContainer config={taskStatusChartConfig} className="w-full h-[250px]">
+                <PieChart>
+                  <ChartTooltip content={<ChartTooltipContent nameKey="count" hideLabel />} />
+                  <Pie data={taskStatusData} dataKey="count" nameKey="status" innerRadius={60} strokeWidth={5}>
+                     {taskStatusData.map((entry) => (
+                      <text
+                        key={`label-${entry.status}`}
+                        x={0} // These positionings are relative to the center of the pie
+                        y={0}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        className="fill-foreground text-xs font-semibold"
+                       >
+                        {entry.status}
+                      </text>
+                    ))}
+                  </Pie>
+                   <ChartLegend content={<ChartLegendContent nameKey="status" />} />
+                </PieChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                {isLoading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : <p>No hay datos de tareas para mostrar.</p>}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
-
     </div>
   );
 }
+

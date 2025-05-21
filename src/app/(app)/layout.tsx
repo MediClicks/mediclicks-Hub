@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation'; // Import useRouter
 import {
   SidebarProvider,
   Sidebar,
@@ -15,32 +15,29 @@ import {
   SidebarMenuButton,
   SidebarInset,
   SidebarTrigger,
-  // useSidebar, // Not used directly here, can be removed if not needed by other parts
-  // SidebarGroupLabel, // Not used directly here
 } from '@/components/ui/sidebar';
 import { AppHeader } from '@/components/layout/app-header';
 import { navItems, bottomNavItems, AppLogo, type NavItem } from '@/components/layout/nav-items';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils'; // Added missing import
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/auth-context'; // Importar useAuth
+import { Loader2 } from 'lucide-react';
 
 function getPageTitle(pathname: string): string {
-  const allNavItems = [...navItems, ...bottomNavItems].filter(item => !item.isSectionTitle); // Excluir títulos de sección
+  const allNavItems = [...navItems, ...bottomNavItems].filter(item => !item.isSectionTitle);
   
-  // Prioritize exact matches first
   let item = allNavItems.find(navItem => navItem.href && pathname === navItem.href);
   if (item) return item.label;
 
-  // Then try startsWith for parent paths
   item = allNavItems
-    .filter(navItem => navItem.href && navItem.href !== '/') // Avoid matching '/' for all paths
-    .sort((a, b) => b.href.length - a.href.length) // Sort by length to match more specific paths first
+    .filter(navItem => navItem.href && navItem.href !== '/') 
+    .sort((a, b) => b.href.length - a.href.length) 
     .find(navItem => navItem.href && pathname.startsWith(navItem.href));
   
-  return item ? item.label : "Panel Principal"; // Default to "Panel Principal"
+  return item ? item.label : "Panel Principal";
 }
 
-// Define colors for sidebar icons
 const sidebarIconColors: Record<string, string> = {
   "/dashboard": "text-sky-400",
   "/clients": "text-lime-400",
@@ -53,11 +50,28 @@ const sidebarIconColors: Record<string, string> = {
   "/settings": "text-slate-400",
 };
 
-
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const pageTitle = getPageTitle(pathname);
-  const [open, setOpen] = React.useState(true); // Default sidebar state
+  const [open, setOpen] = React.useState(true);
+  
+  const { isAuthenticated, isLoading: isLoadingAuth, logout } = useAuth(); // Usar el hook de autenticación
+  const router = useRouter();
+
+  React.useEffect(() => {
+    if (!isLoadingAuth && !isAuthenticated) {
+      router.push('/login');
+    }
+  }, [isAuthenticated, isLoadingAuth, router]);
+
+  if (isLoadingAuth || !isAuthenticated) {
+    // Muestra un loader mientras se verifica la autenticación o si no está autenticado y se redirige
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const renderNavItems = (items: NavItem[], isCollapsed: boolean) => {
     return items.map((item, index) => {
@@ -73,10 +87,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         );
       }
       const IconComponent = item.icon;
-      // Use cn for conditional class application
       const iconColorClass = pathname.startsWith(item.href) 
-        ? "text-sidebar-accent-foreground" // Active color
-        : sidebarIconColors[item.href] || "text-sidebar-foreground/80"; // Inactive or default color
+        ? "text-sidebar-accent-foreground" 
+        : sidebarIconColors[item.href] || "text-sidebar-foreground/80";
+
+      // Special case for logout
+      if (item.href === '/logout') {
+        return (
+          <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton
+              onClick={logout} // Llamar a logout al hacer clic
+              tooltip={isCollapsed ? item.tooltip || item.label : undefined}
+            >
+              <IconComponent className={cn("group-hover:text-sidebar-accent-foreground", iconColorClass)} />
+              <span>{item.label}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      }
 
       return (
         <SidebarMenuItem key={item.href}>
