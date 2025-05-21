@@ -2,12 +2,12 @@
 'use client';
 
 import Image from 'next/image';
-import React, { useState } from 'react'; 
+import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import type { Client, WithConvertedDates } from "@/types"; 
-import { Briefcase, CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import type { Client, WithConvertedDates } from "@/types";
+import { Briefcase, CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 
 interface ClientCardProps {
   client: WithConvertedDates<Client>;
-  onClientDeleted: (clientId: string) => void; 
+  onClientDeleted: (clientId: string) => void;
 }
 
 export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
@@ -53,7 +53,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         title: "Cliente Eliminado",
         description: `El cliente ${client.name} ha sido eliminado correctamente.`,
       });
-      onClientDeleted(client.id); 
+      onClientDeleted(client.id);
     } catch (error) {
       console.error("Error eliminando cliente: ", error);
       toast({
@@ -102,7 +102,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             </h4>
              <p className="text-xs text-foreground line-clamp-2">{client.serviciosActivosGeneral || 'No especificado'}</p>
           </div>
-          
+
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-0.5 flex items-center">
@@ -125,12 +125,12 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
               {client.vencimientoWeb && <p className="text-xs text-muted-foreground">Vence: {formatDate(client.vencimientoWeb)}</p>}
             </div>
           )}
-        
+
         </CardContent>
         <CardFooter className="p-4 border-t flex justify-between items-center bg-card-foreground/5">
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-yellow-400/20 hover:border-yellow-500" asChild>
-              <Link href={`/clients/${client.id}/edit`}> 
+              <Link href={`/clients/${client.id}/edit`}>
                 <Edit className="h-4 w-4 text-yellow-600" />
                 <span className="sr-only">Editar Cliente</span>
               </Link>
@@ -141,8 +141,8 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             </Button>
           </div>
           {typeof client.pagado !== 'undefined' && (
-              <Badge 
-                variant={client.pagado ? "default" : "destructive"} 
+              <Badge
+                variant={client.pagado ? "default" : "destructive"}
                 className={cn(
                   "text-xs px-2 py-1 flex items-center",
                   client.pagado ? "bg-green-500 border-green-600 text-white" : "bg-red-500 border-red-600 text-white"
@@ -155,7 +155,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         </CardFooter>
       </Card>
 
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <AlertDialog open={showDeleteDialog} onOpenChange={(open) => {if(!isDeleting) setShowDeleteDialog(open)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar este cliente?</AlertDialogTitle>
@@ -164,13 +164,13 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteClient} 
-              disabled={isDeleting} 
+            <AlertDialogCancel disabled={isDeleting} onClick={() => setShowDeleteDialog(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteClient}
+              disabled={isDeleting}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
-              {isDeleting ? "Eliminando..." : "Sí, eliminar cliente"}
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar cliente"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

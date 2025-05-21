@@ -201,7 +201,6 @@ export default function BillingPage() {
         description: `La factura con ID ${invoiceToDelete.id.substring(0, 8).toUpperCase()} ha sido eliminada.`,
       });
       setInvoices(prevInvoices => prevInvoices.filter(inv => inv.id !== invoiceToDelete.id));
-      setInvoiceToDelete(null);
     } catch (error) {
       console.error("Error eliminando factura: ", error);
       toast({
@@ -211,6 +210,7 @@ export default function BillingPage() {
       });
     } finally {
       setIsDeleting(false);
+      setInvoiceToDelete(null);
     }
   };
 
@@ -222,22 +222,25 @@ export default function BillingPage() {
 
   const getEmptyStateMessage = () => {
     let message = "No se encontraron facturas";
+    const filtersApplied: string[] = [];
+    if (statusFilter !== ALL_FILTER_VALUE) {
+      filtersApplied.push(`estado "${statusFilter}"`);
+    }
     const clientName = clientFilter !== ALL_FILTER_VALUE ? clientsForFilter.find(c => c.id === clientFilter)?.name : null;
+    if (clientFilter !== ALL_FILTER_VALUE && clientName) {
+      filtersApplied.push(`cliente "${clientName}"`);
+    }
 
-    if (statusFilter !== ALL_FILTER_VALUE && clientFilter !== ALL_FILTER_VALUE && clientName) {
-      message += ` con estado "${statusFilter}" para el cliente "${clientName}".`;
-    } else if (statusFilter !== ALL_FILTER_VALUE) {
-      message += ` con estado "${statusFilter}".`;
-    } else if (clientFilter !== ALL_FILTER_VALUE && clientName) {
-      message += ` para el cliente "${clientName}".`;
+    if (filtersApplied.length > 0) {
+      message += ` con ${filtersApplied.join(' y ')}.`;
     } else {
       message += ".";
     }
     return message;
   };
 
-  const currentFilteredClientName = clientFilter !== ALL_FILTER_VALUE 
-    ? clientsForFilter.find(c => c.id === clientFilter)?.name 
+  const currentFilteredClientName = clientFilter !== ALL_FILTER_VALUE
+    ? clientsForFilter.find(c => c.id === clientFilter)?.name
     : null;
 
   return (
@@ -248,7 +251,7 @@ export default function BillingPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> 
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
                 {statusFilter === ALL_FILTER_VALUE ? "Filtrar por Estado" : `Estado: ${statusFilter}`}
               </Button>
             </DropdownMenuTrigger>
@@ -276,7 +279,7 @@ export default function BillingPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" disabled={isLoadingClients}>
-                <UserCircle className="mr-2 h-4 w-4 text-muted-foreground" /> 
+                <UserCircle className="mr-2 h-4 w-4 text-muted-foreground" />
                 {isLoadingClients && "Cargando clientes..."}
                 {!isLoadingClients && (currentFilteredClientName ? `Cliente: ${currentFilteredClientName}` : "Filtrar por Cliente")}
               </Button>
@@ -358,7 +361,7 @@ export default function BillingPage() {
                           <Edit2 className="h-4 w-4 text-yellow-600" />
                         </Link>
                       </Button>
-                      <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)}>
+                      <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Factura" onClick={() => setInvoiceToDelete(invoice)} disabled={isDeleting}>
                         <Trash2 className="h-4 w-4 text-red-600" />
                       </Button>
                       {isClient && clientForPdf && agencyDetails ? (
@@ -398,7 +401,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      <AlertDialog open={!!invoiceToDelete} onOpenChange={(open) => !open && setInvoiceToDelete(null)}>
+      <AlertDialog open={!!invoiceToDelete} onOpenChange={(open) => {if(!isDeleting) setInvoiceToDelete(null)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar esta factura?</AlertDialogTitle>

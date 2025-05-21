@@ -90,7 +90,7 @@ export default function TasksPage() {
       if (priorityFilter !== ALL_FILTER_VALUE) {
         queryConstraints.unshift(where("priority", "==", priorityFilter));
       }
-      
+
       const q = query(tasksCollection, ...queryConstraints);
       const querySnapshot = await getDocs(q);
       const tasksData = querySnapshot.docs.map(doc => {
@@ -109,7 +109,7 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter]); 
+  }, [statusFilter, priorityFilter]);
 
   useEffect(() => {
     fetchTasks();
@@ -125,7 +125,6 @@ export default function TasksPage() {
         description: `La tarea "${taskToDelete.name}" ha sido eliminada correctamente.`,
       });
       setTasks(prevTasks => prevTasks.filter(task => task.id !== taskToDelete.id));
-      setTaskToDelete(null);
     } catch (error) {
       console.error("Error eliminando tarea: ", error);
       toast({
@@ -135,6 +134,7 @@ export default function TasksPage() {
       });
     } finally {
       setIsDeleting(false);
+      setTaskToDelete(null);
     }
   };
 
@@ -147,12 +147,16 @@ export default function TasksPage() {
 
   const getEmptyStateMessage = () => {
     let message = "No se encontraron tareas";
-    if (statusFilter !== ALL_FILTER_VALUE && priorityFilter !== ALL_FILTER_VALUE) {
-      message += ` con estado "${statusFilter}" y prioridad "${priorityFilter}".`;
-    } else if (statusFilter !== ALL_FILTER_VALUE) {
-      message += ` con estado "${statusFilter}".`;
-    } else if (priorityFilter !== ALL_FILTER_VALUE) {
-      message += ` con prioridad "${priorityFilter}".`;
+    const filtersApplied: string[] = [];
+    if (statusFilter !== ALL_FILTER_VALUE) {
+      filtersApplied.push(`estado "${statusFilter}"`);
+    }
+    if (priorityFilter !== ALL_FILTER_VALUE) {
+      filtersApplied.push(`prioridad "${priorityFilter}"`);
+    }
+
+    if (filtersApplied.length > 0) {
+      message += ` con ${filtersApplied.join(' y ')}.`;
     } else {
       message += ".";
     }
@@ -168,7 +172,8 @@ export default function TasksPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar por Estado
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
+                {statusFilter === ALL_FILTER_VALUE ? "Filtrar por Estado" : `Estado: ${statusFilter}`}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56">
@@ -195,7 +200,8 @@ export default function TasksPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" /> Filtrar por Prioridad
+                <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
+                {priorityFilter === ALL_FILTER_VALUE ? "Filtrar por Prioridad" : `Prioridad: ${priorityFilter}`}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56">
@@ -275,7 +281,7 @@ export default function TasksPage() {
                         <Edit2 className="h-4 w-4 text-yellow-600" />
                       </Link>
                     </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Tarea" onClick={() => setTaskToDelete(task)}>
+                    <Button variant="ghost" size="icon" className="hover:text-destructive" title="Eliminar Tarea" onClick={() => setTaskToDelete(task)} disabled={isDeleting}>
                       <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
                   </TableCell>
@@ -285,18 +291,20 @@ export default function TasksPage() {
           </Table>
         </div>
       )}
-      
+
       {!isLoading && !error && tasks.length === 0 && (
          <div className="text-center py-12 text-muted-foreground">
           {getEmptyStateIcon()}
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          <Button variant="link" className="mt-2" asChild>
-            <Link href="/tasks/add">Agrega tu primera tarea</Link>
-          </Button>
+          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE) && (
+            <Button variant="link" className="mt-2" asChild>
+              <Link href="/tasks/add">Agrega tu primera tarea</Link>
+            </Button>
+          )}
         </div>
       )}
 
-      <AlertDialog open={!!taskToDelete} onOpenChange={(open) => !open && setTaskToDelete(null)}>
+      <AlertDialog open={!!taskToDelete} onOpenChange={(open) => {if(!isDeleting) setTaskToDelete(null)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro de eliminar esta tarea?</AlertDialogTitle>
@@ -306,9 +314,9 @@ export default function TasksPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting} onClick={() => setTaskToDelete(null)}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteTask} 
-              disabled={isDeleting} 
+            <AlertDialogAction
+              onClick={handleDeleteTask}
+              disabled={isDeleting}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar tarea"}
