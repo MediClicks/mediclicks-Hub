@@ -201,7 +201,6 @@ export default function BillingPage() {
         description: `La factura con ID ${invoiceToDelete.id.substring(0, 8).toUpperCase()} ha sido eliminada.`,
       });
       setInvoices(prevInvoices => prevInvoices.filter(inv => inv.id !== invoiceToDelete.id));
-      setInvoiceToDelete(null); 
     } catch (error) {
       console.error("Error eliminando factura: ", error);
       toast({
@@ -211,6 +210,7 @@ export default function BillingPage() {
       });
     } finally {
       setIsDeleting(false);
+      setInvoiceToDelete(null); 
     }
   };
 
@@ -375,7 +375,7 @@ export default function BillingPage() {
                         >
                           {({ loading }) => (
                             <Button variant="ghost" size="icon" className="hover:text-accent" title="Descargar PDF" disabled={loading}>
-                              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-primary" />}
+                              {loading ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
                             </Button>
                           )}
                         </PDFDownloadLink>
@@ -428,3 +428,4 @@ export default function BillingPage() {
     </div>
   );
 }
+

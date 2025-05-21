@@ -4,7 +4,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
@@ -256,8 +256,11 @@ export default function DashboardPage() {
           });
         });
         fetchedUpcomingItems.sort((a, b) => {
-            const dateA = new Date(a.dueDateFormatted.split('/').reverse().join('-'));
-            const dateB = new Date(b.dueDateFormatted.split('/').reverse().join('-'));
+            // Robust date parsing for sorting
+            const [dayA, monthA, yearA] = a.dueDateFormatted.split('/').map(Number);
+            const dateA = new Date(yearA, monthA - 1, dayA);
+            const [dayB, monthB, yearB] = b.dueDateFormatted.split('/').map(Number);
+            const dateB = new Date(yearB, monthB - 1, dayB);
             return dateA.getTime() - dateB.getTime();
         });
         setUpcomingItems(fetchedUpcomingItems.slice(0,5));
@@ -297,6 +300,9 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const noRevenueData = monthlyRevenueData.length === 0 || monthlyRevenueData.every(d => d.total === 0);
+  const noTaskStatusData = taskStatusData.length === 0 || taskStatusData.every(d => d.count === 0);
 
   return (
     <div className="space-y-8">
@@ -407,7 +413,16 @@ export default function DashboardPage() {
             <CardDescription>Total de facturas pagadas por mes.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] pt-6">
-            {monthlyRevenueData.length > 0 && monthlyRevenueData.some(d => d.total > 0) ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : noRevenueData ? (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                <TrendingUp className="h-12 w-12 mb-3 text-gray-400" />
+                <p>No hay datos de ingresos para mostrar.</p>
+              </div>
+            ) : (
               <ChartContainer config={revenueChartConfig} className="w-full h-full">
                 <BarChart accessibilityLayer data={monthlyRevenueData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -426,10 +441,6 @@ export default function DashboardPage() {
                   <Bar dataKey="total" fill="var(--color-revenue)" radius={4} />
                 </BarChart>
               </ChartContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                {isLoading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : <p>No hay datos de ingresos para mostrar.</p>}
-              </div>
             )}
           </CardContent>
         </Card>
@@ -443,7 +454,16 @@ export default function DashboardPage() {
             <CardDescription>Proporción de tareas por estado actual.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] flex items-center justify-center pt-4">
-             {taskStatusData.some(d => d.count > 0) ? (
+             {isLoading ? (
+                <div className="flex items-center justify-center h-full">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+             ) : noTaskStatusData ? (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                <ListTodo className="h-12 w-12 mb-3 text-gray-400" />
+                <p>No hay datos de tareas para mostrar.</p>
+              </div>
+            ) : (
               <ChartContainer config={taskStatusChartConfig} className="w-full h-[250px]">
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent nameKey="count" hideLabel />} />
@@ -453,10 +473,6 @@ export default function DashboardPage() {
                    <ChartLegend content={<ChartLegendContent nameKey="status" />} />
                 </PieChart>
               </ChartContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                {isLoading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : <p>No hay datos de tareas para mostrar.</p>}
-              </div>
             )}
           </CardContent>
         </Card>
