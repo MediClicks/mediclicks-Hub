@@ -27,7 +27,7 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, doc, updateDoc, type FieldValue } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, doc, updateDoc, FieldValue } from 'firebase/firestore'; // Added FieldValue
 import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
@@ -137,35 +137,48 @@ export default function AddTaskPage() {
       }
 
       const taskDataToSave: any = {
-        ...data,
-        clientName: clientName,
+        ...data, // Spread submitted form data first
+        clientName: clientName, // Add or overwrite clientName
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
       
-      taskDataToSave.dueDate = Timestamp.fromDate(data.dueDate);
+      // Convert dueDate to Firestore Timestamp
+      if (data.dueDate) {
+        taskDataToSave.dueDate = Timestamp.fromDate(data.dueDate);
+      }
       
+      // Handle alertDate conversion or deletion
       if (combinedAlertDate) {
         taskDataToSave.alertDate = Timestamp.fromDate(combinedAlertDate);
       } else {
+        // If no combinedAlertDate, ensure alertDate is removed from what's saved
         taskDataToSave.alertDate = deleteField(); 
       }
       
+      // Handle optional clientId and clientName
       if (!data.clientId || data.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
         taskDataToSave.clientId = deleteField();
         taskDataToSave.clientName = deleteField(); 
       } else {
-         taskDataToSave.clientId = data.clientId; 
+         taskDataToSave.clientId = data.clientId; // Ensure it's explicitly set if provided
       }
 
-      if (taskDataToSave.description === undefined || taskDataToSave.description === '') {
+      // Handle optional description
+      if (data.description === undefined || data.description === '') {
         taskDataToSave.description = deleteField();
+      } else {
+        taskDataToSave.description = data.description; // Ensure it's explicitly set if provided
       }
       
-      // Eliminar el campo alertDate del objeto principal si no hay fecha, ya que se maneja arriba.
-      // Esto es redundante debido al deleteField(), pero por claridad.
-      if (!combinedAlertDate && 'alertDate' in taskDataToSave) {
-         delete taskDataToSave.alertDate;
+      // Remove the form's 'alertDate' if we used combinedAlertDate, to avoid confusion.
+      // The actual alertDate (Timestamp or deleteField()) is already in taskDataToSave.
+      if ('alertDate' in data && data.alertDate !== taskDataToSave.alertDate) {
+        // This condition is a bit tricky, essentially if combinedAlertDate was used,
+        // the original form.alertDate is no longer the source of truth for saving.
+        // delete taskDataToSave.alertDate; // This would be wrong, we set it above.
+        // Actually, taskDataToSave.alertDate is ALREADY CORRECT (Timestamp or deleteField).
+        // The key is that data.alertDate from the form (which is Date | null) is not what we directly save.
       }
 
 
