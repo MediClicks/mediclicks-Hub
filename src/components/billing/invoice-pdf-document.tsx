@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 // Disabling TypeScript check for this file due to @react-pdf/renderer type complexities.
 // Consider enabling it if types become more stable or are strictly needed.
@@ -46,7 +45,7 @@ const styles = StyleSheet.create({
   invoiceTitle: {
     fontSize: 24,
     fontWeight: 'bold', // fontWeight in @react-pdf needs to be a string like 'bold' or a number
-    color: '#0d3357', // Using the primary color from globals.css (approximated)
+    color: '#0d3357', 
   },
   invoiceId: {
     fontSize: 10,
@@ -105,11 +104,11 @@ const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: 'row',
-    backgroundColor: '#f9f9f9', // Alternating rows can be complex, keeping it simple
+    backgroundColor: '#f9f9f9', 
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#e0e0e0', // Header row background
+    backgroundColor: '#e0e0e0', 
   },
   tableColHeader: {
     padding: 5,
@@ -181,14 +180,30 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: '#aaaaaa',
   },
+  errorText: {
+    fontSize: 12,
+    color: '#D8000C', // Red color for error
+    textAlign: 'center',
+    marginTop: 20,
+  }
 });
 
-const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client, agencyDetails }) => {
+const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ 
+  invoice: rawInvoice, 
+  client: rawClient, 
+  agencyDetails: rawAgencyDetails 
+}) => {
+
+  // Provide default empty objects to avoid "cannot read properties of undefined"
+  const invoice = rawInvoice || {} as WithConvertedDates<Invoice>;
+  const client = rawClient || {} as WithConvertedDates<Client>;
+  const agencyDetails = rawAgencyDetails || {} as AgencyDetails;
+
   const formatDate = (dateInput: any): string => {
     if (!dateInput) return 'N/A';
     try {
       const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
-      if (isNaN(date.getTime())) return 'Fecha Inv.'; // Shorter fallback
+      if (isNaN(date.getTime())) return 'Fecha Inv.';
       return date.toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit' });
     } catch (e) {
       return 'Fecha Inv.';
@@ -203,24 +218,23 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
     return numAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  if (!invoice || !client || !agencyDetails) {
-    // Render a minimal PDF if essential data is missing, to prevent crashes
+  if (!rawInvoice || !rawClient || !rawAgencyDetails) {
     return (
       <Document title="Factura Inválida">
         <Page size="A4" style={styles.page}>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Error al Generar Factura</Text>
-            <Text>Los datos de la factura, cliente o agencia no están completos.</Text>
-            { !invoice && <Text>- Falta información de la factura.</Text> }
-            { !client && <Text>- Falta información del cliente.</Text> }
-            { !agencyDetails && <Text>- Falta información de la agencia.</Text> }
+            <Text style={styles.errorText}>Los datos necesarios para generar la factura no están completos.</Text>
+            {!rawInvoice && <Text style={styles.smallText}>- Falta información de la factura.</Text>}
+            {!rawClient && <Text style={styles.smallText}>- Falta información del cliente.</Text>}
+            {!rawAgencyDetails && <Text style={styles.smallText}>- Falta información de la agencia.</Text>}
           </View>
         </Page>
       </Document>
     );
   }
 
-  const safeInvoiceItems = Array.isArray(invoice?.items) ? invoice.items : [];
+  const safeInvoiceItems = Array.isArray(invoice.items) ? invoice.items : [];
   const subtotal = safeInvoiceItems.reduce((sum, item) => {
     const quantity = Number(item?.quantity);
     const unitPrice = Number(item?.unitPrice);
@@ -229,18 +243,19 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
     return sum + validQuantity * validUnitPrice;
   }, 0);
 
-  const taxAmount = 0; // Assuming 0 tax for now
+  const taxAmount = 0; 
   const totalAmount = Number(invoice?.totalAmount);
   const validTotalAmount = Number.isFinite(totalAmount) ? totalAmount : 0;
+  const displayInvoiceId = String(invoice?.id || 'N/A').substring(0,10).toUpperCase();
 
   return (
-    <Document title={`Factura ${(invoice?.id || 'TEMP_ID').substring(0,8).toUpperCase()}`}>
+    <Document title={`Factura ${displayInvoiceId}`}>
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Text style={styles.invoiceTitle}>FACTURA</Text>
-            <Text style={styles.invoiceId}>ID: {String(invoice?.id || 'N/A').substring(0,10).toUpperCase()}</Text>
+            <Text style={styles.invoiceId}>ID: {displayInvoiceId}</Text>
           </View>
           <View style={styles.headerRight}>
             <Text style={styles.agencyName}>{String(agencyDetails?.agencyName || "Nombre de Agencia N/A")}</Text>
@@ -298,7 +313,7 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
               return (
                 <View key={item?.id || `item-pdf-${index}-${Date.now()}`} style={styles.tableRow}>
                   <Text style={[styles.tableCol, styles.tableColDesc]}>{description}</Text>
-                  <Text style={[styles.tableCol, styles.tableColQty]}>{validQuantity}</Text>
+                  <Text style={[styles.tableCol, styles.tableColQty]}>{String(validQuantity)}</Text>
                   <Text style={[styles.tableCol, styles.tableColPrice]}>{formatCurrency(validUnitPrice)}</Text>
                   <Text style={[styles.tableCol, styles.tableColTotal]}>{formatCurrency(itemTotal)}</Text>
                 </View>
@@ -347,4 +362,3 @@ const InvoicePdfDocument: React.FC<InvoicePdfDocumentProps> = ({ invoice, client
 };
 
 export default InvoicePdfDocument;
-
