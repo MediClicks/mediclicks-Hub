@@ -20,26 +20,33 @@ import { AppHeader } from '@/components/layout/app-header';
 import { navItems, bottomNavItems, AppLogo, type NavItem } from '@/components/layout/nav-items';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils'; // Asegurarse de que cn esté importado
+import { cn } from '@/lib/utils'; 
 import { useAuth } from '@/contexts/auth-context';
-import { Loader2 } from 'lucide-react';
+import { useNotification } from '@/contexts/notification-context'; // Import useNotification
+import { Loader2, Bell } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
 
 function getPageTitle(pathname: string): string {
-  // Combinar navItems y bottomNavItems, y filtrar solo los que son enlaces reales (no títulos de sección)
   const allNavItems = [...navItems, ...bottomNavItems].filter(item => item.href && !item.isSectionTitle);
   
-  // Primero, buscar una coincidencia exacta
   let item = allNavItems.find(navItem => navItem.href && pathname === navItem.href);
   if (item) return item.label;
 
-  // Si no hay coincidencia exacta, buscar el prefijo más largo
-  // Esto ayuda con subrutas como /clients/[id]/edit para que se titule "Clientes"
   item = allNavItems
-    .filter(navItem => navItem.href && navItem.href !== '/') // Excluir el dashboard si no es exacto, para que no capture todo
-    .sort((a, b) => b.href.length - a.href.length) // Ordenar por longitud de href descendente
+    .filter(navItem => navItem.href && navItem.href !== '/') 
+    .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0))
     .find(navItem => navItem.href && pathname.startsWith(navItem.href));
   
-  return item ? item.label : "Panel Principal"; // Si nada coincide, por defecto "Panel Principal"
+  return item ? item.label : "Panel Principal";
 }
 
 const sidebarIconColors: Record<string, string> = {
@@ -47,11 +54,10 @@ const sidebarIconColors: Record<string, string> = {
   "/clients": "text-lime-400",
   "/tasks": "text-amber-400",
   "/billing": "text-rose-400",
-  // "/content-suggestions": "text-violet-400", // Eliminado
   "/medi-clicks-agency": "text-teal-400",
   "/medi-clinic": "text-cyan-400",
-  // "/medi-clicks-dashboard": "text-indigo-400", // Eliminado
   "/settings": "text-slate-400",
+  // Bell icon color will be handled specially
 };
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -60,6 +66,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(true);
   
   const { isAuthenticated, isLoading: isLoadingAuth, logout } = useAuth();
+  const notificationContext = useNotification(); // Get notification context
   const router = useRouter();
 
   React.useEffect(() => {
@@ -67,6 +74,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push('/login');
     }
   }, [isAuthenticated, isLoadingAuth, router]);
+
+  React.useEffect(() => {
+    if (isAuthenticated && notificationContext) {
+      notificationContext.fetchNotifications();
+    }
+  }, [isAuthenticated, notificationContext]);
+
 
   if (isLoadingAuth || !isAuthenticated) {
     return (
@@ -90,12 +104,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         );
       }
       const IconComponent = item.icon;
-      const iconColorClass = pathname.startsWith(item.href) 
+      
+      let iconColorClass = pathname.startsWith(item.href || '__never__') && !item.isNotification
         ? "text-sidebar-accent-foreground" 
-        : sidebarIconColors[item.href] || "text-sidebar-foreground/80";
+        : sidebarIconColors[item.href || ''] || "text-sidebar-foreground/80";
 
-      // Special case for logout if it were in bottomNavItems
-      if (item.href === '/logout') { // This logic remains for flexibility, though logout is in AppHeader
+      if (item.isNotification && notificationContext && notificationContext.unreadCount > 0) {
+        iconColorClass = "text-red-500"; // Red bell if there are unread notifications
+      } else if (item.isNotification) {
+        iconColorClass = sidebarIconColors["/notifications"] || "text-sidebar-foreground/80"; // Default bell color
+      }
+      
+
+      if (item.href === '/logout') { 
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
@@ -109,11 +130,61 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         );
       }
 
+      if (item.isNotification) {
+        return (
+          <SidebarMenuItem key={item.href || `notification-item-${index}`}>
+             <DropdownMenu onOpenChange={(open) => {
+                if (open && notificationContext && notificationContext.unreadCount > 0) {
+                  notificationContext.markNotificationsAsRead();
+                }
+             }}>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  tooltip={isCollapsed ? item.tooltip || item.label : undefined}
+                  className="relative"
+                >
+                  <IconComponent className={cn("group-hover:text-sidebar-accent-foreground", iconColorClass)} />
+                  <span>{item.label}</span>
+                  {notificationContext && notificationContext.unreadCount > 0 && !isCollapsed && (
+                    <Badge className="absolute right-2 top-1/2 -translate-y-1/2 h-5 px-1.5 text-xs bg-red-500 text-white">
+                      {notificationContext.unreadCount}
+                    </Badge>
+                  )}
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-72 ml-2" side="right" align="start">
+                <DropdownMenuLabel>Tareas que vencen hoy ({notificationContext?.notifications.length || 0})</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {notificationContext && notificationContext.notifications.length > 0 ? (
+                  notificationContext.notifications.map(task => (
+                    <DropdownMenuItem key={task.id} asChild>
+                      <Link href={`/tasks/${task.id}/edit`} className="text-sm">
+                        <div className="flex flex-col">
+                          <span className="font-medium truncate">{task.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            Cliente: {task.clientName || 'N/A'}
+                          </span>
+                        </div>
+                      </Link>
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled className="text-sm text-center text-muted-foreground py-3">
+                    No hay tareas que venzan hoy.
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        );
+      }
+
+
       return (
         <SidebarMenuItem key={item.href}>
-          <Link href={item.href} passHref legacyBehavior>
+          <Link href={item.href || '#'} passHref legacyBehavior>
             <SidebarMenuButton
-              isActive={pathname.startsWith(item.href)}
+              isActive={item.href ? pathname.startsWith(item.href) : false}
               tooltip={isCollapsed ? item.tooltip || item.label : undefined}
             >
               <IconComponent className={cn("group-hover:text-sidebar-accent-foreground", iconColorClass)} />

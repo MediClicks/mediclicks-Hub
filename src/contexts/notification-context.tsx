@@ -3,16 +3,26 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, query, where, Timestamp, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
+import { collection, query, where, Timestamp, getDocs, orderBy, updateDoc, doc } from 'firebase/firestore';
+import { startOfDay, endOfDay, isBefore, isEqual } from 'date-fns'; // Importar desde date-fns
 import type { Task, WithConvertedDates } from '@/types';
-import { useAuth } from './auth-context'; // Import useAuth to access user
+import { useAuth } from './auth-context';
 
 // Helper function to convert Firestore Timestamps (if any)
 function convertTaskTimestamps(taskData: any): WithConvertedDates<Task> {
   const data = { ...taskData } as Partial<WithConvertedDates<Task>>;
   for (const key in data) {
-    if (data[key as keyof Task] instanceof Timestamp) {
-      data[key as keyof Task] = (data[key as keyof Task] as Timestamp).toDate() as any;
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+        const value = data[key as keyof Task];
+        if (value instanceof Timestamp) {
+          data[key as keyof Task] = value.toDate() as any;
+        } else if (typeof value === 'object' && value !== null && !(value instanceof Date) && !Array.isArray(value)) {
+            data[key as keyof Task] = convertTaskTimestamps(value) as any;
+        } else if (Array.isArray(value)) {
+          (data[key as keyof Task] as any) = value.map(item =>
+            typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTaskTimestamps(item) : item
+          );
+        }
     }
   }
   return data as WithConvertedDates<Task>;
@@ -23,7 +33,7 @@ interface NotificationContextType {
   notifications: WithConvertedDates<Task>[];
   unreadCount: number;
   fetchNotifications: () => Promise<void>;
-  markNotificationsAsRead: () => Promise<void>;
+  markNotificationsAsRead: () => void;
   isLoadingNotifications: boolean;
 }
 
@@ -33,25 +43,28 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<WithConvertedDates<Task>[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
-  const { isAuthenticated, user } = useAuth(); // Get user for potential future use (e.g., user-specific notifications)
+  const { isAuthenticated } = useAuth();
 
   const fetchNotifications = useCallback(async () => {
-    if (!isAuthenticated) { // Only fetch if user is authenticated
+    if (!isAuthenticated) {
       setNotifications([]);
       setUnreadCount(0);
       return;
     }
     setIsLoadingNotifications(true);
     try {
-      const now = Timestamp.now();
+      const now = new Date();
+      const todayStart = startOfDay(now); // Usar startOfDay de date-fns
+      const tomorrowEnd = endOfDay(new Date(now.setDate(now.getDate() + 1))); // Hasta el final del día de mañana
+
       const tasksCollectionRef = collection(db, 'tasks');
       
-      // Query for tasks where alertDate has passed and alertFired is false
       const q = query(
         tasksCollectionRef,
-        where('alertDate', '<=', now),
-        where('alertFired', '==', false),
-        orderBy('alertDate', 'desc') // Show most recent past alerts first
+        where('dueDate', '>=', Timestamp.fromDate(todayStart)),
+        where('dueDate', '<=', Timestamp.fromDate(tomorrowEnd)),
+        where('status', 'in', ['Pendiente', 'En Progreso']),
+        orderBy('dueDate', 'asc')
       );
       
       const querySnapshot = await getDocs(q);
@@ -61,10 +74,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       });
 
       setNotifications(fetchedNotifications);
-      setUnreadCount(fetchedNotifications.length);
+      setUnreadCount(fetchedNotifications.length); // Inicialmente, todas las tareas que cumplen son "no leídas"
 
     } catch (error) {
-      console.error("Error fetching notifications:", error);
+      console.error("Error fetching notifications for tasks due in next 24h:", error);
       setNotifications([]);
       setUnreadCount(0);
     } finally {
@@ -72,41 +85,20 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated]);
 
-  const markNotificationsAsRead = async () => {
+ const markNotificationsAsRead = useCallback(async () => {
     if (notifications.length === 0) return;
 
-    const currentNotificationsToMark = [...notifications]; // Operate on a copy
-
-    // Optimistically update UI
+    // No actualizaremos alertFired en Firestore aquí, solo reseteamos el contador para la UI
+    // La lógica de fetchNotifications volverá a traerlas si cumplen criterios.
+    // Se decidió simplificar para evitar escrituras masivas si el usuario solo abre el panel.
+    
+    // Lo que sí haremos es resetear el unreadCount en la UI.
     setUnreadCount(0);
-    // setNotifications([]); // Optionally clear notifications immediately, or wait for next fetch
+    // Podríamos decidir si queremos limpiar `notifications` aquí o dejarlas visibles hasta el próximo fetch.
+    // Por ahora, las mantenemos visibles, `fetchNotifications` las actualizará.
 
-    try {
-      const updatePromises = currentNotificationsToMark.map(task => {
-        const taskDocRef = doc(db, 'tasks', task.id);
-        return updateDoc(taskDocRef, { alertFired: true });
-      });
-      
-      await Promise.all(updatePromises);
-      console.log(`${currentNotificationsToMark.length} notifications marked as read in Firestore.`);
-      // After successfully marking in Firestore, refetch notifications to ensure UI is in sync with DB
-      // Or, if you cleared notifications optimistically, this fetch might not be needed if the next natural fetch does the job.
-      // For now, let's assume the next call to fetchNotifications (e.g. on layout mount) will refresh the state.
-      // If immediate refresh is needed after marking read, uncomment below:
-      // await fetchNotifications(); 
-      // Clear local state after successful DB update
-      setNotifications([]);
+  }, [notifications]); // No tiene dependencias que cambien frecuentemente, pero si `notifications` cambia, se recrea.
 
-
-    } catch (error) {
-      console.error("Error marking notifications as read in Firestore:", error);
-      // If an error occurs, we might want to revert optimistic UI updates or refetch
-      // For simplicity now, we'll just log the error. The user might see the old count on next fetch.
-      // To revert:
-      // setUnreadCount(currentNotificationsToMark.length);
-      // setNotifications(currentNotificationsToMark);
-    }
-  };
 
   return (
     <NotificationContext.Provider value={{ notifications, unreadCount, fetchNotifications, markNotificationsAsRead, isLoadingNotifications }}>
