@@ -8,17 +8,21 @@ import {
   Settings,
   Building2,
   Hospital,
-  Bot, // Nuevo ícono de Robot
+  Bot,
+  Bell, // Added Bell for notifications
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react"; // Ensure LucideIcon is typed if used directly
 
 export type NavItem = {
   href: string;
   label: string;
-  icon: React.ElementType;
+  icon: LucideIcon; // Use LucideIcon type
   tooltip?: string;
   subItems?: NavItem[];
   active?: boolean;
   isSectionTitle?: boolean;
+  isNotification?: boolean; // New property for notification item
+  notificationCount?: number; // For the badge
 };
 
 export const navItems: NavItem[] = [
@@ -26,12 +30,13 @@ export const navItems: NavItem[] = [
   { href: "/clients", label: "Clientes", icon: Users, tooltip: "Gestionar Clientes" },
   { href: "/tasks", label: "Tareas", icon: ListChecks, tooltip: "Seguimiento de Tareas" },
   { href: "/billing", label: "Facturación", icon: Receipt, tooltip: "Facturas y Pagos" },
-  { isSectionTitle: true, label: "Medi Clicks - Extensiones", icon: Building2 }, // Texto cambiado
-  { href: "/medi-clicks-agency", label: "Medi Clicks Agency", icon: Bot, tooltip: "Gestión de Agencia" }, // Icono cambiado
+  { isSectionTitle: true, label: "Medi Clicks - Extensiones", icon: Building2 },
+  { href: "/medi-clicks-agency", label: "Medi Clicks Agency", icon: Bot, tooltip: "Gestión de Agencia" },
   { href: "/medi-clinic", label: "Medi Clinic", icon: Hospital, tooltip: "Gestión de Clínica" },
 ];
 
 export const bottomNavItems: NavItem[] = [
+  { href: "#", label: "Notificaciones", icon: Bell, tooltip: "Ver Notificaciones", isNotification: true, notificationCount: 0 }, // Placeholder count
   { href: "/settings", label: "Configuración", icon: Settings, tooltip: "Ajustes de la App" },
 ];
 
@@ -45,6 +50,13 @@ export const AppLogo = ({ collapsed }: { collapsed?: boolean }) => (
       className="object-contain"
       data-ai-hint="company logo"
     />
-    {!collapsed && <span className="text-xl font-semibold text-sidebar-foreground font-mono">MediClicks Hub</span>} {/* Fuente cambiada a font-mono */}
+    {!collapsed && (
+      <span className="flex items-baseline">
+        <span className="text-lg font-bold text-sidebar-foreground tracking-tight">MEDI</span>
+        <span className="text-lg font-bold text-sidebar-foreground tracking-tight">-</span>
+        <span className="text-lg font-bold text-sidebar-foreground tracking-tight">CLICKS</span>
+        <span className="text-xs font-normal text-sidebar-foreground/80 ml-1 self-end pb-0.5">Hub</span>
+      </span>
+    )}
   </div>
 );
