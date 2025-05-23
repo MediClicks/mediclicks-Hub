@@ -1,12 +1,12 @@
 
 'use client';
 
-import React, { useState, useCallback } from 'react'; // Added useCallback
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates, ContractedServiceClient } from "@/types";
-import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe, Briefcase } from 'lucide-react';
+import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe, Briefcase, Info } from 'lucide-react';
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -57,7 +57,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         description: `El cliente ${client.name} ha sido eliminado correctamente. Las tareas y facturas asociadas a este cliente no se eliminan automáticamente.`,
       });
       onClientDeleted(client.id);
-      setShowDeleteDialog(false); 
+      setShowDeleteDialog(false);
     } catch (error) {
       console.error("Error eliminando cliente: ", error);
       toast({
@@ -76,10 +76,10 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     if (words.length >= 2) {
       return (words[0][0] + words[1][0]).toUpperCase();
     }
-    if (words[0].length >= 2) {
+    if (words.length === 1 && words[0].length >= 2) {
       return words[0].substring(0, 2).toUpperCase();
     }
-    if (words[0].length === 1) {
+    if (words.length === 1 && words[0].length === 1) {
         return words[0].toUpperCase();
     }
     return 'CL';
@@ -124,7 +124,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           {client.profileSummary && (
             <div>
               <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-                <UserCircle className="mr-2 h-4 w-4 text-primary" /> Resumen del Perfil
+                <Info className="mr-2 h-4 w-4 text-primary" /> Resumen del Perfil
               </h4>
               <p className="text-xs text-foreground line-clamp-2">{client.profileSummary}</p>
             </div>
@@ -164,23 +164,22 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         </CardContent>
         <CardFooter className="p-4 border-t flex justify-between items-center bg-card-foreground/5">
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-yellow-400/20 hover:border-yellow-500" asChild>
+            <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-yellow-400/20 hover:border-yellow-500" asChild title="Editar Cliente">
               <Link href={`/clients/${client.id}/edit`}>
                 <Edit className="h-4 w-4 text-yellow-600" />
                 <span className="sr-only">Editar Cliente</span>
               </Link>
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-red-400/20 hover:border-red-500" onClick={() => setShowDeleteDialog(true)} disabled={isDeleting}>
+            <Button variant="outline" size="icon" className="h-8 w-8 hover:bg-red-400/20 hover:border-red-500" onClick={() => setShowDeleteDialog(true)} disabled={isDeleting} title="Eliminar Cliente">
               {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
               <span className="sr-only">Eliminar Cliente</span>
             </Button>
           </div>
           {typeof client.pagado !== 'undefined' && (
               <Badge
-                variant={client.pagado ? "default" : "destructive"}
                 className={cn(
                   "text-xs px-2 py-1 flex items-center",
-                  client.pagado ? "bg-green-500 border-green-600 text-white" : "bg-red-500 border-red-600 text-white"
+                  client.pagado ? "bg-green-500 border-green-600 text-white hover:bg-green-600" : "bg-red-500 border-red-600 text-white hover:bg-red-600"
                 )}
               >
                 {client.pagado ? <CheckCircle className="mr-1 h-3 w-3" /> : <XCircle className="mr-1 h-3 w-3" />}
@@ -213,4 +212,3 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     </>
   );
 }
-

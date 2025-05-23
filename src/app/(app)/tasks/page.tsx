@@ -1,10 +1,9 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from "next/link";
-// import { useSearchParams, useRouter } from 'next/navigation'; // Removed useRouter
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Table,
   TableBody,
@@ -15,7 +14,29 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { PlusCircle, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff } from "lucide-react"; // Removed Filter, UserCircle, CalendarIconLucide, X
+import { PlusCircle, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, Filter, X, UserCircle, CalendarIcon as CalendarIconLucide, BellRing, BellOff } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { CalendarIcon } from "lucide-react";
+import { format, isPast, isToday, isTomorrow, startOfDay, endOfDay, addDays } from "date-fns";
+import { es } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
+
+import { useToast } from '@/hooks/use-toast';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, type QueryConstraint } from 'firebase/firestore';
+import type { Task, TaskStatus, TaskPriority, WithConvertedDates, Client } from '@/types';
+import { cn } from '@/lib/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,16 +47,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-// Removed Popover and Calendar imports
-import { format, isPast, isToday, isTomorrow, startOfDay } from "date-fns"; // Removed endOfDay
-import { es } from "date-fns/locale";
-// Removed DateRange type
-
-import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore'; // Removed where, QueryConstraint
-import type { Task, TaskStatus, TaskPriority, WithConvertedDates } from '@/types'; // Removed Client type
-import { cn } from '@/lib/utils';
 
 const statusColors: Record<TaskStatus, string> = {
   Pendiente: "bg-amber-500 border-amber-600 hover:bg-amber-600 text-white",
@@ -52,47 +63,119 @@ const priorityColors: Record<TaskPriority, string> = {
 function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   const data = { ...docData } as Partial<WithConvertedDates<Task>>;
   for (const key in data) {
-    if (data[key as keyof Task] instanceof Timestamp) {
-      data[key as keyof Task] = (data[key as keyof Task] as Timestamp).toDate() as any;
-    } else if (Array.isArray(data[key as keyof Task])) {
-      (data[key as keyof Task] as any) = (data[key as keyof Task] as any[]).map(item =>
-        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
-      );
-    } else if (typeof data[key as keyof Task] === 'object' && data[key as keyof Task] !== null && !((data[key as keyof Task]) instanceof Date)) {
-      (data[key as keyof Task] as any) = convertTimestampsToDates(data[key as keyof Task] as any);
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const value = data[key as keyof Task];
+      if (value instanceof Timestamp) {
+        data[key as keyof Task] = value.toDate() as any;
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date) && !Array.isArray(value)) {
+          data[key as keyof Task] = convertTimestampsToDates(value) as any; // Recursive call
+      } else if (Array.isArray(value)) {
+        (data[key as keyof Task] as any) = value.map(item =>
+          typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
+        );
+      }
     }
   }
   return data as WithConvertedDates<Task>;
 }
 
-// Removed ALL_FILTER_VALUE and filter type definitions
+
+const ALL_FILTER_VALUE = "__ALL__";
+type AlertStatusFilterType = typeof ALL_FILTER_VALUE | "active" | "scheduled" | "fired";
+
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<WithConvertedDates<Task>[]>([]);
-  // const [clients, setClients] = useState<WithConvertedDates<Client>[]>([]); // Clients no longer needed for filtering
+  const [clients, setClients] = useState<WithConvertedDates<Client>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  // const [isLoadingClients, setIsLoadingClients] = useState(true);
+  const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [clientError, setClientError] = useState<string | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL_FILTER_VALUE>(ALL_FILTER_VALUE);
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority | typeof ALL_FILTER_VALUE>(ALL_FILTER_VALUE);
+  const [clientFilter, setClientFilter] = useState<string | typeof ALL_FILTER_VALUE>(ALL_FILTER_VALUE);
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(undefined);
+  const [alertStatusFilter, setAlertStatusFilter] = useState<AlertStatusFilterType>(ALL_FILTER_VALUE);
+
   const [taskToDelete, setTaskToDelete] = useState<WithConvertedDates<Task> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
 
-  // const router = useRouter(); // Not needed for now
+  const router = useRouter();
   const searchParams = useSearchParams();
-  // const dueFilterParam = searchParams.get('due'); // dueFilterParam no longer used for complex filtering
-  // const showActionableParam = searchParams.get('show');
+  const dueFilterParam = searchParams.get('due');
+  const showActionableParam = searchParams.get('show');
 
-  // Removed filter states: statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter
-
-  // Removed fetchInitialData (which fetched clients)
+  const fetchInitialData = useCallback(async () => {
+    setIsLoadingClients(true);
+    setClientError(null);
+    try {
+      const clientsCollection = collection(db, "clients");
+      const qClients = query(clientsCollection, orderBy("name", "asc"));
+      const clientsSnapshot = await getDocs(qClients);
+      const fetchedClients = clientsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        // Assuming Client type might also have Timestamps that need conversion
+        const convertedData = convertTimestampsToDates(data as Client) as any; // Use a generic converter or a specific Client converter
+        return { id: doc.id, ...convertedData };
+      });
+      setClients(fetchedClients);
+    } catch (err: any) {
+      console.error("Error fetching clients for filter: ", err);
+      setClientError("No se pudieron cargar los clientes para el filtro.");
+    } finally {
+      setIsLoadingClients(false);
+    }
+  }, []);
 
   const fetchTasks = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const tasksCollection = collection(db, "tasks");
-      // Simplified query, only orderBy createdAt
-      const q = query(tasksCollection, orderBy("createdAt", "desc"));
+      let qConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
+
+      if (statusFilter !== ALL_FILTER_VALUE) {
+        qConstraints.push(where("status", "==", statusFilter));
+      }
+      if (priorityFilter !== ALL_FILTER_VALUE) {
+        qConstraints.push(where("priority", "==", priorityFilter));
+      }
+      if (clientFilter !== ALL_FILTER_VALUE) {
+        qConstraints.push(where("clientId", "==", clientFilter));
+      }
+
+      let localDateRangeFilter = dateRangeFilter;
+
+      if (dueFilterParam === 'today' && !dateRangeFilter?.from && !dateRangeFilter?.to) {
+        const today = new Date();
+        localDateRangeFilter = { from: startOfDay(today), to: endOfDay(today) };
+         if (showActionableParam === 'actionable') {
+          qConstraints.push(where("status", "in", ["Pendiente", "En Progreso"]));
+        }
+      }
+      
+      if (localDateRangeFilter?.from) {
+        qConstraints.push(where("dueDate", ">=", Timestamp.fromDate(startOfDay(localDateRangeFilter.from))));
+      }
+      if (localDateRangeFilter?.to) {
+        qConstraints.push(where("dueDate", "<=", Timestamp.fromDate(endOfDay(localDateRangeFilter.to))));
+      }
+
+      if (alertStatusFilter !== ALL_FILTER_VALUE) {
+        const now = Timestamp.now();
+        if (alertStatusFilter === "active") {
+          qConstraints.push(where("alertDate", "<=", now));
+          qConstraints.push(where("alertFired", "==", false));
+        } else if (alertStatusFilter === "scheduled") {
+          qConstraints.push(where("alertDate", ">", now));
+        } else if (alertStatusFilter === "fired") {
+          qConstraints.push(where("alertFired", "==", true));
+        }
+      }
+      
+      const q = query(tasksCollection, ...qConstraints);
       
       const querySnapshot = await getDocs(q);
       const tasksData = querySnapshot.docs.map(docSnap => {
@@ -103,7 +186,7 @@ export default function TasksPage() {
       setTasks(tasksData);
     } catch (err: any) {
       console.error("Error fetching tasks: ", err);
-      if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
+      if (err.message && (err.message.includes("index") || err.message.includes("Index")) ) {
         setError(`Se requiere un índice de Firestore para esta consulta. Por favor, créalo usando el enlace en la consola de errores del navegador y luego recarga la página. (${err.message})`);
       } else {
         setError("No se pudieron cargar las tareas. Intenta de nuevo más tarde.");
@@ -111,12 +194,35 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []); // Removed all filter states from dependencies
+  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter, dueFilterParam, showActionableParam, alertStatusFilter]);
 
   useEffect(() => {
-    // fetchInitialData(); // No longer needed
-    fetchTasks();
-  }, [fetchTasks]);
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  useEffect(() => {
+    if (!isLoadingClients) { // Fetch tasks only after clients (for filter) are loaded
+      fetchTasks();
+    }
+  }, [fetchTasks, isLoadingClients]);
+
+  // Effect to update dateRangeFilter if 'due=today' is in URL params
+  useEffect(() => {
+    if (dueFilterParam === 'today') {
+      const today = new Date();
+      setDateRangeFilter({ from: startOfDay(today), to: endOfDay(today) });
+    }
+  }, [dueFilterParam]);
+
+  const handleDateRangeChange = (newRange: DateRange | undefined) => {
+    setDateRangeFilter(newRange);
+    // If user manually changes date, remove 'due=today' from URL
+    if (dueFilterParam === 'today') {
+      const newSearchParams = new URLSearchParams(searchParams.toString());
+      newSearchParams.delete('due');
+      router.replace(`/tasks?${newSearchParams.toString()}`, { scroll: false });
+    }
+  };
 
 
   const handleDeleteTask = async () => {
@@ -129,6 +235,7 @@ export default function TasksPage() {
         description: `La tarea "${taskToDelete.name}" ha sido eliminada correctamente.`,
       });
       setTasks(prevTasks => prevTasks.filter(task => task.id !== taskToDelete.id));
+      setTaskToDelete(null); 
     } catch (error) {
       console.error("Error eliminando tarea: ", error);
       toast({
@@ -138,32 +245,207 @@ export default function TasksPage() {
       });
     } finally {
       setIsDeleting(false);
-      setTaskToDelete(null); 
     }
   };
 
-  // Removed clearAllFilters function
-
+  const clearAllFilters = () => {
+    setStatusFilter(ALL_FILTER_VALUE);
+    setPriorityFilter(ALL_FILTER_VALUE);
+    setClientFilter(ALL_FILTER_VALUE);
+    setDateRangeFilter(undefined);
+    setAlertStatusFilter(ALL_FILTER_VALUE);
+    if (dueFilterParam || showActionableParam) {
+      router.replace('/tasks', { scroll: false });
+    }
+  };
+  
   const getEmptyStateMessage = () => {
-    return "No se encontraron tareas.";
+    let message = "No se encontraron tareas";
+    const activeFilters: string[] = [];
+    if (statusFilter !== ALL_FILTER_VALUE) activeFilters.push(`Estado: ${statusFilter}`);
+    if (priorityFilter !== ALL_FILTER_VALUE) activeFilters.push(`Prioridad: ${priorityFilter}`);
+    if (clientFilter !== ALL_FILTER_VALUE) {
+      const clientName = clients.find(c => c.id === clientFilter)?.name || clientFilter;
+      activeFilters.push(`Cliente: ${clientName}`);
+    }
+    if (dateRangeFilter?.from) {
+      let rangeStr = `Desde: ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`;
+      if (dateRangeFilter.to) rangeStr += ` - Hasta: ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}`;
+      activeFilters.push(rangeStr);
+    }
+    if (alertStatusFilter !== ALL_FILTER_VALUE) {
+        let alertText = "Alerta: ";
+        if(alertStatusFilter === 'active') alertText += "Activa";
+        if(alertStatusFilter === 'scheduled') alertText += "Programada";
+        if(alertStatusFilter === 'fired') alertText += "Disparada";
+        activeFilters.push(alertText);
+    }
+
+
+    if (activeFilters.length > 0) {
+      return `${message} con los filtros aplicados (${activeFilters.join(', ')}).`;
+    }
+    if (tasks.length === 0 && !isLoading) return "No hay tareas creadas. ¡Crea la primera!";
+    return message + ".";
   };
 
   const getEmptyStateIcon = () => {
+    if (isLoading) return <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary mb-3" />;
+    if (error) return <AlertTriangle className="mx-auto h-12 w-12 text-destructive mb-3" />;
     return <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
   };
-
-  // Removed currentFilteredClientName
-  const isLoadingOverall = isLoading; // Simplified, as isLoadingClients is removed
   
-  // Removed activeFiltersCount
+  const currentFilteredClientName = useMemo(() => {
+    if (clientFilter === ALL_FILTER_VALUE || isLoadingClients || clients.length === 0) return "Cliente";
+    return clients.find(c => c.id === clientFilter)?.name || "Cliente";
+  }, [clientFilter, clients, isLoadingClients]);
+
+
+  const isLoadingOverall = isLoading || isLoadingClients;
+  
+  const activeFiltersCount = [
+      statusFilter, 
+      priorityFilter, 
+      clientFilter, 
+      dateRangeFilter?.from,
+      alertStatusFilter
+    ].filter(f => f !== ALL_FILTER_VALUE && f !== undefined).length;
+
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tareas</h1>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Removed all Filter DropdownMenus and Popover */}
-          {/* Removed Clear All Filters Button */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant={statusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} className="gap-1.5">
+                <Filter className="h-4 w-4" />
+                {statusFilter === ALL_FILTER_VALUE ? "Estado" : `Estado: ${statusFilter}`}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[200px]">
+              <DropdownMenuLabel>Filtrar por Estado</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={statusFilter} onValueChange={(value) => setStatusFilter(value as TaskStatus | typeof ALL_FILTER_VALUE)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
+                {(['Pendiente', 'En Progreso', 'Completada'] as TaskStatus[]).map((status) => (
+                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant={priorityFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} className="gap-1.5">
+                <Filter className="h-4 w-4" />
+                {priorityFilter === ALL_FILTER_VALUE ? "Prioridad" : `Prioridad: ${priorityFilter}`}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[200px]">
+              <DropdownMenuLabel>Filtrar por Prioridad</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={priorityFilter} onValueChange={(value) => setPriorityFilter(value as TaskPriority | typeof ALL_FILTER_VALUE)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
+                {(['Baja', 'Media', 'Alta'] as TaskPriority[]).map((priority) => (
+                  <DropdownMenuRadioItem key={priority} value={priority}>{priority}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+               <Button variant={clientFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} className="gap-1.5" disabled={isLoadingClients}>
+                <UserCircle className="h-4 w-4" />
+                 {isLoadingClients ? "Cargando..." : (clientFilter === ALL_FILTER_VALUE ? "Cliente" : `${currentFilteredClientName}`)}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[250px]">
+              <DropdownMenuLabel>Filtrar por Cliente</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+               {isLoadingClients ? (
+                <div className="p-2 text-sm text-muted-foreground">Cargando...</div>
+              ) : clientError ? (
+                <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2"/>{clientError}</div>
+              ) : (
+                <DropdownMenuRadioGroup value={clientFilter} onValueChange={setClientFilter}>
+                  <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todos los Clientes</DropdownMenuRadioItem>
+                  {clients.map((client) => (
+                    <DropdownMenuRadioItem key={client.id} value={client.id}>{client.name}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={dateRangeFilter?.from ? "secondary" : "outline"}
+                className={cn(
+                  "w-auto justify-start text-left font-normal gap-1.5",
+                  !dateRangeFilter && "text-muted-foreground"
+                )}
+              >
+                <CalendarIconLucide className="h-4 w-4" />
+                {dateRangeFilter?.from ? (
+                  dateRangeFilter.to ? (
+                    <>
+                      {format(dateRangeFilter.from, "dd LLL, yy", { locale: es })} -{" "}
+                      {format(dateRangeFilter.to, "dd LLL, yy", { locale: es })}
+                    </>
+                  ) : (
+                    `Desde: ${format(dateRangeFilter.from, "dd LLL, yy", { locale: es })}`
+                  )
+                ) : (
+                  <span>Rango de Fechas</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={dateRangeFilter?.from}
+                selected={dateRangeFilter}
+                onSelect={handleDateRangeChange}
+                numberOfMonths={2}
+                locale={es}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant={alertStatusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} className="gap-1.5">
+                <BellRing className="h-4 w-4" />
+                {alertStatusFilter === ALL_FILTER_VALUE ? "Estado Alerta" : 
+                 alertStatusFilter === "active" ? "Alerta: Activa" :
+                 alertStatusFilter === "scheduled" ? "Alerta: Programada" :
+                 alertStatusFilter === "fired" ? "Alerta: Disparada" : "Estado Alerta"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[220px]">
+              <DropdownMenuLabel>Filtrar por Estado de Alerta</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={alertStatusFilter} onValueChange={(value) => setAlertStatusFilter(value as AlertStatusFilterType)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="active">Alerta Activa</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="scheduled">Alerta Programada</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="fired">Alerta Disparada</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          {activeFiltersCount > 0 && (
+            <Button variant="ghost" onClick={clearAllFilters} className="text-muted-foreground hover:text-foreground gap-1.5" title="Limpiar Todos los Filtros">
+              <X className="h-4 w-4" /> Limpiar Filtros
+            </Button>
+          )}
+
           <Button asChild>
             <Link href="/tasks/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Agregar Nueva Tarea
@@ -269,10 +551,11 @@ export default function TasksPage() {
          <div className="text-center py-12 text-muted-foreground">
           {getEmptyStateIcon()}
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {/* Removed condition that checked filters to show "Agrega tu primera tarea" */}
-          <Button variant="link" className="mt-2" asChild>
-            <Link href="/tasks/add">Agrega tu primera tarea</Link>
-          </Button>
+          {activeFiltersCount === 0 && (
+            <Button variant="link" className="mt-2" asChild>
+              <Link href="/tasks/add">Agrega tu primera tarea</Link>
+            </Button>
+          )}
         </div>
       )}
 
@@ -299,3 +582,4 @@ export default function TasksPage() {
     </div>
   );
 }
+

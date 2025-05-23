@@ -81,18 +81,22 @@ const revenueChartConfig = {
 } satisfies ChartConfig;
 
 function convertFirestoreTimestamps<T extends Record<string, any>>(data: T): WithConvertedDates<T> {
+  if (!data) return data; // Return as is if data is null or undefined
   const convertedData = { ...data } as any;
   for (const key in convertedData) {
-    if (convertedData[key] instanceof Timestamp) {
-      convertedData[key] = convertedData[key].toDate();
-    } else if (Array.isArray(convertedData[key])) {
-      convertedData[key] = convertedData[key].map((item: any) =>
-        typeof item === 'object' && item !== null && !(item instanceof Date)
-          ? convertFirestoreTimestamps(item)
-          : item
-      );
-    } else if (typeof convertedData[key] === 'object' && convertedData[key] !== null && !(convertedData[key] instanceof Date) ) {
-      convertedData[key] = convertFirestoreTimestamps(convertedData[key]);
+    if (Object.prototype.hasOwnProperty.call(convertedData, key)) {
+      const value = convertedData[key];
+      if (value instanceof Timestamp) {
+        convertedData[key] = value.toDate();
+      } else if (Array.isArray(value)) {
+        convertedData[key] = value.map((item: any) =>
+          typeof item === 'object' && item !== null && !(item instanceof Date)
+            ? convertFirestoreTimestamps(item) // Recursively convert objects in arrays
+            : item
+        );
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+        convertedData[key] = convertFirestoreTimestamps(value); // Recursively convert nested objects
+      }
     }
   }
   return convertedData as WithConvertedDates<T>;
@@ -109,15 +113,14 @@ export default function SettingsPage() {
   const [isLoadingChart, setIsLoadingChart] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
 
-  const [serviceDefinitions, setServiceDefinitions] = useState<ServiceDefinition[]>([]);
+  const [serviceDefinitions, setServiceDefinitions] = useState<WithConvertedDates<ServiceDefinition>[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
   const [serviceError, setServiceError] = useState<string | null>(null);
 
-  const [serviceToDelete, setServiceToDelete] = useState<ServiceDefinition | null>(null);
-  const [isDeletingService, setIsDeletingService] = useState(false);
-
-  const [editingService, setEditingService] = useState<ServiceDefinition | null>(null);
+  const [editingService, setEditingService] = useState<WithConvertedDates<ServiceDefinition> | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState<WithConvertedDates<ServiceDefinition> | null>(null);
+  const [isDeletingService, setIsDeletingService] = useState(false);
 
   const agencyForm = useForm<AgencyDetailsFormValues>({
     resolver: zodResolver(agencyDetailsSchema),
@@ -144,9 +147,9 @@ export default function SettingsPage() {
     resolver: zodResolver(serviceDefinitionSchema),
   });
   
-  const { isSubmitting: isSubmittingAgency } = useFormState({ control: agencyForm.control });
-  const { isSubmitting: isSubmittingService } = useFormState({ control: serviceForm.control });
-  const { isSubmitting: isSubmittingEditService } = useFormState({ control: editServiceForm.control });
+  const { isSubmitting: isSubmittingAgency, control: agencyControl } = agencyForm;
+  const { isSubmitting: isSubmittingService, control: serviceControl } = serviceForm;
+  const { isSubmitting: isSubmittingEditService, control: editServiceControl } = editServiceForm;
 
 
   const fetchServiceDefinitions = useCallback(async () => {
@@ -158,7 +161,7 @@ export default function SettingsPage() {
       const querySnapshot = await getDocs(q);
       const fetchedServices = querySnapshot.docs.map(docSnap => {
         const data = docSnap.data();
-        return { id: docSnap.id, ...convertFirestoreTimestamps(data) } as ServiceDefinition;
+        return { id: docSnap.id, ...convertFirestoreTimestamps(data as ServiceDefinition) };
       });
       setServiceDefinitions(fetchedServices);
     } catch (err: any) {
@@ -240,7 +243,7 @@ export default function SettingsPage() {
       console.error("Error fetching revenue chart data for settings page: ", err);
       let specificError = "No se pudieron cargar los datos para el gráfico de ingresos.";
       if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
-        specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, revise la consola del navegador para ver el enlace y créelo. Luego recargue la página.`;
+        specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, revise la consola del navegador para ver el enlace y créelo. Luego recargue la página. (${err.message})`;
       } else if (err.message) {
         specificError = `Error al cargar gráfico: ${err.message}`;
       }
@@ -358,16 +361,15 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDeleteService = async () => {
-    if (!serviceToDelete) return;
+  const handleDeleteService = async (serviceId: string, serviceName: string) => {
     setIsDeletingService(true);
     try {
-      await deleteDoc(doc(db, "appServices", serviceToDelete.id));
+      await deleteDoc(doc(db, "appServices", serviceId));
       toast({
         title: "Servicio Eliminado",
-        description: `El servicio "${serviceToDelete.name}" ha sido eliminado.`,
+        description: `El servicio "${serviceName}" ha sido eliminado.`,
       });
-      fetchServiceDefinitions();
+      fetchServiceDefinitions(); 
     } catch (error) {
       console.error("Error eliminando servicio: ", error);
       toast({
@@ -377,11 +379,12 @@ export default function SettingsPage() {
       });
     } finally {
       setIsDeletingService(false);
-      setServiceToDelete(null);
+      setServiceToDelete(null); 
     }
   };
 
-  const handleOpenEditDialog = (service: ServiceDefinition) => {
+
+  const handleOpenEditDialog = (service: WithConvertedDates<ServiceDefinition>) => {
     setEditingService(service);
     editServiceForm.reset({
       name: service.name,
@@ -392,7 +395,7 @@ export default function SettingsPage() {
   };
 
   const categorizedServices = useMemo(() => {
-    const categories: Record<PaymentModality, ServiceDefinition[]> = {
+    const categories: Record<PaymentModality, WithConvertedDates<ServiceDefinition>[]> = {
       'Único': [],
       'Mensual': [],
       'Trimestral': [],
@@ -567,8 +570,8 @@ export default function SettingsPage() {
                                  </Button>
                                  <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                      <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" title="Eliminar Servicio" disabled={isDeletingService}>
-                                        <Trash2 className="h-4 w-4 text-red-600" />
+                                      <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" title="Eliminar Servicio" disabled={isDeletingService || (serviceToDelete?.id === service.id && isDeletingService)}>
+                                        {serviceToDelete?.id === service.id && isDeletingService ? <Loader2 className="h-4 w-4 animate-spin"/> : <Trash2 className="h-4 w-4 text-red-600" />}
                                       </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
@@ -579,12 +582,13 @@ export default function SettingsPage() {
                                         </AlertDialogDescription>
                                       </AlertDialogHeader>
                                       <AlertDialogFooter>
-                                        <AlertDialogCancel onClick={() => setServiceToDelete(null)}>Cancelar</AlertDialogCancel>
+                                        <AlertDialogCancel onClick={() => setServiceToDelete(null)} disabled={isDeletingService}>Cancelar</AlertDialogCancel>
                                         <AlertDialogAction
-                                          onClick={() => { setServiceToDelete(service); handleDeleteService(); }}
+                                          onClick={() => { setServiceToDelete(service); handleDeleteService(service.id, service.name); }}
+                                          disabled={isDeletingService}
                                           className={cn(buttonVariants({ variant: "destructive" }))}
                                         >
-                                          Sí, eliminar
+                                           {isDeletingService && serviceToDelete?.id === service.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar"}
                                         </AlertDialogAction>
                                       </AlertDialogFooter>
                                     </AlertDialogContent>
@@ -654,29 +658,6 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* AlertDialog para eliminar servicio ahora se activa directamente desde el botón, sin estado serviceToDelete */}
-      {/*
-      <AlertDialog open={!!serviceToDelete} onOpenChange={(open) => {if(!isDeletingService && !open) setServiceToDelete(null)}}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar Servicio/Paquete?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Estás a punto de eliminar el servicio "{serviceToDelete?.name}". Esta acción no se puede deshacer.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingService} onClick={() => setServiceToDelete(null)}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteService}
-              disabled={isDeletingService}
-              className={cn(buttonVariants({ variant: "destructive" }))}
-            >
-              {isDeletingService ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      */}
 
       <Card className="shadow-lg">
         <CardHeader>
@@ -776,3 +757,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+
