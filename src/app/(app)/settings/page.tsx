@@ -8,19 +8,19 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { BarChart3, Building, Save, Loader2, AlertTriangle, PlusCircle, Trash2, Edit, PackageSearch, Package } from "lucide-react";
 import React, { useEffect, useState, useMemo, useCallback } from "react";
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, useFormState } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, getDoc, serverTimestamp, Timestamp, collection, query, where, getDocs, addDoc, orderBy, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, Timestamp, collection, query, where, getDocs, addDoc, orderBy, deleteDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { Textarea } from "@/components/ui/textarea";
 import type { AgencyDetails, Invoice, WithConvertedDates, ServiceDefinition, PaymentModality } from "@/types";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { format, subMonths, startOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useAuth } from "@/contexts/auth-context"; 
+import { useAuth } from "@/contexts/auth-context";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -103,7 +103,7 @@ export default function SettingsPage() {
   const [isDark, setIsDark] = React.useState(false);
   const [isLoadingAgencyDetails, setIsLoadingAgencyDetails] = React.useState(true);
   const { toast } = useToast();
-  const { user } = useAuth(); 
+  const { user } = useAuth();
 
   const [monthlyRevenueData, setMonthlyRevenueData] = useState<MonthlyRevenueChartData[]>([]);
   const [isLoadingChart, setIsLoadingChart] = useState(true);
@@ -115,7 +115,7 @@ export default function SettingsPage() {
 
   const [serviceToDelete, setServiceToDelete] = useState<ServiceDefinition | null>(null);
   const [isDeletingService, setIsDeletingService] = useState(false);
-  
+
   const [editingService, setEditingService] = useState<ServiceDefinition | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
@@ -139,11 +139,16 @@ export default function SettingsPage() {
       paymentModality: 'Mensual',
     }
   });
-  
+
   const editServiceForm = useForm<ServiceDefinitionFormValues>({
     resolver: zodResolver(serviceDefinitionSchema),
   });
   
+  const { isSubmitting: isSubmittingAgency } = useFormState({ control: agencyForm.control });
+  const { isSubmitting: isSubmittingService } = useFormState({ control: serviceForm.control });
+  const { isSubmitting: isSubmittingEditService } = useFormState({ control: editServiceForm.control });
+
+
   const fetchServiceDefinitions = useCallback(async () => {
     setIsLoadingServices(true);
     setServiceError(null);
@@ -169,6 +174,83 @@ export default function SettingsPage() {
     }
   }, [toast]);
 
+  const fetchAgencyDetails = useCallback(async () => {
+    setIsLoadingAgencyDetails(true);
+    try {
+      const agencyDocRef = doc(db, 'settings', 'agencyDetails');
+      const docSnap = await getDoc(agencyDocRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data() as AgencyDetails;
+        agencyForm.reset({
+          agencyName: data.agencyName || '',
+          address: data.address || '',
+          taxId: data.taxId || '',
+          contactPhone: data.contactPhone || '',
+          contactEmail: data.contactEmail || '',
+          website: data.website || '',
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching agency details:", error);
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los detalles de la agencia.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingAgencyDetails(false);
+    }
+  }, [agencyForm, toast]);
+
+  const fetchRevenueChartData = useCallback(async () => {
+    setIsLoadingChart(true);
+    setChartError(null);
+    try {
+      const now = new Date();
+      const revenueByMonth: Record<string, number> = {};
+      const sixMonthsAgo = startOfMonth(subMonths(now, 5));
+
+      const invoicesCollectionRef = collection(db, "invoices");
+      const paidInvoicesQuery = query(invoicesCollectionRef,
+        where("status", "==", "Pagada"),
+        where("issuedDate", ">=", Timestamp.fromDate(sixMonthsAgo))
+      );
+      const paidInvoicesSnap = await getDocs(paidInvoicesQuery);
+
+      paidInvoicesSnap.docs.forEach(docSnap => {
+        const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
+        if (invoice?.issuedDate) {
+          const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
+          revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + (invoice.totalAmount || 0);
+        }
+      });
+
+      const formattedRevenueData: MonthlyRevenueChartData[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const dateCursor = subMonths(now, i);
+        const monthYearKey = format(dateCursor, 'LLL yy', { locale: es });
+        formattedRevenueData.push({
+          month: monthYearKey.charAt(0).toUpperCase() + monthYearKey.slice(1),
+          total: revenueByMonth[monthYearKey] || 0,
+        });
+      }
+      setMonthlyRevenueData(formattedRevenueData);
+
+    } catch (err: any) {
+      console.error("Error fetching revenue chart data for settings page: ", err);
+      let specificError = "No se pudieron cargar los datos para el gráfico de ingresos.";
+      if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
+        specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, revise la consola del navegador para ver el enlace y créelo. Luego recargue la página.`;
+      } else if (err.message) {
+        specificError = `Error al cargar gráfico: ${err.message}`;
+      }
+      setChartError(specificError);
+    } finally {
+      setIsLoadingChart(false);
+    }
+  }, []);
+
+
   useEffect(() => {
     const theme = localStorage.getItem('theme');
     if (theme === 'dark') {
@@ -178,86 +260,10 @@ export default function SettingsPage() {
       document.documentElement.classList.remove('dark');
       setIsDark(false);
     }
-
-    const fetchAgencyDetails = async () => {
-      setIsLoadingAgencyDetails(true);
-      try {
-        const agencyDocRef = doc(db, 'settings', 'agencyDetails');
-        const docSnap = await getDoc(agencyDocRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data() as AgencyDetails;
-          agencyForm.reset({
-            agencyName: data.agencyName || '',
-            address: data.address || '',
-            taxId: data.taxId || '',
-            contactPhone: data.contactPhone || '',
-            contactEmail: data.contactEmail || '',
-            website: data.website || '',
-          });
-        }
-      } catch (error) {
-        console.error("Error fetching agency details:", error);
-        toast({
-          title: "Error",
-          description: "No se pudieron cargar los detalles de la agencia.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsLoadingAgencyDetails(false);
-      }
-    };
     fetchAgencyDetails();
-
-    const fetchRevenueChartData = async () => {
-      setIsLoadingChart(true);
-      setChartError(null);
-      try {
-        const now = new Date();
-        const revenueByMonth: Record<string, number> = {};
-        const sixMonthsAgo = startOfMonth(subMonths(now, 5));
-
-        const invoicesCollectionRef = collection(db, "invoices");
-        const paidInvoicesQuery = query(invoicesCollectionRef, 
-          where("status", "==", "Pagada"),
-          where("issuedDate", ">=", Timestamp.fromDate(sixMonthsAgo))
-        );
-        const paidInvoicesSnap = await getDocs(paidInvoicesQuery);
-
-        paidInvoicesSnap.docs.forEach(docSnap => {
-          const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
-          if (invoice?.issuedDate) {
-            const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
-            revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + (invoice.totalAmount || 0);
-          }
-        });
-        
-        const formattedRevenueData: MonthlyRevenueChartData[] = [];
-        for (let i = 5; i >= 0; i--) {
-          const dateCursor = subMonths(now, i);
-          const monthYearKey = format(dateCursor, 'LLL yy', { locale: es });
-          formattedRevenueData.push({
-            month: monthYearKey.charAt(0).toUpperCase() + monthYearKey.slice(1),
-            total: revenueByMonth[monthYearKey] || 0,
-          });
-        }
-        setMonthlyRevenueData(formattedRevenueData);
-
-      } catch (err: any) {
-        console.error("Error fetching revenue chart data for settings page: ", err);
-        let specificError = "No se pudieron cargar los datos para el gráfico de ingresos.";
-        if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
-          specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, revise la consola del navegador para ver el enlace y créelo. Luego recargue la página.`;
-        } else if (err.message) {
-          specificError = `Error al cargar gráfico: ${err.message}`;
-        }
-        setChartError(specificError);
-      } finally {
-        setIsLoadingChart(false);
-      }
-    };
     fetchRevenueChartData();
     fetchServiceDefinitions();
-  }, [agencyForm, toast, fetchServiceDefinitions]);
+  }, [fetchAgencyDetails, fetchRevenueChartData, fetchServiceDefinitions]);
 
 
   const toggleDarkMode = (checked: boolean) => {
@@ -272,20 +278,19 @@ export default function SettingsPage() {
   };
 
   const onAgencySubmit = async (data: AgencyDetailsFormValues) => {
+    agencyForm.clearErrors();
     try {
       const agencyDocRef = doc(db, 'settings', 'agencyDetails');
-      const dataToSave: Partial<AgencyDetails> = { 
-        ...data,
-        website: data.website && data.website.trim() !== '' ? data.website : undefined, 
-        contactPhone: data.contactPhone && data.contactPhone.trim() !== '' ? data.contactPhone : undefined,
-        updatedAt: serverTimestamp() as Timestamp, 
+      const dataToSave: Partial<AgencyDetails> = {
+        agencyName: data.agencyName,
+        address: data.address,
+        taxId: data.taxId,
+        contactEmail: data.contactEmail,
+        website: data.website && data.website.trim() !== '' ? data.website : deleteField() as unknown as undefined,
+        contactPhone: data.contactPhone && data.contactPhone.trim() !== '' ? data.contactPhone : deleteField() as unknown as undefined,
+        updatedAt: serverTimestamp() as Timestamp,
       };
-      
-      Object.keys(dataToSave).forEach(key => {
-        if (dataToSave[key as keyof Partial<AgencyDetails>] === undefined && key !== 'updatedAt') {
-          delete dataToSave[key as keyof Partial<AgencyDetails>];
-        }
-      });
+
       await setDoc(agencyDocRef, dataToSave, { merge: true });
       toast({
         title: "Información Guardada",
@@ -314,8 +319,8 @@ export default function SettingsPage() {
         title: "Servicio Creado",
         description: `El servicio "${data.name}" ha sido agregado.`,
       });
-      serviceForm.reset(); 
-      fetchServiceDefinitions(); 
+      serviceForm.reset();
+      fetchServiceDefinitions();
     } catch (e) {
       console.error("Error agregando servicio a Firestore: ", e);
       toast({
@@ -325,7 +330,7 @@ export default function SettingsPage() {
       });
     }
   };
-  
+
   const onEditServiceSubmit = async (data: ServiceDefinitionFormValues) => {
     if (!editingService) return;
     editServiceForm.clearErrors();
@@ -342,7 +347,7 @@ export default function SettingsPage() {
       });
       setIsEditDialogOpen(false);
       setEditingService(null);
-      fetchServiceDefinitions(); 
+      fetchServiceDefinitions();
     } catch (e) {
       console.error("Error actualizando servicio en Firestore: ", e);
       toast({
@@ -362,7 +367,7 @@ export default function SettingsPage() {
         title: "Servicio Eliminado",
         description: `El servicio "${serviceToDelete.name}" ha sido eliminado.`,
       });
-      fetchServiceDefinitions(); 
+      fetchServiceDefinitions();
     } catch (error) {
       console.error("Error eliminando servicio: ", error);
       toast({
@@ -375,10 +380,10 @@ export default function SettingsPage() {
       setServiceToDelete(null);
     }
   };
-  
+
   const handleOpenEditDialog = (service: ServiceDefinition) => {
     setEditingService(service);
-    editServiceForm.reset({ 
+    editServiceForm.reset({
       name: service.name,
       price: service.price,
       paymentModality: service.paymentModality,
@@ -404,7 +409,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
-      
+
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center">
@@ -424,40 +429,40 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1.5">
                   <Label htmlFor="agencyName">Nombre de la Agencia</Label>
-                  <Input id="agencyName" {...agencyForm.register("agencyName")} placeholder="Ej: MediClicks Hub S.L." />
+                  <Input id="agencyName" {...agencyForm.register("agencyName")} placeholder="Ej: MediClicks Hub S.L." disabled={isSubmittingAgency} />
                   {agencyForm.formState.errors.agencyName && <p className="text-sm text-destructive">{agencyForm.formState.errors.agencyName.message}</p>}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="taxId">NIF/CIF</Label>
-                  <Input id="taxId" {...agencyForm.register("taxId")} placeholder="Ej: B12345678" />
+                  <Input id="taxId" {...agencyForm.register("taxId")} placeholder="Ej: B12345678" disabled={isSubmittingAgency} />
                   {agencyForm.formState.errors.taxId && <p className="text-sm text-destructive">{agencyForm.formState.errors.taxId.message}</p>}
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="address">Dirección Completa</Label>
-                <Textarea id="address" {...agencyForm.register("address")} placeholder="Calle Ejemplo 123, Ciudad, Provincia, CP" />
+                <Textarea id="address" {...agencyForm.register("address")} placeholder="Calle Ejemplo 123, Ciudad, Provincia, CP" disabled={isSubmittingAgency} />
                 {agencyForm.formState.errors.address && <p className="text-sm text-destructive">{agencyForm.formState.errors.address.message}</p>}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1.5">
                   <Label htmlFor="contactEmail">Email de Contacto</Label>
-                  <Input id="contactEmail" type="email" {...agencyForm.register("contactEmail")} placeholder="facturacion@agencia.com" />
+                  <Input id="contactEmail" type="email" {...agencyForm.register("contactEmail")} placeholder="facturacion@agencia.com" disabled={isSubmittingAgency} />
                   {agencyForm.formState.errors.contactEmail && <p className="text-sm text-destructive">{agencyForm.formState.errors.contactEmail.message}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="contactPhone">Teléfono de Contacto</Label>
-                  <Input id="contactPhone" {...agencyForm.register("contactPhone")} placeholder="+34 900 123 456" />
+                  <Label htmlFor="contactPhone">Teléfono de Contacto (Opcional)</Label>
+                  <Input id="contactPhone" {...agencyForm.register("contactPhone")} placeholder="+34 900 123 456" disabled={isSubmittingAgency} />
                   {agencyForm.formState.errors.contactPhone && <p className="text-sm text-destructive">{agencyForm.formState.errors.contactPhone.message}</p>}
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="website">Sitio Web (Opcional)</Label>
-                <Input id="website" {...agencyForm.register("website")} placeholder="https://www.agencia.com" />
+                <Input id="website" {...agencyForm.register("website")} placeholder="https://www.agencia.com" disabled={isSubmittingAgency} />
                 {agencyForm.formState.errors.website && <p className="text-sm text-destructive">{agencyForm.formState.errors.website.message}</p>}
               </div>
-              <Button type="submit" disabled={agencyForm.formState.isSubmitting}>
-                {agencyForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Guardar Información
+              <Button type="submit" disabled={isSubmittingAgency}>
+                {isSubmittingAgency ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                {isSubmittingAgency ? 'Guardando Información...' : 'Guardar Información'}
               </Button>
             </form>
           )}
@@ -478,12 +483,12 @@ export default function SettingsPage() {
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div>
                   <Label htmlFor="serviceName">Nombre del Servicio/Paquete</Label>
-                  <Input id="serviceName" {...serviceForm.register("name")} placeholder="Ej: SEO Básico Mensual" />
+                  <Input id="serviceName" {...serviceForm.register("name")} placeholder="Ej: SEO Básico Mensual" disabled={isSubmittingService} />
                   {serviceForm.formState.errors.name && <p className="text-xs text-destructive mt-1">{serviceForm.formState.errors.name.message}</p>}
                 </div>
                 <div>
                   <Label htmlFor="servicePrice">Precio (USD)</Label>
-                  <Input id="servicePrice" type="number" step="0.01" {...serviceForm.register("price")} placeholder="Ej: 299.99" />
+                  <Input id="servicePrice" type="number" step="0.01" {...serviceForm.register("price")} placeholder="Ej: 299.99" disabled={isSubmittingService} />
                   {serviceForm.formState.errors.price && <p className="text-xs text-destructive mt-1">{serviceForm.formState.errors.price.message}</p>}
                 </div>
                 <div>
@@ -492,7 +497,7 @@ export default function SettingsPage() {
                     name="paymentModality"
                     control={serviceForm.control}
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={isSubmittingService}>
                         <SelectTrigger id="paymentModality">
                           <SelectValue placeholder="Seleccionar modalidad" />
                         </SelectTrigger>
@@ -507,9 +512,9 @@ export default function SettingsPage() {
                   {serviceForm.formState.errors.paymentModality && <p className="text-xs text-destructive mt-1">{serviceForm.formState.errors.paymentModality.message}</p>}
                 </div>
              </div>
-             <Button type="submit" disabled={serviceForm.formState.isSubmitting}>
-                {serviceForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
-                Agregar Servicio
+             <Button type="submit" disabled={isSubmittingService}>
+                {isSubmittingService ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+                {isSubmittingService ? 'Agregando Servicio...' : 'Agregar Servicio'}
             </Button>
           </form>
 
@@ -532,7 +537,7 @@ export default function SettingsPage() {
               <p className="text-sm">¡Crea el primero usando el formulario de arriba!</p>
             </div>
           )}
-          
+
           {!isLoadingServices && !serviceError && serviceDefinitions.length > 0 && (
             <div className="space-y-6">
               {paymentModalities.map(modality => {
@@ -557,14 +562,33 @@ export default function SettingsPage() {
                               <TableCell className="font-medium">{service.name}</TableCell>
                               <TableCell className="text-right">{service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                               <TableCell className="text-right space-x-1">
-                                 <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" onClick={() => handleOpenEditDialog(service)} title="Editar Servicio">
+                                 <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" onClick={() => handleOpenEditDialog(service)} title="Editar Servicio" disabled={isDeletingService}>
                                     <Edit className="h-4 w-4 text-yellow-600" />
                                  </Button>
-                                 <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" onClick={() => setServiceToDelete(service)} title="Eliminar Servicio">
-                                      <Trash2 className="h-4 w-4 text-red-600" />
-                                    </Button>
-                                  </AlertDialogTrigger>
+                                 <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" title="Eliminar Servicio" disabled={isDeletingService}>
+                                        <Trash2 className="h-4 w-4 text-red-600" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>¿Eliminar Servicio/Paquete?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Estás a punto de eliminar el servicio "{service.name}". Esta acción no se puede deshacer.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel onClick={() => setServiceToDelete(null)}>Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => { setServiceToDelete(service); handleDeleteService(); }}
+                                          className={cn(buttonVariants({ variant: "destructive" }))}
+                                        >
+                                          Sí, eliminar
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -579,7 +603,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isEditDialogOpen} onOpenChange={(open) => { if (!open) setEditingService(null); setIsEditDialogOpen(open);}}>
+      <Dialog open={isEditDialogOpen} onOpenChange={(open) => { if (!open && !isSubmittingEditService) {setEditingService(null); setIsEditDialogOpen(false);}}}>
         <DialogContent className="sm:max-w-[525px]">
           <DialogHeader>
             <DialogTitle>Editar Servicio/Paquete</DialogTitle>
@@ -590,12 +614,12 @@ export default function SettingsPage() {
           <form onSubmit={editServiceForm.handleSubmit(onEditServiceSubmit)} className="space-y-4 py-4">
             <div>
               <Label htmlFor="editServiceName">Nombre del Servicio/Paquete</Label>
-              <Input id="editServiceName" {...editServiceForm.register("name")} />
+              <Input id="editServiceName" {...editServiceForm.register("name")} disabled={isSubmittingEditService} />
               {editServiceForm.formState.errors.name && <p className="text-xs text-destructive mt-1">{editServiceForm.formState.errors.name.message}</p>}
             </div>
             <div>
               <Label htmlFor="editServicePrice">Precio (USD)</Label>
-              <Input id="editServicePrice" type="number" step="0.01" {...editServiceForm.register("price")} />
+              <Input id="editServicePrice" type="number" step="0.01" {...editServiceForm.register("price")} disabled={isSubmittingEditService} />
               {editServiceForm.formState.errors.price && <p className="text-xs text-destructive mt-1">{editServiceForm.formState.errors.price.message}</p>}
             </div>
             <div>
@@ -604,7 +628,7 @@ export default function SettingsPage() {
                     name="paymentModality"
                     control={editServiceForm.control}
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={isSubmittingEditService}>
                         <SelectTrigger id="editPaymentModality">
                           <SelectValue placeholder="Seleccionar modalidad" />
                         </SelectTrigger>
@@ -620,16 +644,18 @@ export default function SettingsPage() {
             </div>
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="button" variant="outline" onClick={() => {setEditingService(null); setIsEditDialogOpen(false);}}>Cancelar</Button>
+                <Button type="button" variant="outline" onClick={() => {setEditingService(null); setIsEditDialogOpen(false);}} disabled={isSubmittingEditService}>Cancelar</Button>
               </DialogClose>
-              <Button type="submit" disabled={editServiceForm.formState.isSubmitting}>
-                {editServiceForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Guardar Cambios"}
+              <Button type="submit" disabled={isSubmittingEditService}>
+                {isSubmittingEditService ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Guardar Cambios"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* AlertDialog para eliminar servicio ahora se activa directamente desde el botón, sin estado serviceToDelete */}
+      {/*
       <AlertDialog open={!!serviceToDelete} onOpenChange={(open) => {if(!isDeletingService && !open) setServiceToDelete(null)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -650,6 +676,7 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      */}
 
       <Card className="shadow-lg">
         <CardHeader>
@@ -688,10 +715,10 @@ export default function SettingsPage() {
                 Alternar entre tema claro y oscuro.
               </span>
             </Label>
-            <Switch 
-              id="darkMode" 
+            <Switch
+              id="darkMode"
               checked={isDark}
-              onCheckedChange={toggleDarkMode} 
+              onCheckedChange={toggleDarkMode}
             />
           </div>
         </CardContent>
@@ -749,4 +776,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
