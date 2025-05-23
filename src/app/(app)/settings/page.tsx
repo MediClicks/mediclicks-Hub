@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { BarChart3, Building, Save, Loader2, AlertTriangle, PlusCircle, Trash2, Edit, PackageSearch, Package } from "lucide-react";
-import React, { useEffect, useState, useMemo } from "react"; // Agregado useMemo
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -143,8 +143,8 @@ export default function SettingsPage() {
   const editServiceForm = useForm<ServiceDefinitionFormValues>({
     resolver: zodResolver(serviceDefinitionSchema),
   });
-
-  const fetchServiceDefinitions = React.useCallback(async () => {
+  
+  const fetchServiceDefinitions = useCallback(async () => {
     setIsLoadingServices(true);
     setServiceError(null);
     try {
@@ -246,12 +246,11 @@ export default function SettingsPage() {
         console.error("Error fetching revenue chart data for settings page: ", err);
         let specificError = "No se pudieron cargar los datos para el gráfico de ingresos.";
         if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
-          specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, créalo (colección 'invoices', campos 'status' ASC, 'issuedDate' ASC) y luego recarga la página. Enlace de ayuda en consola del navegador.`;
+          specificError = `Se requiere un índice de Firestore para el gráfico de ingresos. Por favor, revise la consola del navegador para ver el enlace y créelo. Luego recargue la página.`;
         } else if (err.message) {
           specificError = `Error al cargar gráfico: ${err.message}`;
         }
         setChartError(specificError);
-        // No mostramos toast aquí para no saturar si el error es por índice
       } finally {
         setIsLoadingChart(false);
       }
@@ -277,7 +276,8 @@ export default function SettingsPage() {
       const agencyDocRef = doc(db, 'settings', 'agencyDetails');
       const dataToSave: Partial<AgencyDetails> = { 
         ...data,
-        website: data.website === '' ? undefined : data.website, 
+        website: data.website && data.website.trim() !== '' ? data.website : undefined, 
+        contactPhone: data.contactPhone && data.contactPhone.trim() !== '' ? data.contactPhone : undefined,
         updatedAt: serverTimestamp() as Timestamp, 
       };
       
@@ -537,7 +537,7 @@ export default function SettingsPage() {
             <div className="space-y-6">
               {paymentModalities.map(modality => {
                 const servicesInThisCategory = categorizedServices[modality];
-                if (servicesInThisCategory.length === 0) return null; // No renderizar la sección si no hay servicios
+                if (servicesInThisCategory.length === 0) return null;
 
                 return (
                   <div key={modality}>
@@ -548,7 +548,6 @@ export default function SettingsPage() {
                           <TableRow>
                             <TableHead>Nombre</TableHead>
                             <TableHead className="text-right">Precio (USD)</TableHead>
-                            {/* No necesitamos columna Modalidad aquí ya que están agrupados */}
                             <TableHead className="text-right">Acciones</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -558,11 +557,11 @@ export default function SettingsPage() {
                               <TableCell className="font-medium">{service.name}</TableCell>
                               <TableCell className="text-right">{service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</TableCell>
                               <TableCell className="text-right space-x-1">
-                                 <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" onClick={() => handleOpenEditDialog(service)}>
+                                 <Button variant="ghost" size="icon" className="hover:text-primary h-8 w-8" onClick={() => handleOpenEditDialog(service)} title="Editar Servicio">
                                     <Edit className="h-4 w-4 text-yellow-600" />
                                  </Button>
                                  <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" onClick={() => setServiceToDelete(service)}>
+                                    <Button variant="ghost" size="icon" className="hover:text-destructive h-8 w-8" onClick={() => setServiceToDelete(service)} title="Eliminar Servicio">
                                       <Trash2 className="h-4 w-4 text-red-600" />
                                     </Button>
                                   </AlertDialogTrigger>
@@ -580,7 +579,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Edit Service Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={(open) => { if (!open) setEditingService(null); setIsEditDialogOpen(open);}}>
         <DialogContent className="sm:max-w-[525px]">
           <DialogHeader>
@@ -632,7 +630,6 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Service Confirmation Dialog */}
       <AlertDialog open={!!serviceToDelete} onOpenChange={(open) => {if(!isDeletingService && !open) setServiceToDelete(null)}}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -738,7 +735,7 @@ export default function SettingsPage() {
                   tickMargin={8}
                   tickFormatter={(value) => value.slice(0, 3)}
                 />
-                <YAxis tickFormatter={(value) => `$${value/1000}k`} />
+                <YAxis tickFormatter={(value) => `$${Number(value/1000).toFixed(0)}k`} />
                 <ChartTooltip
                   cursor={false}
                   content={<ChartTooltipContent indicator="line" />}
@@ -752,3 +749,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

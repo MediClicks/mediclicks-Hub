@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff, UserCircle, Calendar as CalendarIconLucide, X } from "lucide-react";
 import {
   DropdownMenu,
@@ -120,17 +120,13 @@ export default function TasksPage() {
   const [alertStatusFilter, setAlertStatusFilter] = useState<AlertStatusFilterType>(ALL_FILTER_VALUE);
 
   useEffect(() => {
-    const currentUrlParams = new URLSearchParams(window.location.search);
+    const currentUrlParams = new URLSearchParams(searchParams.toString());
     const dueParam = currentUrlParams.get('due');
-    const showParam = currentUrlParams.get('show');
 
     if (dueParam === 'today') {
       setDateRangeFilter({ from: startOfDay(new Date()), to: endOfDay(new Date()) });
-      if (showParam === 'actionable' && statusFilter === ALL_FILTER_VALUE) {
-        // No pre-select status filter here, query will handle it
-      }
     }
-  }, [statusFilter]); // Removed dueFilterParam from dependencies
+  }, [searchParams]);
 
 
   const fetchInitialData = useCallback(async () => {
@@ -170,8 +166,9 @@ export default function TasksPage() {
       }
       
       let effectiveDateRange = dateRangeFilter;
-      const currentUrlParams = new URLSearchParams(window.location.search);
+      const currentUrlParams = new URLSearchParams(searchParams.toString());
       const currentDueParam = currentUrlParams.get('due');
+      const currentShowActionableParam = currentUrlParams.get('show');
 
       if (currentDueParam === 'today' && !dateRangeFilter?.from && !dateRangeFilter?.to) { 
         effectiveDateRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
@@ -184,14 +181,18 @@ export default function TasksPage() {
         queryConstraints.push(where("dueDate", "<=", Timestamp.fromDate(endOfDay(effectiveDateRange.to))));
       }
       
-      if (currentDueParam === 'today' && showActionableParam === 'actionable') {
+      if (currentDueParam === 'today' && currentShowActionableParam === 'actionable') {
+        // Remove existing status filter if 'All' was selected but we only want actionable
         const statusFilterIndex = queryConstraints.findIndex(
-            (c: any) => c._fieldPath?.segments?.join('/') === 'status' && c._op === '=='
+            (c: any) => c._fieldPath?.segments?.join('/') === 'status' && c._op === '==' && statusFilter === ALL_FILTER_VALUE
         );
         if (statusFilterIndex > -1) {
           queryConstraints.splice(statusFilterIndex, 1);
         }
-        queryConstraints.push(where("status", "in", ["Pendiente", "En Progreso"]));
+        // Add/ensure the actionable status filter if not already applied by user interaction
+        if (statusFilter === ALL_FILTER_VALUE) {
+            queryConstraints.push(where("status", "in", ["Pendiente", "En Progreso"]));
+        }
       }
 
 
@@ -224,7 +225,7 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter, showActionableParam, toast]); // Added toast
+  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter, searchParams, toast]); 
 
   useEffect(() => {
     fetchInitialData();
@@ -247,7 +248,6 @@ export default function TasksPage() {
         description: `La tarea "${taskToDelete.name}" ha sido eliminada correctamente.`,
       });
       setTasks(prevTasks => prevTasks.filter(task => task.id !== taskToDelete.id));
-      setTaskToDelete(null); 
     } catch (error) {
       console.error("Error eliminando tarea: ", error);
       toast({
@@ -257,7 +257,7 @@ export default function TasksPage() {
       });
     } finally {
       setIsDeleting(false);
-      // setTaskToDelete(null); // Already set inside try/catch
+      setTaskToDelete(null); 
     }
   };
 
@@ -268,7 +268,7 @@ export default function TasksPage() {
     setDateRangeFilter(undefined);
     setAlertStatusFilter(ALL_FILTER_VALUE);
     
-    const currentUrlParams = new URLSearchParams(window.location.search);
+    const currentUrlParams = new URLSearchParams(searchParams.toString());
     if (currentUrlParams.has('due') || currentUrlParams.has('show')) {
         currentUrlParams.delete('due');
         currentUrlParams.delete('show');
@@ -278,7 +278,7 @@ export default function TasksPage() {
   
   const handleDateRangeChange = (newRange: DateRange | undefined) => {
     setDateRangeFilter(newRange);
-    const currentUrlParams = new URLSearchParams(window.location.search);
+    const currentUrlParams = new URLSearchParams(searchParams.toString());
     if (currentUrlParams.has('due') || currentUrlParams.has('show')) {
         currentUrlParams.delete('due');
         currentUrlParams.delete('show');
@@ -301,7 +301,7 @@ export default function TasksPage() {
     }
     
     let currentEffectiveDateRange = dateRangeFilter;
-    const currentUrlParams = new URLSearchParams(window.location.search);
+    const currentUrlParams = new URLSearchParams(searchParams.toString());
     const currentDueParam = currentUrlParams.get('due');
 
     if (currentDueParam === 'today' && !dateRangeFilter?.from && !dateRangeFilter?.to) {
@@ -321,7 +321,9 @@ export default function TasksPage() {
     if (alertStatusFilter !== ALL_FILTER_VALUE) {
       filtersApplied.push(`alerta "${alertStatusFilter}"`);
     }
-    if (showActionableParam === 'actionable' && currentDueParam === 'today') {
+    
+    const currentShowActionableParam = currentUrlParams.get('show');
+    if (currentShowActionableParam === 'actionable' && currentDueParam === 'today') {
         filtersApplied.push("no completadas");
     }
 
@@ -353,7 +355,7 @@ export default function TasksPage() {
     clientFilter !== ALL_FILTER_VALUE,
     dateRangeFilter !== undefined,
     alertStatusFilter !== ALL_FILTER_VALUE,
-    (searchParams.get('due') === 'today') // Consider URL param as an active filter state
+    (searchParams.get('due') === 'today') 
   ].filter(Boolean).length;
 
 
@@ -362,7 +364,6 @@ export default function TasksPage() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tareas</h1>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Status Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant={statusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"}>
@@ -382,7 +383,6 @@ export default function TasksPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Priority Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant={priorityFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"}>
@@ -402,7 +402,6 @@ export default function TasksPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Client Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant={clientFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} disabled={isLoadingClients}>
@@ -423,14 +422,13 @@ export default function TasksPage() {
             </DropdownMenuContent>
           </DropdownMenu>
           
-          {/* Date Range Filter */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 id="date"
                 variant={dateRangeFilter ? "secondary" : "outline"}
                 className={cn(
-                  "w-[280px] justify-start text-left font-normal", // Increased width
+                  "w-[280px] justify-start text-left font-normal",
                   !dateRangeFilter && "text-muted-foreground"
                 )}
               >
@@ -442,10 +440,10 @@ export default function TasksPage() {
                       {format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}
                     </>
                   ) : (
-                    `Desde: ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`
+                     `Desde: ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`
                   )
                 ) : (
-                  dateRangeFilter?.to ? `Hasta: ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}` : <span>Vencimiento</span>
+                  dateRangeFilter?.to ? `Hasta: ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}` : "Vencimiento"
                 )}
               </Button>
             </PopoverTrigger>
@@ -462,8 +460,7 @@ export default function TasksPage() {
             </PopoverContent>
           </Popover>
 
-           {/* Alert Status Filter */}
-          <DropdownMenu>
+           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant={alertStatusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"}>
                 <BellRing className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -614,10 +611,7 @@ export default function TasksPage() {
             <AlertDialogAction
               onClick={handleDeleteTask}
               disabled={isDeleting}
-              className={cn(
-                "bg-destructive hover:bg-destructive/90 text-destructive-foreground",
-                isDeleting && "opacity-75 cursor-not-allowed"
-              )}
+              className={cn(buttonVariants({ variant: "destructive" }))}
             >
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar tarea"}
             </AlertDialogAction>

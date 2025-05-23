@@ -12,11 +12,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types"; // Removed InvoiceItem, ServiceDefinition, PaymentModality, ContractedServiceClient, SocialMediaAccountClient as they are not used here.
+import { Button, buttonVariants } from "@/components/ui/button";
+import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types";
 import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle, Calendar as CalendarIconLucide, X } from "lucide-react";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore'; // getDoc removed as it's not used
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -78,12 +78,12 @@ const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Venci
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
   const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]);
-  // const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null); // Not needed for list view PDF download logic if it's commented out
-  // const [isClientSide, setIsClientSide] = useState(false); // Not needed if PDFDownloadLink is commented out
+  // const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null); 
+  // const [isClientSide, setIsClientSide] = useState(false); 
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
-  // const [isLoadingAgency, setIsLoadingAgency] = useState(true); // Not needed
+  // const [isLoadingAgency, setIsLoadingAgency] = useState(true); 
 
   const [error, setError] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
@@ -94,7 +94,7 @@ export default function BillingPage() {
   const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
   const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(undefined);
   
-  // useEffect(() => { // Not needed if PDFDownloadLink is commented out
+  // useEffect(() => { 
   //   setIsClientSide(true);
   // }, []);
 
@@ -116,7 +116,7 @@ export default function BillingPage() {
       setIsLoadingClients(false);
     }
 
-    // setIsLoadingAgency(true); // Not needed if PDFDownloadLink is commented out
+    // setIsLoadingAgency(true); 
     // try {
     //   const agencyDocRef = doc(db, 'settings', 'agencyDetails');
     //   const agencySnap = await getDoc(agencyDocRef);
@@ -176,7 +176,7 @@ export default function BillingPage() {
   }, [fetchInitialData]);
 
   useEffect(() => {
-    if (!isLoadingClients /* && !isLoadingAgency */) { // Check all relevant loading states
+    if (!isLoadingClients /* && !isLoadingAgency */) { 
         fetchInvoices();
     }
   }, [fetchInvoices, isLoadingClients /*, isLoadingAgency */]);
@@ -241,7 +241,7 @@ export default function BillingPage() {
     ? clientsForFilter.find(c => c.id === clientFilter)?.name
     : null;
 
-  const isLoadingOverall = isLoading || isLoadingClients; // || isLoadingAgency;
+  const isLoadingOverall = isLoading || isLoadingClients; 
   
   const activeFiltersCount = [
     statusFilter !== ALL_FILTER_VALUE,
@@ -300,7 +300,7 @@ export default function BillingPage() {
                 id="date"
                 variant={dateRangeFilter ? "secondary" : "outline"}
                 className={cn(
-                  "w-[280px] justify-start text-left font-normal", // Increased width
+                  "w-[280px] justify-start text-left font-normal", 
                   !dateRangeFilter && "text-muted-foreground"
                 )}
               >
@@ -511,7 +511,7 @@ export default function BillingPage() {
             <AlertDialogAction
               onClick={handleDeleteInvoice}
               disabled={isDeleting}
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              className={cn(buttonVariants({ variant: "destructive" }))}
             >
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar factura"}
             </AlertDialogAction>

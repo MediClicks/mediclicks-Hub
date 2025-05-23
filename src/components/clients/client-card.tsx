@@ -1,13 +1,13 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react'; // Added useCallback
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates, ContractedServiceClient } from "@/types";
-import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe, Briefcase } from 'lucide-react'; // Added Briefcase
-import { Button } from '@/components/ui/button';
+import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe, Briefcase } from 'lucide-react';
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,7 +47,8 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     }
   };
 
-  const handleDeleteClient = async () => {
+  const handleDeleteClient = useCallback(async () => {
+    if (!client || !client.id) return;
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, "clients", client.id));
@@ -67,7 +68,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     } finally {
       setIsDeleting(false);
     }
-  };
+  }, [client, onClientDeleted, toast]);
 
   const getAvatarFallbackText = (name: string | undefined): string => {
     if (!name || name.trim() === '') return 'CL';
@@ -78,7 +79,10 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     if (words[0].length >= 2) {
       return words[0].substring(0, 2).toUpperCase();
     }
-    return words[0].substring(0, 1).toUpperCase();
+    if (words[0].length === 1) {
+        return words[0].toUpperCase();
+    }
+    return 'CL';
   };
 
   return (
@@ -87,7 +91,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
         <CardHeader className="flex flex-row items-start gap-4 p-4 bg-card-foreground/5">
           <Avatar className="h-16 w-16 border-2 border-primary">
             {client.avatarUrl ? (
-              <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="company logo" />
+              <AvatarImage src={client.avatarUrl} alt={client.name || "Avatar del cliente"} data-ai-hint="company logo" />
             ) : (
               <AvatarFallback className="bg-primary/20 text-primary font-semibold text-lg">
                 {getAvatarFallbackText(client.name)}
@@ -126,7 +130,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             </div>
           )}
 
-           {(client.contractedServices && client.contractedServices.length > 0) && (
+           {(Array.isArray(client.contractedServices) && client.contractedServices.length > 0) && (
             <div>
               <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
                 <Briefcase className="mr-2 h-4 w-4 text-primary"/>
@@ -199,7 +203,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             <AlertDialogAction
               onClick={handleDeleteClient}
               disabled={isDeleting}
-              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              className={cn(buttonVariants({ variant: "destructive" }))}
             >
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sí, eliminar cliente"}
             </AlertDialogAction>
