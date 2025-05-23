@@ -53,20 +53,21 @@ type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 let itemIdCounter = 0;
 
-function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
-  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
+function convertClientTimestampsToDates<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
+  if (!docData) return undefined;
+  const data = { ...docData } as Partial<WithConvertedDates<T>>;
   for (const key in data) {
-    if (data[key as keyof Client] instanceof Timestamp) {
-      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
-    } else if (Array.isArray(data[key as keyof Client])) {
-        data[key as keyof Client] = (data[key as keyof Client] as any[]).map(item =>
+    if (data[key as keyof T] instanceof Timestamp) {
+      data[key as keyof T] = (data[key as keyof T] as Timestamp).toDate() as any;
+    } else if (Array.isArray(data[key as keyof T])) {
+        (data[key as keyof T] as any) = (data[key as keyof T] as any[]).map(item =>
             typeof item === 'object' && item !== null && !(item instanceof Date) ? convertClientTimestampsToDates(item) : item
-        ) as any;
-    } else if (typeof data[key as keyof Client] === 'object' && data[key as keyof Client] !== null && !(data[key as keyof Client] instanceof Date)) {
-        data[key as keyof Client] = convertClientTimestampsToDates(data[key as keyof Client]) as any;
+        );
+    } else if (typeof data[key as keyof T] === 'object' && data[key as keyof T] !== null && !((data[key as keyof T]) instanceof Date)) {
+        (data[key as keyof T] as any) = convertClientTimestampsToDates(data[key as keyof T] as any);
     }
   }
-  return data as WithConvertedDates<Client>;
+  return data as WithConvertedDates<T>;
 }
 
 export default function AddInvoicePage() {
@@ -103,8 +104,9 @@ export default function AddInvoicePage() {
       const querySnapshot = await getDocs(q);
       const fetchedClients = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        const convertedData = convertClientTimestampsToDates(data as Client);
-        return { id: doc.id, ...convertedData };
+        // Assuming Client type might have Timestamps that need conversion
+        const convertedData = convertClientTimestampsToDates(data as Client) || data; 
+        return { id: doc.id, ...convertedData } as WithConvertedDates<Client>;
       });
       setClientsList(fetchedClients);
     } catch (err) {
@@ -135,8 +137,13 @@ export default function AddInvoicePage() {
           const clientDocRef = doc(db, "clients", watchedClientId);
           const docSnap = await getDoc(clientDocRef);
           if (docSnap.exists()) {
-            const clientData = convertClientTimestampsToDates(docSnap.data() as Client);
-            setSelectedClientDetails({ id: docSnap.id, ...clientData });
+            const clientDataFromFirestore = docSnap.data() as Client;
+            const clientData = convertClientTimestampsToDates(clientDataFromFirestore);
+            setSelectedClientDetails({ 
+              id: docSnap.id, 
+              ...clientData,
+              contractedServices: Array.isArray(clientData?.contractedServices) ? clientData.contractedServices : [], // Ensure it's an array
+            } as WithConvertedDates<Client>);
           } else {
             toast({ title: 'Error', description: 'Cliente seleccionado no encontrado.', variant: 'destructive' });
           }
@@ -163,7 +170,6 @@ export default function AddInvoicePage() {
       let servicesAddedCount = 0;
 
       selectedClientDetails.contractedServices.forEach((service: ContractedServiceClient) => {
-        // Evitar añadir si ya existe un ítem con la misma descripción (nombre del servicio)
         if (!currentItemDescriptions.has(service.serviceName)) {
           append({
             id: `item-${itemIdCounter++}-${Date.now()}`,
@@ -208,7 +214,7 @@ export default function AddInvoicePage() {
         issuedDate: Timestamp.fromDate(data.issuedDate),
         dueDate: Timestamp.fromDate(data.dueDate),
         status: data.status,
-        items: data.items.map(({ id, ...rest }) => rest), // Remove client-side id
+        items: data.items.map(({ id, ...rest }) => rest), 
         totalAmount: totalAmount,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -424,7 +430,6 @@ export default function AddInvoicePage() {
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    {/* Permitir eliminar el primer item si es necesario, ajustado para que el array de items no quede vacío y cumpla validación */}
                     {fields.length > 0 && (
                       <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
                           <Trash2 className="h-4 w-4 text-destructive-foreground" />
@@ -471,6 +476,5 @@ export default function AddInvoicePage() {
     </div>
   );
 }
-
 
     
