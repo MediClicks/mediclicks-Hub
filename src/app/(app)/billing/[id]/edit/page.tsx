@@ -67,10 +67,10 @@ export default function EditInvoicePage() {
   const { toast } = useToast();
   const invoiceId = params.id as string;
 
-  const [isLoadingInvoice, setIsLoadingInvoice] = useState(true);
+  const [isLoadingForm, setIsLoadingForm] = useState(true); // Combined loading state
   const [invoiceNotFound, setInvoiceNotFound] = useState(false);
   const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
-  const [isLoadingClients, setIsLoadingClients] = useState(true);
+  // const [isLoadingClients, setIsLoadingClients] = useState(true); // Covered by isLoadingForm
   const [clientError, setClientError] = useState<string | null>(null);
 
   const form = useForm<InvoiceFormValues>({
@@ -83,86 +83,75 @@ export default function EditInvoicePage() {
     },
   });
 
-  const { fields, append, remove, replace } = useFieldArray({
+  const { fields, append, remove } = useFieldArray({ // `replace` not needed here
     control: form.control,
     name: "items"
   });
 
-  const fetchClients = useCallback(async () => {
-    setIsLoadingClients(true);
-    setClientError(null);
-    try {
-      const clientsCollection = collection(db, "clients");
-      const q = query(clientsCollection, orderBy("name", "asc"));
-      const querySnapshot = await getDocs(q);
-      const fetchedClients = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        const convertedData = convertClientTimestampsToDates(data as Client);
-        return { id: doc.id, ...convertedData };
-      });
-      setClientsList(fetchedClients);
-    } catch (err) {
-      console.error("Error fetching clients for dropdown: ", err);
-      setClientError('No se pudieron cargar los clientes.');
-    } finally {
-      setIsLoadingClients(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
-
-  useEffect(() => {
-    if (invoiceId) {
-      const fetchInvoice = async () => {
-        setIsLoadingInvoice(true);
-        setInvoiceNotFound(false);
-        try {
-          const invoiceDocRef = doc(db, 'invoices', invoiceId);
-          const docSnap = await getDoc(invoiceDocRef);
-
-          if (docSnap.exists()) {
-            const data = docSnap.data() as Invoice;
-
-            itemIdCounter = data.items.length;
-
-            const formData: InvoiceFormValues = {
-              clientId: data.clientId,
-              issuedDate: data.issuedDate instanceof Timestamp ? data.issuedDate.toDate() : new Date(data.issuedDate),
-              dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
-              status: data.status,
-              items: data.items.map((item, index) => ({
-                ...item,
-                id: `item-${index}-${Date.now()}`
-              })),
-              notes: data.notes || '',
-            };
-            form.reset(formData);
-          } else {
-            setInvoiceNotFound(true);
-            toast({ title: 'Error', description: 'Factura no encontrada.', variant: 'destructive' });
-            router.push('/billing');
-          }
-        } catch (error) {
-          console.error("Error fetching invoice: ", error);
-          toast({ title: 'Error', description: 'No se pudo cargar la información de la factura.', variant: 'destructive' });
-        } finally {
-          setIsLoadingInvoice(false);
-        }
-      };
-      fetchInvoice();
-    } else {
-      setIsLoadingInvoice(false);
+ const fetchInvoiceAndClients = useCallback(async () => {
+    if (!invoiceId) {
       setInvoiceNotFound(true);
+      setIsLoadingForm(false);
       toast({ title: 'Error', description: 'ID de factura no válido.', variant: 'destructive' });
       router.push('/billing');
+      return;
     }
-  }, [invoiceId, toast, form, router]);
+
+    setIsLoadingForm(true);
+    setInvoiceNotFound(false);
+    setClientError(null);
+
+    try {
+      // Fetch Clients
+      const clientsCollection = collection(db, "clients");
+      const qClients = query(clientsCollection, orderBy("name", "asc"));
+      const clientsSnapshot = await getDocs(qClients);
+      const fetchedClients = clientsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return { id: doc.id, ...convertClientTimestampsToDates(data as Client) };
+      });
+      setClientsList(fetchedClients);
+
+      // Fetch Invoice
+      const invoiceDocRef = doc(db, 'invoices', invoiceId);
+      const docSnap = await getDoc(invoiceDocRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data() as Invoice;
+        itemIdCounter = data.items?.length || 0; // Initialize counter based on existing items
+
+        form.reset({
+          clientId: data.clientId,
+          issuedDate: data.issuedDate instanceof Timestamp ? data.issuedDate.toDate() : new Date(data.issuedDate),
+          dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
+          status: data.status,
+          items: (data.items || []).map((item, index) => ({ // Ensure items is an array
+            ...item,
+            id: `item-${index}-${Date.now()}` // Ensure unique client-side ID for useFieldArray
+          })),
+          notes: data.notes || '',
+        });
+      } else {
+        setInvoiceNotFound(true);
+        toast({ title: 'Error', description: 'Factura no encontrada.', variant: 'destructive' });
+        router.push('/billing');
+      }
+    } catch (error) {
+      console.error("Error fetching invoice or clients: ", error);
+      toast({ title: 'Error', description: 'No se pudo cargar la información de la factura o los clientes.', variant: 'destructive' });
+      if (clientsList.length === 0) setClientError('No se pudieron cargar los clientes.');
+    } finally {
+      setIsLoadingForm(false);
+    }
+  }, [invoiceId, form, router, toast, clientsList.length]); // Added clientsList.length
+
+  useEffect(() => {
+    fetchInvoiceAndClients();
+  }, [fetchInvoiceAndClients]);
 
 
   const watchItems = form.watch('items');
-  const totalAmount = watchItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  const totalAmount = watchItems.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
 
 
   async function onSubmit(data: InvoiceFormValues) {
@@ -176,7 +165,7 @@ export default function EditInvoicePage() {
         clientName: clientName,
         totalAmount: totalAmount,
         updatedAt: serverTimestamp(),
-        items: data.items.map(({ id, ...rest }) => rest),
+        items: data.items.map(({ id, ...rest }) => rest), // Remove client-side id before saving
       };
 
       if (data.notes && data.notes.trim() !== '') {
@@ -203,7 +192,7 @@ export default function EditInvoicePage() {
     }
   }
 
-  if (isLoadingInvoice || isLoadingClients) {
+  if (isLoadingForm) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -237,16 +226,16 @@ export default function EditInvoicePage() {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={isLoadingClients || !!clientError}
+                    disabled={clientsList.length === 0 && !clientError}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : "Seleccionar un cliente")} />
+                        <SelectValue placeholder={clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                        {clientError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {clientError}</div>}
-                      {!isLoadingClients && !clientError && clientsList.map(client => (
+                      {!clientError && clientsList.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -375,11 +364,11 @@ export default function EditInvoicePage() {
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    {fields.length > 1 && (
+                    {/* {fields.length > 1 && ( // Allow removing the last item if needed by business logic, otherwise keep this constraint*/}
                     <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
                         <Trash2 className="h-4 w-4 text-destructive-foreground" />
                     </Button>
-                    )}
+                    {/* )} */}
                  </div>
               </div>
             ))}
@@ -391,6 +380,9 @@ export default function EditInvoicePage() {
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem
             </Button>
+            {form.formState.errors.items && !form.formState.errors.items.root && form.formState.errors.items.message && (
+                 <p className="text-sm font-medium text-destructive">{form.formState.errors.items.message}</p>
+            )}
           </div>
 
           <div className="text-right text-xl font-semibold">
@@ -410,7 +402,7 @@ export default function EditInvoicePage() {
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingInvoice || isLoadingClients}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>

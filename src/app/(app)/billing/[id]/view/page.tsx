@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react'; // Added useCallback
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -54,85 +54,84 @@ export default function ViewInvoicePage() {
   //   setIsClientSide(true);
   // }, []);
 
-  useEffect(() => {
-    const fetchInvoiceData = async () => {
-      if (!invoiceId) {
-        setError("ID de factura no válido.");
+  const fetchInvoiceData = useCallback(async () => {
+    if (!invoiceId) {
+      setError("ID de factura no válido.");
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Fetch Invoice
+      const invoiceDocRef = doc(db, 'invoices', invoiceId);
+      const invoiceSnap = await getDoc(invoiceDocRef);
+
+      if (!invoiceSnap.exists()) {
+        setError('Factura no encontrada.');
+        setInvoice(null); // Ensure invoice is null if not found
         setIsLoading(false);
         return;
       }
-      setIsLoading(true);
-      setError(null);
-      try {
-        // Fetch Invoice
-        const invoiceDocRef = doc(db, 'invoices', invoiceId);
-        const invoiceSnap = await getDoc(invoiceDocRef);
+      
+      const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>;
+      const invoiceDataWithCorrectId: Invoice = {
+        ...firestoreData,
+        id: invoiceSnap.id, 
+      };
+      const fetchedInvoice = convertTimestampsToDates(invoiceDataWithCorrectId);
+      setInvoice(fetchedInvoice ?? null);
 
-        if (!invoiceSnap.exists()) {
-          setError('Factura no encontrada.');
-          setIsLoading(false);
-          return;
-        }
-        
-        const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>;
-        const invoiceDataWithCorrectId: Invoice = {
-          ...firestoreData, // Propagar los datos primero
-          id: invoiceSnap.id, // Luego sobrescribir/asegurar el ID del documento
-        };
-        const fetchedInvoice = convertTimestampsToDates(invoiceDataWithCorrectId);
-        setInvoice(fetchedInvoice ?? null);
-
-        // Fetch Client if invoice exists
-        if (fetchedInvoice?.clientId) {
-          const clientDocRef = doc(db, 'clients', fetchedInvoice.clientId);
-          const clientSnap = await getDoc(clientDocRef);
-          if (clientSnap.exists()) {
-            const clientDataFromFirestore = clientSnap.data() as Omit<Client, 'id'>;
-            const clientDataWithCorrectId: Client = {
-                ...clientDataFromFirestore, // Propagar los datos primero
-                id: clientSnap.id, // Luego sobrescribir/asegurar el ID del documento
-            };
-            setClient(convertTimestampsToDates(clientDataWithCorrectId) ?? null);
-          } else {
-            console.warn(`Cliente con ID ${fetchedInvoice.clientId} no encontrado para la factura ${invoiceId}`);
-            setClient(null); 
-          }
+      if (fetchedInvoice?.clientId) {
+        const clientDocRef = doc(db, 'clients', fetchedInvoice.clientId);
+        const clientSnap = await getDoc(clientDocRef);
+        if (clientSnap.exists()) {
+          const clientDataFromFirestore = clientSnap.data() as Omit<Client, 'id'>;
+          const clientDataWithCorrectId: Client = {
+              ...clientDataFromFirestore, 
+              id: clientSnap.id, 
+          };
+          setClient(convertTimestampsToDates(clientDataWithCorrectId) ?? null);
         } else {
+          console.warn(`Cliente con ID ${fetchedInvoice.clientId} no encontrado para la factura ${invoiceId}`);
           setClient(null); 
         }
-
-        // Fetch Agency Details
-        const agencyDocRef = doc(db, 'settings', 'agencyDetails');
-        const agencySnap = await getDoc(agencyDocRef);
-        if (agencySnap.exists()) {
-          setAgencyDetails(agencySnap.data() as AgencyDetails);
-        } else {
-           // Proporcionar valores por defecto si no se encuentran los detalles de la agencia
-          setAgencyDetails({ 
-            agencyName: "Tu Agencia S.L.",
-            address: "Calle Falsa 123, Ciudad, CP",
-            taxId: "NIF/CIF: X1234567Z",
-            contactEmail: "contacto@tuagencia.com",
-            contactPhone: "+34 900 000 000",
-            website: "www.tuagencia.com"
-          });
-        }
-
-      } catch (err) {
-        console.error("Error fetching invoice data:", err);
-        setError('Error al cargar los datos de la factura.');
-        toast({
-          title: 'Error de Carga',
-          description: 'No se pudieron cargar los detalles de la factura.',
-          variant: 'destructive',
-        });
-      } finally {
-        setIsLoading(false);
+      } else {
+        setClient(null); 
       }
-    };
 
-    fetchInvoiceData();
+      const agencyDocRef = doc(db, 'settings', 'agencyDetails');
+      const agencySnap = await getDoc(agencyDocRef);
+      if (agencySnap.exists()) {
+        setAgencyDetails(agencySnap.data() as AgencyDetails);
+      } else {
+        setAgencyDetails({ 
+          agencyName: "Tu Agencia S.L.",
+          address: "Calle Falsa 123, Ciudad, CP",
+          taxId: "NIF/CIF: X1234567Z",
+          contactEmail: "contacto@tuagencia.com",
+          contactPhone: "+34 900 000 000",
+          website: "www.tuagencia.com"
+        });
+      }
+
+    } catch (err) {
+      console.error("Error fetching invoice data:", err);
+      setError('Error al cargar los datos de la factura.');
+      toast({
+        title: 'Error de Carga',
+        description: 'No se pudieron cargar los detalles de la factura.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   }, [invoiceId, toast]);
+
+
+  useEffect(() => {
+    fetchInvoiceData();
+  }, [fetchInvoiceData]);
 
   const handlePrint = () => {
     window.print();
@@ -147,7 +146,7 @@ export default function ViewInvoicePage() {
     );
   }
 
-  if (error) {
+  if (error && !invoice) { // Show general error if invoice couldn't be fetched for any reason
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] text-center">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
@@ -159,13 +158,13 @@ export default function ViewInvoicePage() {
       </div>
     );
   }
-
-  if (!invoice) { 
+  
+  if (!invoice) { // Specific message if invoice is null after loading (e.g., not found)
     return (
          <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] text-center">
             <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
             <h2 className="text-2xl font-semibold mb-2">Factura no Encontrada</h2>
-            <p className="text-muted-foreground mb-6">No se pudo cargar la factura o no existe.</p>
+            <p className="text-muted-foreground mb-6">La factura solicitada no existe o no se pudo encontrar.</p>
             <Button onClick={() => router.push('/billing')}>
               <ArrowLeft className="mr-2 h-4 w-4" /> Volver a Facturación
             </Button>
@@ -292,11 +291,10 @@ export default function ViewInvoicePage() {
             <Button variant="outline" onClick={() => router.push('/billing')}>
               <ArrowLeft className="mr-2 h-4 w-4" /> Volver
             </Button>
-            <div className="flex items-center gap-2">
-              <Button onClick={handlePrint} variant="outline">
+            <Button onClick={handlePrint} variant="outline" title="Imprimir Factura">
                 <Printer className="mr-2 h-4 w-4" /> Imprimir
-              </Button>
-              {/* 
+            </Button>
+            {/* 
                 PDFDownloadLink comentado para evitar errores.
                 {isClientSide && invoice && client && agencyDetails ? (
                 <PDFDownloadLink
@@ -313,14 +311,14 @@ export default function ViewInvoicePage() {
               ) : (
                  <Button variant="outline" disabled>
                     <Download className="mr-2 h-4 w-4" />
-                    Descargar PDF
+                    Descargar PDF (No disponible)
                  </Button>
               )} 
-              */}
-            </div>
+            */}
           </div>
         </CardFooter>
       </Card>
     </div>
   );
 }
+

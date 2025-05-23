@@ -13,10 +13,10 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails, InvoiceItem, ServiceDefinition, PaymentModality, ContractedServiceClient, SocialMediaAccountClient } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle, Calendar as CalendarIconLucide } from "lucide-react";
+import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types"; // Removed InvoiceItem, ServiceDefinition, PaymentModality, ContractedServiceClient, SocialMediaAccountClient as they are not used here.
+import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2, Filter, UserCircle, Calendar as CalendarIconLucide, X } from "lucide-react";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore'; // getDoc removed as it's not used
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -40,9 +40,11 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { format, addDays, startOfDay, endOfDay } from "date-fns";
+import { format, startOfDay, endOfDay } from "date-fns";
 import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
+// import { PDFDownloadLink } from '@react-pdf/renderer'; // Temporarily commented out
+// import InvoicePdfDocument from '@/components/billing/invoice-pdf-document'; // Temporarily commented out
 
 const statusColors: Record<InvoiceStatus, string> = {
   Pagada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
@@ -76,10 +78,12 @@ const invoiceStatusesForFilter: InvoiceStatus[] = ['Pagada', 'No Pagada', 'Venci
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
   const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]);
-  // No longer need allClients and agencyDetails state here as PDF download is disabled from list view
+  // const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null); // Not needed for list view PDF download logic if it's commented out
+  // const [isClientSide, setIsClientSide] = useState(false); // Not needed if PDFDownloadLink is commented out
 
-  const [isLoading, setIsLoading] = useState(true); // General loading for invoices table
-  const [isLoadingClients, setIsLoadingClients] = useState(true); // Loading for client filter dropdown
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingClients, setIsLoadingClients] = useState(true);
+  // const [isLoadingAgency, setIsLoadingAgency] = useState(true); // Not needed
 
   const [error, setError] = useState<string | null>(null);
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
@@ -89,6 +93,10 @@ export default function BillingPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
   const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
   const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(undefined);
+  
+  // useEffect(() => { // Not needed if PDFDownloadLink is commented out
+  //   setIsClientSide(true);
+  // }, []);
 
   const fetchInitialData = useCallback(async () => {
     setIsLoadingClients(true);
@@ -107,6 +115,21 @@ export default function BillingPage() {
     } finally {
       setIsLoadingClients(false);
     }
+
+    // setIsLoadingAgency(true); // Not needed if PDFDownloadLink is commented out
+    // try {
+    //   const agencyDocRef = doc(db, 'settings', 'agencyDetails');
+    //   const agencySnap = await getDoc(agencyDocRef);
+    //   if (agencySnap.exists()) {
+    //     setAgencyDetails(convertFirestoreTimestamps<AgencyDetails>(agencySnap.data() as AgencyDetails));
+    //   } else {
+    //     setAgencyDetails({ /* default empty values if needed */ } as AgencyDetails);
+    //   }
+    // } catch (err) {
+    //   console.error("Error fetching agency details: ", err);
+    // } finally {
+    //   setIsLoadingAgency(false);
+    // }
   }, [toast]);
 
   const fetchInvoices = useCallback(async () => {
@@ -114,7 +137,7 @@ export default function BillingPage() {
     setError(null);
     try {
       const invoicesCollection = collection(db, "invoices");
-      const queryConstraints: QueryConstraint[] = [orderBy("issuedDate", "desc")]; // Default sort by issuedDate
+      const queryConstraints: QueryConstraint[] = [orderBy("issuedDate", "desc")];
 
       if (statusFilter !== ALL_FILTER_VALUE) {
         queryConstraints.push(where("status", "==", statusFilter));
@@ -153,10 +176,10 @@ export default function BillingPage() {
   }, [fetchInitialData]);
 
   useEffect(() => {
-    if (!isLoadingClients) { // Only fetch invoices after clients (for filter) are loaded
+    if (!isLoadingClients /* && !isLoadingAgency */) { // Check all relevant loading states
         fetchInvoices();
     }
-  }, [fetchInvoices, isLoadingClients]);
+  }, [fetchInvoices, isLoadingClients /*, isLoadingAgency */]);
 
 
   const handleDeleteInvoice = async () => {
@@ -182,6 +205,12 @@ export default function BillingPage() {
     }
   };
 
+  const clearAllFilters = () => {
+    setStatusFilter(ALL_FILTER_VALUE);
+    setClientFilter(ALL_FILTER_VALUE);
+    setDateRangeFilter(undefined);
+  };
+  
   const getEmptyStateMessage = () => {
     let message = "No se encontraron facturas";
     const filtersApplied: string[] = [];
@@ -194,8 +223,8 @@ export default function BillingPage() {
     }
     if (dateRangeFilter?.from || dateRangeFilter?.to) {
       let rangeStr = "rango de fechas ";
-      if (dateRangeFilter.from) rangeStr += `desde ${format(dateRangeFilter.from, "dd/MM/yy")}`;
-      if (dateRangeFilter.to) rangeStr += ` ${dateRangeFilter.from ? 'hasta' : 'hasta'} ${format(dateRangeFilter.to, "dd/MM/yy")}`;
+      if (dateRangeFilter.from) rangeStr += `desde ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`;
+      if (dateRangeFilter.to) rangeStr += ` ${dateRangeFilter.from ? 'hasta' : 'hasta'} ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}`;
       filtersApplied.push(rangeStr.trim());
     }
 
@@ -212,7 +241,14 @@ export default function BillingPage() {
     ? clientsForFilter.find(c => c.id === clientFilter)?.name
     : null;
 
-  const isLoadingOverall = isLoading || isLoadingClients;
+  const isLoadingOverall = isLoading || isLoadingClients; // || isLoadingAgency;
+  
+  const activeFiltersCount = [
+    statusFilter !== ALL_FILTER_VALUE,
+    clientFilter !== ALL_FILTER_VALUE,
+    dateRangeFilter !== undefined,
+  ].filter(Boolean).length;
+
 
   return (
     <div className="space-y-8">
@@ -221,7 +257,7 @@ export default function BillingPage() {
         <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline">
+              <Button variant={statusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"}>
                 <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
                 {statusFilter === ALL_FILTER_VALUE ? "Filtrar por Estado" : `Estado: ${statusFilter}`}
               </Button>
@@ -240,7 +276,7 @@ export default function BillingPage() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" disabled={isLoadingClients}>
+              <Button variant={clientFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} disabled={isLoadingClients}>
                 <UserCircle className="mr-2 h-4 w-4 text-muted-foreground" />
                 {isLoadingClients && "Cargando clientes..."}
                 {!isLoadingClients && (currentFilteredClientName ? `Cliente: ${currentFilteredClientName}` : "Filtrar por Cliente")}
@@ -262,9 +298,9 @@ export default function BillingPage() {
             <PopoverTrigger asChild>
               <Button
                 id="date"
-                variant={"outline"}
+                variant={dateRangeFilter ? "secondary" : "outline"}
                 className={cn(
-                  "w-[260px] justify-start text-left font-normal",
+                  "w-[280px] justify-start text-left font-normal", // Increased width
                   !dateRangeFilter && "text-muted-foreground"
                 )}
               >
@@ -272,14 +308,14 @@ export default function BillingPage() {
                 {dateRangeFilter?.from ? (
                   dateRangeFilter.to ? (
                     <>
-                      {format(dateRangeFilter.from, "LLL dd, y", { locale: es })} -{" "}
-                      {format(dateRangeFilter.to, "LLL dd, y", { locale: es })}
+                      {format(dateRangeFilter.from, "dd/MM/yy", { locale: es })} -{" "}
+                      {format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}
                     </>
                   ) : (
-                    format(dateRangeFilter.from, "LLL dd, y", { locale: es })
+                     `Desde: ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`
                   )
                 ) : (
-                  <span>Seleccionar rango</span>
+                  dateRangeFilter?.to ? `Hasta: ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}` : <span>Fecha Emisión</span>
                 )}
               </Button>
             </PopoverTrigger>
@@ -295,8 +331,11 @@ export default function BillingPage() {
               />
             </PopoverContent>
           </Popover>
-          {dateRangeFilter && (
-             <Button variant="ghost" size="sm" onClick={() => setDateRangeFilter(undefined)}>Limpiar Fechas</Button>
+          
+          {activeFiltersCount > 0 && (
+             <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-destructive hover:text-destructive/80" title="Limpiar Todos los Filtros">
+                <X className="mr-1 h-4 w-4" /> Limpiar Filtros ({activeFiltersCount})
+             </Button>
           )}
 
 
@@ -339,6 +378,51 @@ export default function BillingPage() {
             </TableHeader>
             <TableBody>
               {invoices.map(invoice => {
+                // const clientForPdf = clientsForFilter.find(c => c.id === invoice.clientId);
+                // const safeInvoiceItems = Array.isArray(invoice.items) ? invoice.items.map(item => ({
+                //     id: String(item?.id || `pdf-item-${Math.random()}`),
+                //     description: String(item?.description || "N/A"),
+                //     quantity: Number.isFinite(Number(item?.quantity)) ? Number(item.quantity) : 0,
+                //     unitPrice: Number.isFinite(Number(item?.unitPrice)) ? Number(item.unitPrice) : 0,
+                //   })) : [];
+
+                // const currentInvoiceDataForPdf: WithConvertedDates<Invoice> = {
+                //   ...invoice,
+                //   id: String(invoice.id || "N/A"),
+                //   clientId: String(invoice.clientId || "N/A"),
+                //   clientName: String(invoice.clientName || "N/A"),
+                //   status: invoice.status || "No Pagada",
+                //   issuedDate: invoice.issuedDate instanceof Date ? invoice.issuedDate : new Date(0),
+                //   dueDate: invoice.dueDate instanceof Date ? invoice.dueDate : new Date(0),
+                //   createdAt: invoice.createdAt instanceof Date ? invoice.createdAt : new Date(0),
+                //   updatedAt: invoice.updatedAt instanceof Date ? invoice.updatedAt : new Date(0),
+                //   totalAmount: Number.isFinite(invoice.totalAmount) ? invoice.totalAmount : 0,
+                //   notes: typeof invoice.notes === 'string' ? invoice.notes : undefined,
+                //   items: safeInvoiceItems,
+                // };
+                
+                // const defaultClient: WithConvertedDates<Client> = {
+                //   id: "N/A", name: "Cliente N/A", email: "N/A", contractStartDate: new Date(0),
+                //   avatarUrl: "", clinica: "", telefono: "", profileSummary: "", pagado: false,
+                //   dominioWeb: "", tipoServicioWeb: "", vencimientoWeb: null,
+                //   contractedServices: [], socialMediaAccounts: [],
+                //   createdAt: new Date(0), updatedAt: new Date(0)
+                // };
+                // const sanitizedClientForPdf = clientForPdf ? {
+                //   ...defaultClient, ...clientForPdf,
+                //   id: String(clientForPdf.id || "N/A"),
+                //   name: String(clientForPdf.name || "Cliente N/A"),
+                //   email: String(clientForPdf.email || "N/A"),
+                // } : defaultClient;
+
+                // const defaultAgencyDetails: AgencyDetails = {
+                //   agencyName: "Tu Agencia S.L.", address: "Calle Falsa 123, Ciudad, CP", taxId: "NIF/CIF: X1234567Z",
+                //   contactEmail: "contacto@tuagencia.com", contactPhone: "+34 900 000 000", website: "www.tuagencia.com"
+                // };
+                // const safeAgencyDetails = agencyDetails || defaultAgencyDetails;
+
+                // const canRenderPdfLink = isClientSide && sanitizedClientForPdf && safeAgencyDetails && currentInvoiceDataForPdf;
+                
                 return (
                   <TableRow key={invoice.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
@@ -374,9 +458,25 @@ export default function BillingPage() {
                        >
                         {isDeleting && invoiceToDelete?.id === invoice.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
-                       <Button variant="ghost" size="icon" className="text-blue-600 opacity-50 cursor-not-allowed h-8 w-8" title="Descargar PDF (deshabilitado en lista)" disabled>
-                        <Download className="h-4 w-4 opacity-50" />
-                      </Button>
+                       <Button variant="ghost" size="icon" className="h-8 w-8 opacity-50 cursor-not-allowed" title="Descargar PDF (deshabilitado en lista)" disabled>
+                          <Download className="h-4 w-4 text-blue-600 opacity-50" />
+                       </Button>
+                       {/* {canRenderPdfLink ? (
+                        <PDFDownloadLink
+                          document={<InvoicePdfDocument invoice={currentInvoiceDataForPdf} client={sanitizedClientForPdf} agencyDetails={safeAgencyDetails} />}
+                          fileName={`factura-${currentInvoiceDataForPdf.id.substring(0,8).toLowerCase()}.pdf`}
+                        >
+                          {({ loading }) => (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Descargar PDF" disabled={loading}>
+                              {loading ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : <Download className="h-4 w-4 text-blue-600" />}
+                            </Button>
+                          )}
+                        </PDFDownloadLink>
+                      ) : (
+                         <Button variant="ghost" size="icon" className="h-8 w-8 opacity-50 cursor-not-allowed" title="Descargar PDF (no disponible)" disabled>
+                           <Download className="h-4 w-4 text-blue-600 opacity-50" />
+                         </Button>
+                      )} */}
                     </TableCell>
                   </TableRow>
                 );

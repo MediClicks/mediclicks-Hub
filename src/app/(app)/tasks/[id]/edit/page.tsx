@@ -21,7 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { CalendarIcon, Loader2, AlertTriangle } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
-import { format, getHours, getMinutes } from 'date-fns';
+import { format, getHours, getMinutes, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -64,10 +64,10 @@ export default function EditTaskPage() {
   const { toast } = useToast();
   const taskId = params.id as string;
 
-  const [isLoadingTask, setIsLoadingTask] = useState(true);
+  const [isLoadingForm, setIsLoadingForm] = useState(true); // Combined loading state
   const [taskNotFound, setTaskNotFound] = useState(false);
   const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
-  const [isLoadingClients, setIsLoadingClients] = useState(true);
+  // const [isLoadingClients, setIsLoadingClients] = useState(true); // Covered by isLoadingForm
   const [clientError, setClientError] = useState<string | null>(null);
 
   const [selectedAlertTime, setSelectedAlertTime] = useState<string | undefined>(undefined);
@@ -84,97 +84,88 @@ export default function EditTaskPage() {
     resolver: zodResolver(taskFormSchema),
     defaultValues: {
       name: '',
+      description: '',
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
       clientId: TASK_CLIENT_SELECT_NONE_VALUE,
-      description: '',
       alertDate: null,
       alertFired: false,
     },
   });
 
-  const fetchClients = useCallback(async () => {
-    setIsLoadingClients(true);
-    setClientError(null);
-    try {
-      const clientsCollection = collection(db, "clients");
-      const q = query(clientsCollection, orderBy("name", "asc"));
-      const querySnapshot = await getDocs(q);
-      const fetchedClients = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        const convertedData = convertClientTimestampsToDates(data as Client);
-        return { id: doc.id, ...convertedData };
-      });
-      setClientsList(fetchedClients);
-    } catch (err) {
-      console.error("Error fetching clients for dropdown: ", err);
-      setClientError('No se pudieron cargar los clientes.');
-    } finally {
-      setIsLoadingClients(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
-
-  useEffect(() => {
-    if (taskId) {
-      const fetchTask = async () => {
-        setIsLoadingTask(true);
-        setTaskNotFound(false);
-        try {
-          const taskDocRef = doc(db, 'tasks', taskId);
-          const docSnap = await getDoc(taskDocRef);
-
-          if (docSnap.exists()) {
-            const data = docSnap.data() as Task;
-
-            let initialAlertTime: string | undefined = undefined;
-            let initialAlertDate: Date | null = null;
-
-            if (data.alertDate && data.alertDate instanceof Timestamp) {
-              const alertDateObj = data.alertDate.toDate();
-              initialAlertDate = alertDateObj;
-              const hours = String(getHours(alertDateObj)).padStart(2, '0');
-              const minutes = String(getMinutes(alertDateObj)).padStart(2, '0');
-              initialAlertTime = `${hours}:${minutes}`;
-            }
-            setSelectedAlertTime(initialAlertTime);
-
-            const formData: TaskFormValues = {
-              name: data.name || '',
-              description: data.description || '',
-              assignedTo: data.assignedTo || '',
-              clientId: data.clientId || TASK_CLIENT_SELECT_NONE_VALUE,
-              dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
-              priority: data.priority,
-              status: data.status,
-              alertDate: initialAlertDate,
-              alertFired: data.alertFired || false,
-            };
-            form.reset(formData);
-          } else {
-            setTaskNotFound(true);
-            toast({ title: 'Error', description: 'Tarea no encontrada.', variant: 'destructive' });
-            router.push('/tasks');
-          }
-        } catch (error) {
-          console.error("Error fetching task: ", error);
-          toast({ title: 'Error', description: 'No se pudo cargar la información de la tarea.', variant: 'destructive' });
-        } finally {
-          setIsLoadingTask(false);
-        }
-      };
-      fetchTask();
-    } else {
-      setIsLoadingTask(false);
+  const fetchTaskAndClients = useCallback(async () => {
+    if (!taskId) {
       setTaskNotFound(true);
+      setIsLoadingForm(false);
       toast({ title: 'Error', description: 'ID de tarea no válido.', variant: 'destructive' });
       router.push('/tasks');
+      return;
     }
-  }, [taskId, toast, form, router]);
+
+    setIsLoadingForm(true);
+    setTaskNotFound(false);
+    setClientError(null);
+
+    try {
+      // Fetch Clients
+      const clientsCollection = collection(db, "clients");
+      const qClients = query(clientsCollection, orderBy("name", "asc"));
+      const clientsSnapshot = await getDocs(qClients);
+      const fetchedClients = clientsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return { id: doc.id, ...convertClientTimestampsToDates(data as Client) };
+      });
+      setClientsList(fetchedClients);
+
+      // Fetch Task
+      const taskDocRef = doc(db, 'tasks', taskId);
+      const docSnap = await getDoc(taskDocRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data() as Task;
+        let initialAlertTime: string | undefined = undefined;
+        let initialAlertDate: Date | null = null;
+
+        if (data.alertDate && data.alertDate instanceof Timestamp) {
+          const alertDateObj = data.alertDate.toDate();
+          initialAlertDate = alertDateObj;
+          const hours = String(getHours(alertDateObj)).padStart(2, '0');
+          const minutes = String(getMinutes(alertDateObj)).padStart(2, '0');
+          initialAlertTime = `${hours}:${minutes}`;
+        }
+        setSelectedAlertTime(initialAlertTime);
+
+        form.reset({
+          name: data.name || '',
+          description: data.description || '',
+          assignedTo: data.assignedTo || '',
+          clientId: data.clientId || TASK_CLIENT_SELECT_NONE_VALUE,
+          dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : (data.dueDate ? new Date(data.dueDate) : new Date()),
+          priority: data.priority,
+          status: data.status,
+          alertDate: initialAlertDate,
+          alertFired: data.alertFired || false,
+        });
+      } else {
+        setTaskNotFound(true);
+        toast({ title: 'Error', description: 'Tarea no encontrada.', variant: 'destructive' });
+        router.push('/tasks');
+      }
+    } catch (error) {
+      console.error("Error fetching task or clients: ", error);
+      toast({ title: 'Error', description: 'No se pudo cargar la información de la tarea o los clientes.', variant: 'destructive' });
+      // Potentially set specific error for clients if that part failed
+      if (clientsList.length === 0) setClientError('No se pudieron cargar los clientes.');
+    } finally {
+      setIsLoadingForm(false);
+    }
+  }, [taskId, form, router, toast, clientsList.length]); // Added clientsList.length to dependencies
+
+  useEffect(() => {
+    fetchTaskAndClients();
+  }, [fetchTaskAndClients]);
+
 
   async function onSubmit(data: TaskFormValues) {
     form.clearErrors();
@@ -182,12 +173,12 @@ export default function EditTaskPage() {
     let combinedAlertDate: Date | null | undefined = data.alertDate;
     if (data.alertDate && selectedAlertTime) {
       const [hours, minutes] = selectedAlertTime.split(':').map(Number);
-      combinedAlertDate = new Date(data.alertDate);
-      combinedAlertDate.setHours(hours, minutes, 0, 0);
-    } else if (data.alertDate && !selectedAlertTime) {
-      combinedAlertDate = new Date(data.alertDate);
-      combinedAlertDate.setHours(0, 0, 0, 0);
+      combinedAlertDate = new Date(data.alertDate); // Create a new Date object from the form's date part
+      combinedAlertDate.setHours(hours, minutes, 0, 0); // Set the time
+    } else if (data.alertDate && !selectedAlertTime) { // If date is set but no time, default to start of day
+        combinedAlertDate = startOfDay(new Date(data.alertDate));
     }
+
 
     try {
       const taskDocRef = doc(db, 'tasks', taskId);
@@ -220,9 +211,9 @@ export default function EditTaskPage() {
         dataToUpdate.clientName = deleteField();
       }
 
-      if (combinedAlertDate) {
+      if (combinedAlertDate instanceof Date && !isNaN(combinedAlertDate.getTime())) {
         dataToUpdate.alertDate = Timestamp.fromDate(combinedAlertDate);
-        dataToUpdate.alertFired = false;
+        dataToUpdate.alertFired = false; // Reset alertFired when alertDate is set/changed
       } else {
         dataToUpdate.alertDate = deleteField();
         dataToUpdate.alertFired = deleteField();
@@ -245,7 +236,7 @@ export default function EditTaskPage() {
     }
   }
 
-  if (isLoadingTask || isLoadingClients) {
+  if (isLoadingForm) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -320,17 +311,17 @@ export default function EditTaskPage() {
                     onValueChange={(selectedValue) => {
                       field.onChange(selectedValue === TASK_CLIENT_SELECT_NONE_VALUE ? undefined : selectedValue);
                     }}
-                    disabled={isLoadingClients || !!clientError}
+                    disabled={clientsList.length === 0 && !clientError}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={isLoadingClients ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : "Seleccionar un cliente")} />
+                        <SelectValue placeholder={clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {clientError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {clientError}</div>}
                       {!clientError && <SelectItem value={TASK_CLIENT_SELECT_NONE_VALUE}>Ninguno</SelectItem>}
-                      {!isLoadingClients && !clientError && clientsList.map(client => (
+                      {!clientError && clientsList.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -381,9 +372,9 @@ export default function EditTaskPage() {
                           className={cn('w-full pl-3 text-left font-normal', !field.value && 'text-muted-foreground')}
                         >
                           {field.value ? (
-                            format(field.value, 'PPP', { locale: es }) + (selectedAlertTime ? ` ${selectedAlertTime}` : ' (00:00)')
+                            format(field.value, 'PPP', { locale: es }) + (selectedAlertTime ? ` ${selectedAlertTime}` : '')
                           ) : (
-                            <span>Seleccionar fecha</span>
+                            <span>Seleccionar fecha y hora</span>
                           )}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
                         </Button>
@@ -395,18 +386,22 @@ export default function EditTaskPage() {
                         selected={field.value}
                         onSelect={(date) => {
                             field.onChange(date || null);
-                            if (!date) setSelectedAlertTime(undefined);
+                            if (!date) setSelectedAlertTime(undefined); // Clear time if date is cleared
                         }}
                         initialFocus
                         locale={es}
                       />
                       <div className="p-3 border-t">
-                        <Select value={selectedAlertTime} onValueChange={setSelectedAlertTime} disabled={!field.value}>
+                        <Select 
+                          value={selectedAlertTime} 
+                          onValueChange={setSelectedAlertTime} 
+                          disabled={!field.value} // Disable time if no date is selected
+                        >
                           <SelectTrigger>
-                            <SelectValue placeholder="Seleccionar hora (opcional)" />
+                            <SelectValue placeholder="Hora (opcional)" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={undefined as any}>Sin hora específica (00:00)</SelectItem>
+                            <SelectItem value={undefined as any}>Sin hora específica</SelectItem>
                             {timeOptions.map(time => (
                               <SelectItem key={time} value={time}>{time}</SelectItem>
                             ))}
@@ -464,14 +459,14 @@ export default function EditTaskPage() {
               )}
             />
             {form.watch('alertDate') && (
-                 <FormItem className="md:col-span-1 flex flex-col justify-end">
+                 <FormItem className="md:col-span-1 flex flex-col justify-end pb-2">
                     <p className="text-xs text-muted-foreground">
                         Alerta disparada: {form.watch('alertFired') ? 'Sí' : 'No'}
                     </p>
                  </FormItem>
             )}
           </div>
-          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingTask || isLoadingClients}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>

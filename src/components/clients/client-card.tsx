@@ -5,8 +5,8 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import type { Client, WithConvertedDates } from "@/types";
-import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe } from 'lucide-react';
+import type { Client, WithConvertedDates, ContractedServiceClient } from "@/types";
+import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe, Briefcase } from 'lucide-react'; // Added Briefcase
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -53,7 +53,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
       await deleteDoc(doc(db, "clients", client.id));
       toast({
         title: "Cliente Eliminado",
-        description: `El cliente ${client.name} ha sido eliminado correctamente. Las tareas y facturas asociadas no se eliminan automáticamente.`,
+        description: `El cliente ${client.name} ha sido eliminado correctamente. Las tareas y facturas asociadas a este cliente no se eliminan automáticamente.`,
       });
       onClientDeleted(client.id);
       setShowDeleteDialog(false); 
@@ -69,6 +69,18 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     }
   };
 
+  const getAvatarFallbackText = (name: string | undefined): string => {
+    if (!name || name.trim() === '') return 'CL';
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    if (words[0].length >= 2) {
+      return words[0].substring(0, 2).toUpperCase();
+    }
+    return words[0].substring(0, 1).toUpperCase();
+  };
+
   return (
     <>
       <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden flex flex-col bg-card">
@@ -77,17 +89,19 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
             {client.avatarUrl ? (
               <AvatarImage src={client.avatarUrl} alt={client.name} data-ai-hint="company logo" />
             ) : (
-              <AvatarFallback className="bg-primary/20 text-primary font-semibold">{client.name ? client.name.substring(0, 2).toUpperCase() : 'CL'}</AvatarFallback>
+              <AvatarFallback className="bg-primary/20 text-primary font-semibold text-lg">
+                {getAvatarFallbackText(client.name)}
+              </AvatarFallback>
             )}
           </Avatar>
           <div className="flex-1">
             <CardTitle className="text-xl mb-1 text-foreground">
               <Link href={`/clients/${client.id}/edit`} className="hover:underline text-primary">
-                {client.name}
+                {client.name || "Nombre no disponible"}
               </Link>
             </CardTitle>
             <CardDescription className="flex items-center text-sm mb-1">
-              <Mail className="mr-2 h-4 w-4 text-muted-foreground" /> {client.email}
+              <Mail className="mr-2 h-4 w-4 text-muted-foreground" /> {client.email || "Email no disponible"}
             </CardDescription>
             {client.telefono && (
               <CardDescription className="flex items-center text-sm mb-1">
@@ -115,7 +129,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
            {(client.contractedServices && client.contractedServices.length > 0) && (
             <div>
               <h4 className="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 h-4 w-4 text-primary"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><path d="M20 12H4"/></svg>
+                <Briefcase className="mr-2 h-4 w-4 text-primary"/>
                  Servicios Contratados ({client.contractedServices.length})
               </h4>
               <p className="text-xs text-foreground line-clamp-2">
@@ -195,3 +209,4 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     </>
   );
 }
+
