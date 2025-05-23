@@ -43,3 +43,6 @@ next-env.d.ts
 # firebase
 firebase-debug.log
 firestore-debug.log
+
+client_secret_961144846241-ljliv9rhihhk9it4sr1go1stj2vc28g1.apps.googleusercontent.com.json
+token.json
