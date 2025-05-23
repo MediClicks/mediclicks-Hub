@@ -5,19 +5,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
 import { ClientCard } from "@/components/clients/client-card";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Loader2, AlertTriangle, Users, Filter, DollarSign } from "lucide-react";
+import { PlusCircle, Loader2, AlertTriangle, Users } from "lucide-react"; // Removed Filter icon
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, where, QueryConstraint } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore'; // Removed where, QueryConstraint
 import type { Client, WithConvertedDates } from '@/types';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from "@/components/ui/dropdown-menu";
+// Removed DropdownMenu imports
 
 function convertTimestampsToDates(docData: any): any {
   const data = { ...docData };
@@ -31,43 +23,33 @@ function convertTimestampsToDates(docData: any): any {
   return data;
 }
 
-const ALL_FILTER_VALUE = 'All';
-type PaymentStatusFilterType = 'Al día' | 'Pago Pendiente' | typeof ALL_FILTER_VALUE;
-
-const paymentStatusesForFilter: PaymentStatusFilterType[] = ['Al día', 'Pago Pendiente'];
-
-
 export default function ClientsPage() {
   const [clients, setClients] = useState<WithConvertedDates<Client>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatusFilterType>(ALL_FILTER_VALUE);
+  // Removed paymentStatusFilter state
 
   const fetchClients = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const clientsCollection = collection(db, "clients");
-      const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
-
-      if (paymentStatusFilter !== ALL_FILTER_VALUE) {
-        const filterValue = paymentStatusFilter === 'Al día'; // true for 'Al día', false for 'Pago Pendiente'
-        queryConstraints.unshift(where("pagado", "==", filterValue));
-      }
-
-      const q = query(clientsCollection, ...queryConstraints);
+      // Simplified query: only order by createdAt
+      const q = query(clientsCollection, orderBy("createdAt", "desc"));
       const querySnapshot = await getDocs(q);
       const clientsData = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        // Ensure services is an array, even if undefined in Firestore
-        const convertedData = convertTimestampsToDates(data) as Omit<Client, 'id' | 'services'> & { services?: any[] };
+        const convertedData = convertTimestampsToDates(data) as Omit<Client, 'id' | 'contractedServices' | 'socialMediaAccounts'> & { contractedServices?: any[], socialMediaAccounts?: any[] };
         
-        const servicesArray = Array.isArray(convertedData.services) ? convertedData.services : [];
+        const contractedServicesArray = Array.isArray(convertedData.contractedServices) ? convertedData.contractedServices : [];
+        const socialMediaAccountsArray = Array.isArray(convertedData.socialMediaAccounts) ? convertedData.socialMediaAccounts : [];
+
 
         return { 
           id: doc.id, 
           ...convertedData,
-          services: servicesArray
+          contractedServices: contractedServicesArray,
+          socialMediaAccounts: socialMediaAccountsArray,
         } as WithConvertedDates<Client>;
       });
       setClients(clientsData);
@@ -81,7 +63,7 @@ export default function ClientsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [paymentStatusFilter]);
+  }, []); // Removed paymentStatusFilter from dependencies
 
   useEffect(() => {
     fetchClients();
@@ -92,13 +74,7 @@ export default function ClientsPage() {
   };
 
   const getEmptyStateMessage = () => {
-    let message = "No se encontraron clientes";
-    if (paymentStatusFilter !== ALL_FILTER_VALUE) {
-      message += ` con estado de pago "${paymentStatusFilter}".`;
-    } else {
-      message += ".";
-    }
-    return message;
+    return "No se encontraron clientes.";
   };
 
   return (
@@ -106,24 +82,8 @@ export default function ClientsPage() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline">
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
-                {paymentStatusFilter === ALL_FILTER_VALUE ? "Filtrar por Estado de Pago" : `Pago: ${paymentStatusFilter}`}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel>Seleccionar Estado de Pago</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={paymentStatusFilter} onValueChange={(value) => setPaymentStatusFilter(value as PaymentStatusFilterType)}>
-                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todos</DropdownMenuRadioItem>
-                {paymentStatusesForFilter.map(status => (
-                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Removed Filter DropdownMenu */}
+          {/* Removed Clear Filter Button */}
           <Button asChild>
             <Link href="/clients/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Agregar Nuevo Cliente
@@ -159,11 +119,9 @@ export default function ClientsPage() {
         <div className="text-center py-12 text-muted-foreground">
           <Users className="mx-auto h-12 w-12 text-gray-400 mb-3" />
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {paymentStatusFilter === ALL_FILTER_VALUE && (
-            <Button variant="link" className="mt-2" asChild>
-              <Link href="/clients/add">Agrega tu primer cliente</Link>
-            </Button>
-          )}
+          <Button variant="link" className="mt-2" asChild>
+            <Link href="/clients/add">Agrega tu primer cliente</Link>
+          </Button>
         </div>
       )}
     </div>

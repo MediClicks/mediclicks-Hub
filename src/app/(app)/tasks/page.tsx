@@ -3,7 +3,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from "next/link";
-import { useSearchParams, useRouter } from 'next/navigation';
+// import { useSearchParams, useRouter } from 'next/navigation'; // Removed useRouter
+import { useSearchParams } from 'next/navigation';
 import {
   Table,
   TableBody,
@@ -14,16 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { PlusCircle, Filter, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff, UserCircle, Calendar as CalendarIconLucide, X } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from "@/components/ui/dropdown-menu";
+import { PlusCircle, Edit2, Trash2, Loader2, ListChecks, AlertTriangle, CheckSquare, Clock, ListTodo, BellRing, BellOff } from "lucide-react"; // Removed Filter, UserCircle, CalendarIconLucide, X
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,16 +26,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { format, isPast, isToday, isTomorrow, startOfDay, endOfDay } from "date-fns";
+// Removed Popover and Calendar imports
+import { format, isPast, isToday, isTomorrow, startOfDay } from "date-fns"; // Removed endOfDay
 import { es } from "date-fns/locale";
-import type { DateRange } from "react-day-picker";
+// Removed DateRange type
 
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, QueryConstraint } from 'firebase/firestore';
-import type { Task, TaskStatus, TaskPriority, WithConvertedDates, Client } from '@/types';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore'; // Removed where, QueryConstraint
+import type { Task, TaskStatus, TaskPriority, WithConvertedDates } from '@/types'; // Removed Client type
 import { cn } from '@/lib/utils';
 
 const statusColors: Record<TaskStatus, string> = {
@@ -74,140 +65,35 @@ function convertTimestampsToDates(docData: any): WithConvertedDates<Task> {
   return data as WithConvertedDates<Task>;
 }
 
-function convertClientTimestamps(docData: any): WithConvertedDates<Client> {
-  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
-  for (const key in data) {
-    if (data[key as keyof Client] instanceof Timestamp) {
-      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
-    }
-  }
-  return data as WithConvertedDates<Client>;
-}
-
-
-const ALL_FILTER_VALUE = 'All';
-type StatusFilterType = TaskStatus | typeof ALL_FILTER_VALUE;
-type PriorityFilterType = TaskPriority | typeof ALL_FILTER_VALUE;
-type ClientFilterType = string | typeof ALL_FILTER_VALUE;
-type AlertStatusFilterType = 'Activa' | 'Programada' | 'Disparada' | typeof ALL_FILTER_VALUE;
-
-
-const taskStatusesForFilter: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
-const taskPrioritiesForFilter: TaskPriority[] = ['Baja', 'Media', 'Alta'];
-const alertStatusesForFilter: AlertStatusFilterType[] = ['Activa', 'Programada', 'Disparada'];
-
+// Removed ALL_FILTER_VALUE and filter type definitions
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<WithConvertedDates<Task>[]>([]);
-  const [clients, setClients] = useState<WithConvertedDates<Client>[]>([]);
+  // const [clients, setClients] = useState<WithConvertedDates<Client>[]>([]); // Clients no longer needed for filtering
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingClients, setIsLoadingClients] = useState(true);
+  // const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<WithConvertedDates<Task> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
 
-  const router = useRouter();
+  // const router = useRouter(); // Not needed for now
   const searchParams = useSearchParams();
-  const dueFilterParam = searchParams.get('due');
-  const showActionableParam = searchParams.get('show');
+  // const dueFilterParam = searchParams.get('due'); // dueFilterParam no longer used for complex filtering
+  // const showActionableParam = searchParams.get('show');
 
+  // Removed filter states: statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(ALL_FILTER_VALUE);
-  const [priorityFilter, setPriorityFilter] = useState<PriorityFilterType>(ALL_FILTER_VALUE);
-  const [clientFilter, setClientFilter] = useState<ClientFilterType>(ALL_FILTER_VALUE);
-  const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(undefined);
-  const [alertStatusFilter, setAlertStatusFilter] = useState<AlertStatusFilterType>(ALL_FILTER_VALUE);
-
-  useEffect(() => {
-    const currentUrlParams = new URLSearchParams(searchParams.toString());
-    const dueParam = currentUrlParams.get('due');
-
-    if (dueParam === 'today') {
-      setDateRangeFilter({ from: startOfDay(new Date()), to: endOfDay(new Date()) });
-    }
-  }, [searchParams]);
-
-
-  const fetchInitialData = useCallback(async () => {
-    setIsLoadingClients(true);
-    try {
-      const clientsCollection = collection(db, "clients");
-      const clientsQuery = query(clientsCollection, orderBy("name", "asc"));
-      const clientsSnapshot = await getDocs(clientsQuery);
-      const fetchedClients = clientsSnapshot.docs.map(doc => {
-        const data = convertClientTimestamps(doc.data() as Client);
-        return { id: doc.id, ...data };
-      });
-      setClients(fetchedClients);
-    } catch (err) {
-      console.error("Error fetching clients: ", err);
-      toast({ title: "Advertencia", description: "No se pudieron cargar los clientes para el filtro.", variant: "default" });
-    } finally {
-      setIsLoadingClients(false);
-    }
-  }, [toast]);
+  // Removed fetchInitialData (which fetched clients)
 
   const fetchTasks = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const tasksCollection = collection(db, "tasks");
-      const queryConstraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
-
-      if (statusFilter !== ALL_FILTER_VALUE) {
-        queryConstraints.push(where("status", "==", statusFilter));
-      }
-      if (priorityFilter !== ALL_FILTER_VALUE) {
-        queryConstraints.push(where("priority", "==", priorityFilter));
-      }
-      if (clientFilter !== ALL_FILTER_VALUE) {
-        queryConstraints.push(where("clientId", "==", clientFilter));
-      }
+      // Simplified query, only orderBy createdAt
+      const q = query(tasksCollection, orderBy("createdAt", "desc"));
       
-      let effectiveDateRange = dateRangeFilter;
-      const currentUrlParams = new URLSearchParams(searchParams.toString());
-      const currentDueParam = currentUrlParams.get('due');
-      const currentShowActionableParam = currentUrlParams.get('show');
-
-      if (currentDueParam === 'today' && !dateRangeFilter?.from && !dateRangeFilter?.to) { 
-        effectiveDateRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
-      }
-
-      if (effectiveDateRange?.from) {
-        queryConstraints.push(where("dueDate", ">=", Timestamp.fromDate(startOfDay(effectiveDateRange.from))));
-      }
-      if (effectiveDateRange?.to) {
-        queryConstraints.push(where("dueDate", "<=", Timestamp.fromDate(endOfDay(effectiveDateRange.to))));
-      }
-      
-      if (currentDueParam === 'today' && currentShowActionableParam === 'actionable') {
-        // Remove existing status filter if 'All' was selected but we only want actionable
-        const statusFilterIndex = queryConstraints.findIndex(
-            (c: any) => c._fieldPath?.segments?.join('/') === 'status' && c._op === '==' && statusFilter === ALL_FILTER_VALUE
-        );
-        if (statusFilterIndex > -1) {
-          queryConstraints.splice(statusFilterIndex, 1);
-        }
-        // Add/ensure the actionable status filter if not already applied by user interaction
-        if (statusFilter === ALL_FILTER_VALUE) {
-            queryConstraints.push(where("status", "in", ["Pendiente", "En Progreso"]));
-        }
-      }
-
-
-      const now = Timestamp.now();
-      if (alertStatusFilter === 'Activa') {
-        queryConstraints.push(where("alertDate", "<=", now));
-        queryConstraints.push(where("alertFired", "==", false));
-      } else if (alertStatusFilter === 'Programada') {
-        queryConstraints.push(where("alertDate", ">", now));
-      } else if (alertStatusFilter === 'Disparada') {
-        queryConstraints.push(where("alertFired", "==", true));
-      }
-
-
-      const q = query(tasksCollection, ...queryConstraints);
       const querySnapshot = await getDocs(q);
       const tasksData = querySnapshot.docs.map(docSnap => {
         const data = docSnap.data();
@@ -225,17 +111,12 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter, clientFilter, dateRangeFilter, alertStatusFilter, searchParams, toast]); 
+  }, []); // Removed all filter states from dependencies
 
   useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
-
-  useEffect(() => {
-    if (!isLoadingClients) { 
-        fetchTasks();
-    }
-  }, [fetchTasks, isLoadingClients]);
+    // fetchInitialData(); // No longer needed
+    fetchTasks();
+  }, [fetchTasks]);
 
 
   const handleDeleteTask = async () => {
@@ -261,230 +142,28 @@ export default function TasksPage() {
     }
   };
 
-  const clearAllFilters = () => {
-    setStatusFilter(ALL_FILTER_VALUE);
-    setPriorityFilter(ALL_FILTER_VALUE);
-    setClientFilter(ALL_FILTER_VALUE);
-    setDateRangeFilter(undefined);
-    setAlertStatusFilter(ALL_FILTER_VALUE);
-    
-    const currentUrlParams = new URLSearchParams(searchParams.toString());
-    if (currentUrlParams.has('due') || currentUrlParams.has('show')) {
-        currentUrlParams.delete('due');
-        currentUrlParams.delete('show');
-        router.replace(`/tasks${currentUrlParams.toString() ? '?' + currentUrlParams.toString() : ''}`, { scroll: false });
-    }
-  };
-  
-  const handleDateRangeChange = (newRange: DateRange | undefined) => {
-    setDateRangeFilter(newRange);
-    const currentUrlParams = new URLSearchParams(searchParams.toString());
-    if (currentUrlParams.has('due') || currentUrlParams.has('show')) {
-        currentUrlParams.delete('due');
-        currentUrlParams.delete('show');
-        router.replace(`/tasks${currentUrlParams.toString() ? '?' + currentUrlParams.toString() : ''}`, { scroll: false });
-    }
-  };
+  // Removed clearAllFilters function
 
   const getEmptyStateMessage = () => {
-    let message = "No se encontraron tareas";
-    const filtersApplied: string[] = [];
-    if (statusFilter !== ALL_FILTER_VALUE) {
-      filtersApplied.push(`estado "${statusFilter}"`);
-    }
-    if (priorityFilter !== ALL_FILTER_VALUE) {
-      filtersApplied.push(`prioridad "${priorityFilter}"`);
-    }
-    const clientName = clientFilter !== ALL_FILTER_VALUE ? clients.find(c => c.id === clientFilter)?.name : null;
-    if (clientFilter !== ALL_FILTER_VALUE && clientName) {
-      filtersApplied.push(`cliente "${clientName}"`);
-    }
-    
-    let currentEffectiveDateRange = dateRangeFilter;
-    const currentUrlParams = new URLSearchParams(searchParams.toString());
-    const currentDueParam = currentUrlParams.get('due');
-
-    if (currentDueParam === 'today' && !dateRangeFilter?.from && !dateRangeFilter?.to) {
-        currentEffectiveDateRange = { from: startOfDay(new Date()), to: endOfDay(new Date()) };
-    }
-
-    if (currentEffectiveDateRange?.from || currentEffectiveDateRange?.to) {
-      let rangeStr = "vencimiento ";
-      if (currentEffectiveDateRange.from && isToday(currentEffectiveDateRange.from) && currentEffectiveDateRange.to && isToday(currentEffectiveDateRange.to)) {
-        rangeStr += "hoy";
-      } else {
-        if (currentEffectiveDateRange.from) rangeStr += `desde ${format(currentEffectiveDateRange.from, "dd/MM/yy", { locale: es })}`;
-        if (currentEffectiveDateRange.to) rangeStr += ` ${currentEffectiveDateRange.from ? 'hasta' : 'hasta'} ${format(currentEffectiveDateRange.to, "dd/MM/yy", { locale: es })}`;
-      }
-      filtersApplied.push(rangeStr.trim());
-    }
-    if (alertStatusFilter !== ALL_FILTER_VALUE) {
-      filtersApplied.push(`alerta "${alertStatusFilter}"`);
-    }
-    
-    const currentShowActionableParam = currentUrlParams.get('show');
-    if (currentShowActionableParam === 'actionable' && currentDueParam === 'today') {
-        filtersApplied.push("no completadas");
-    }
-
-
-    if (filtersApplied.length > 0) {
-      message += ` con ${filtersApplied.join(', ')}.`;
-    } else {
-      message += ".";
-    }
-    return message;
+    return "No se encontraron tareas.";
   };
 
   const getEmptyStateIcon = () => {
-    if (statusFilter === 'Pendiente') return <Clock className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-    if (statusFilter === 'En Progreso') return <ListTodo className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
-    if (statusFilter === 'Completada') return <CheckSquare className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
     return <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-3" />;
   };
 
-  const currentFilteredClientName = clientFilter !== ALL_FILTER_VALUE
-    ? clients.find(c => c.id === clientFilter)?.name
-    : null;
-
-  const isLoadingOverall = isLoading || isLoadingClients;
+  // Removed currentFilteredClientName
+  const isLoadingOverall = isLoading; // Simplified, as isLoadingClients is removed
   
-  const activeFiltersCount = [
-    statusFilter !== ALL_FILTER_VALUE,
-    priorityFilter !== ALL_FILTER_VALUE,
-    clientFilter !== ALL_FILTER_VALUE,
-    dateRangeFilter !== undefined,
-    alertStatusFilter !== ALL_FILTER_VALUE,
-    (searchParams.get('due') === 'today') 
-  ].filter(Boolean).length;
-
+  // Removed activeFiltersCount
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tareas</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant={statusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"}>
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
-                {statusFilter === ALL_FILTER_VALUE ? "Filtrar por Estado" : `Estado: ${statusFilter}`}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel>Seleccionar Estado</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilterType)}>
-                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
-                {taskStatusesForFilter.map(status => (
-                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant={priorityFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"}>
-                <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
-                {priorityFilter === ALL_FILTER_VALUE ? "Filtrar por Prioridad" : `Prioridad: ${priorityFilter}`}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel>Seleccionar Prioridad</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-               <DropdownMenuRadioGroup value={priorityFilter} onValueChange={(value) => setPriorityFilter(value as PriorityFilterType)}>
-                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
-                {taskPrioritiesForFilter.map(priority => (
-                  <DropdownMenuRadioItem key={priority} value={priority}>{priority}</DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant={clientFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} disabled={isLoadingClients}>
-                <UserCircle className="mr-2 h-4 w-4 text-muted-foreground" />
-                {isLoadingClients && "Cargando clientes..."}
-                {!isLoadingClients && (currentFilteredClientName ? `Cliente: ${currentFilteredClientName}` : "Filtrar por Cliente")}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-64 max-h-72 overflow-y-auto">
-              <DropdownMenuLabel>Seleccionar Cliente</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={clientFilter} onValueChange={(value) => setClientFilter(value as ClientFilterType)}>
-                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todos los Clientes</DropdownMenuRadioItem>
-                {clients.map(client => (
-                  <DropdownMenuRadioItem key={client.id} value={client.id}>{client.name}</DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                id="date"
-                variant={dateRangeFilter ? "secondary" : "outline"}
-                className={cn(
-                  "w-[280px] justify-start text-left font-normal",
-                  !dateRangeFilter && "text-muted-foreground"
-                )}
-              >
-                <CalendarIconLucide className="mr-2 h-4 w-4 text-muted-foreground" />
-                {dateRangeFilter?.from ? (
-                  dateRangeFilter.to ? (
-                    <>
-                      {format(dateRangeFilter.from, "dd/MM/yy", { locale: es })} -{" "}
-                      {format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}
-                    </>
-                  ) : (
-                     `Desde: ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}`
-                  )
-                ) : (
-                  dateRangeFilter?.to ? `Hasta: ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}` : "Vencimiento"
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="end">
-              <Calendar
-                initialFocus
-                mode="range"
-                defaultMonth={dateRangeFilter?.from}
-                selected={dateRangeFilter}
-                onSelect={handleDateRangeChange}
-                numberOfMonths={2}
-                locale={es}
-              />
-            </PopoverContent>
-          </Popover>
-
-           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant={alertStatusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"}>
-                <BellRing className="mr-2 h-4 w-4 text-muted-foreground" />
-                {alertStatusFilter === ALL_FILTER_VALUE ? "Estado Alerta" : `Alerta: ${alertStatusFilter}`}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel>Estado de Alerta</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={alertStatusFilter} onValueChange={(value) => setAlertStatusFilter(value as AlertStatusFilterType)}>
-                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
-                {alertStatusesForFilter.map(status => (
-                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {activeFiltersCount > 0 && (
-             <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-destructive hover:text-destructive/80" title="Limpiar Todos los Filtros">
-                <X className="mr-1 h-4 w-4" /> Limpiar Filtros ({activeFiltersCount})
-             </Button>
-          )}
-
+          {/* Removed all Filter DropdownMenus and Popover */}
+          {/* Removed Clear All Filters Button */}
           <Button asChild>
             <Link href="/tasks/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Agregar Nueva Tarea
@@ -575,7 +254,7 @@ export default function TasksPage() {
                         onClick={() => setTaskToDelete(task)} 
                         disabled={isDeleting && taskToDelete?.id === task.id}
                       >
-                        {isDeleting && taskToDelete?.id === task.id ? <Loader2 className="h-4 w-4 animate-spin text-red-600" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                        {isDeleting && taskToDelete?.id === task.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -590,11 +269,10 @@ export default function TasksPage() {
          <div className="text-center py-12 text-muted-foreground">
           {getEmptyStateIcon()}
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {(statusFilter === ALL_FILTER_VALUE && priorityFilter === ALL_FILTER_VALUE && clientFilter === ALL_FILTER_VALUE && !dateRangeFilter && alertStatusFilter === ALL_FILTER_VALUE && searchParams.get('due') !== 'today') && (
-            <Button variant="link" className="mt-2" asChild>
-              <Link href="/tasks/add">Agrega tu primera tarea</Link>
-            </Button>
-          )}
+          {/* Removed condition that checked filters to show "Agrega tu primera tarea" */}
+          <Button variant="link" className="mt-2" asChild>
+            <Link href="/tasks/add">Agrega tu primera tarea</Link>
+          </Button>
         </div>
       )}
 
@@ -621,5 +299,3 @@ export default function TasksPage() {
     </div>
   );
 }
-
-    
