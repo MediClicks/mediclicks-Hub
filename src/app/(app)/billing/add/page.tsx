@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
@@ -18,21 +18,23 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Trash2, AlertTriangle } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Trash2, AlertTriangle, PackagePlus, Loader2 } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import type { InvoiceStatus, InvoiceItem, Client, WithConvertedDates } from '@/types';
+import type { InvoiceStatus, InvoiceItem, Client, WithConvertedDates, ContractedServiceClient } from '@/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, doc, getDoc, deleteField } from 'firebase/firestore';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
 
 const invoiceStatuses: InvoiceStatus[] = ['No Pagada', 'Pagada', 'Vencida'];
 
 const invoiceItemSchema = z.object({
-  id: z.string(), 
+  id: z.string(),
   description: z.string().min(1, { message: 'La descripción es obligatoria.' }),
   quantity: z.coerce.number().min(1, { message: 'Cantidad debe ser al menos 1.' }),
   unitPrice: z.coerce.number().min(0, { message: 'El precio no puede ser negativo.' }),
@@ -51,12 +53,17 @@ type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 let itemIdCounter = 0;
 
-// Function to convert Firestore Timestamps to JS Date objects for clients
 function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
-   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
+  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
     if (data[key as keyof Client] instanceof Timestamp) {
       data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
+    } else if (Array.isArray(data[key as keyof Client])) {
+        data[key as keyof Client] = (data[key as keyof Client] as any[]).map(item =>
+            typeof item === 'object' && item !== null && !(item instanceof Date) ? convertClientTimestampsToDates(item) : item
+        ) as any;
+    } else if (typeof data[key as keyof Client] === 'object' && data[key as keyof Client] !== null && !(data[key as keyof Client] instanceof Date)) {
+        data[key as keyof Client] = convertClientTimestampsToDates(data[key as keyof Client]) as any;
     }
   }
   return data as WithConvertedDates<Client>;
@@ -69,42 +76,15 @@ export default function AddInvoicePage() {
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [clientError, setClientError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchClients = async () => {
-      setIsLoadingClients(true);
-      setClientError(null);
-      try {
-        const clientsCollection = collection(db, "clients");
-        const q = query(clientsCollection, orderBy("name", "asc"));
-        const querySnapshot = await getDocs(q);
-        const fetchedClients = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          const convertedData = convertClientTimestampsToDates(data as Client);
-          return { id: doc.id, ...convertedData };
-        });
-        setClientsList(fetchedClients);
-      } catch (err) {
-        console.error("Error fetching clients for dropdown: ", err);
-        setClientError('No se pudieron cargar los clientes para el selector.');
-        toast({
-          title: 'Error al Cargar Clientes',
-          description: 'No se pudieron cargar los clientes. Intenta recargar.',
-          variant: 'destructive',
-        });
-      } finally {
-        setIsLoadingClients(false);
-      }
-    };
-    fetchClients();
-  }, [toast]);
-
+  const [selectedClientDetails, setSelectedClientDetails] = useState<WithConvertedDates<Client> | null>(null);
+  const [isLoadingSelectedClient, setIsLoadingSelectedClient] = useState(false);
 
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: {
       status: 'No Pagada',
-      items: [{ id: `item-${itemIdCounter++}`, description: '', quantity: 1, unitPrice: 0 }],
-      clientId: '', // Will be set by Select
+      items: [{ id: `item-${itemIdCounter++}-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 }],
+      clientId: '',
       notes: '',
     },
   });
@@ -114,28 +94,135 @@ export default function AddInvoicePage() {
     name: "items"
   });
 
+  const fetchClientsForDropdown = useCallback(async () => {
+    setIsLoadingClients(true);
+    setClientError(null);
+    try {
+      const clientsCollection = collection(db, "clients");
+      const q = query(clientsCollection, orderBy("name", "asc"));
+      const querySnapshot = await getDocs(q);
+      const fetchedClients = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        const convertedData = convertClientTimestampsToDates(data as Client);
+        return { id: doc.id, ...convertedData };
+      });
+      setClientsList(fetchedClients);
+    } catch (err) {
+      console.error("Error fetching clients for dropdown: ", err);
+      setClientError('No se pudieron cargar los clientes para el selector.');
+      toast({
+        title: 'Error al Cargar Clientes',
+        description: 'No se pudieron cargar los clientes. Intenta recargar.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingClients(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchClientsForDropdown();
+  }, [fetchClientsForDropdown]);
+
+  const watchedClientId = form.watch('clientId');
+
+  useEffect(() => {
+    const fetchSelectedClientDetails = async () => {
+      if (watchedClientId) {
+        setIsLoadingSelectedClient(true);
+        setSelectedClientDetails(null);
+        try {
+          const clientDocRef = doc(db, "clients", watchedClientId);
+          const docSnap = await getDoc(clientDocRef);
+          if (docSnap.exists()) {
+            const clientData = convertClientTimestampsToDates(docSnap.data() as Client);
+            setSelectedClientDetails({ id: docSnap.id, ...clientData });
+          } else {
+            toast({ title: 'Error', description: 'Cliente seleccionado no encontrado.', variant: 'destructive' });
+          }
+        } catch (error) {
+          console.error("Error fetching selected client details: ", error);
+          toast({ title: 'Error', description: 'No se pudieron cargar los detalles del cliente seleccionado.', variant: 'destructive' });
+        } finally {
+          setIsLoadingSelectedClient(false);
+        }
+      } else {
+        setSelectedClientDetails(null);
+      }
+    };
+    fetchSelectedClientDetails();
+  }, [watchedClientId, toast]);
+
+
   const watchItems = form.watch('items');
-  const totalAmount = watchItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  const totalAmount = watchItems.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+
+  const addClientServicesToInvoice = () => {
+    if (selectedClientDetails && selectedClientDetails.contractedServices && selectedClientDetails.contractedServices.length > 0) {
+      const currentItemDescriptions = new Set(fields.map(item => item.description));
+      let servicesAddedCount = 0;
+
+      selectedClientDetails.contractedServices.forEach((service: ContractedServiceClient) => {
+        // Evitar añadir si ya existe un ítem con la misma descripción (nombre del servicio)
+        if (!currentItemDescriptions.has(service.serviceName)) {
+          append({
+            id: `item-${itemIdCounter++}-${Date.now()}`,
+            description: service.serviceName,
+            quantity: 1,
+            unitPrice: service.price,
+          });
+          servicesAddedCount++;
+        }
+      });
+
+      if (servicesAddedCount > 0) {
+        toast({
+          title: 'Servicios Agregados',
+          description: `${servicesAddedCount} servicio(s) contratado(s) por ${selectedClientDetails.name} se han añadido a la factura.`,
+        });
+      } else {
+         toast({
+          title: 'Servicios No Agregados',
+          description: `Todos los servicios contratados por ${selectedClientDetails.name} ya están en la factura o no tiene servicios contratados.`,
+          variant: 'default',
+        });
+      }
+    } else {
+      toast({
+        title: 'Sin Servicios Contratados',
+        description: `${selectedClientDetails?.name || 'El cliente seleccionado'} no tiene servicios contratados registrados para agregar.`,
+        variant: 'default',
+      });
+    }
+  };
 
 
   async function onSubmit(data: InvoiceFormValues) {
     form.clearErrors();
     try {
       const clientName = clientsList.find(c => c.id === data.clientId)?.name;
-      
+
       const invoiceData: any = {
-        ...data,
-        clientName: clientName, 
+        clientId: data.clientId,
+        clientName: clientName,
+        issuedDate: Timestamp.fromDate(data.issuedDate),
+        dueDate: Timestamp.fromDate(data.dueDate),
+        status: data.status,
+        items: data.items.map(({ id, ...rest }) => rest), // Remove client-side id
         totalAmount: totalAmount,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      if (invoiceData.notes === undefined || invoiceData.notes === '') delete invoiceData.notes;
 
+      if (data.notes && data.notes.trim() !== '') {
+        invoiceData.notes = data.notes;
+      } else {
+        invoiceData.notes = deleteField();
+      }
 
       const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
       console.log('Nueva factura guardada en Firestore con ID: ', docRef.id);
-      
+
       toast({
         title: 'Factura Creada',
         description: `La factura para ${clientName || 'el cliente seleccionado'} ha sido creada.`,
@@ -164,8 +251,8 @@ export default function AddInvoicePage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Cliente</FormLabel>
-                  <Select 
-                    onValueChange={field.onChange} 
+                  <Select
+                    onValueChange={field.onChange}
                     value={field.value}
                     disabled={isLoadingClients || !!clientError}
                   >
@@ -175,7 +262,7 @@ export default function AddInvoicePage() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                       {clientError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {clientError}</div>}
+                      {clientError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {clientError}</div>}
                       {!isLoadingClients && !clientError && clientsList.map(client => (
                         <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                       ))}
@@ -261,7 +348,39 @@ export default function AddInvoicePage() {
             />
           </div>
 
-          <div className="space-y-4">
+          {watchedClientId && selectedClientDetails && selectedClientDetails.contractedServices && selectedClientDetails.contractedServices.length > 0 && (
+            <Card className="mt-6 bg-secondary/30 border-primary/30">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-md flex items-center">
+                  <PackagePlus className="mr-2 h-5 w-5 text-primary" />
+                  Sugerencias para {selectedClientDetails.name}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Este cliente tiene {selectedClientDetails.contractedServices.length} servicio(s) contratado(s).
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={addClientServicesToInvoice}
+                  disabled={isLoadingSelectedClient}
+                >
+                  {isLoadingSelectedClient ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4 text-green-600" />}
+                  Agregar Servicios Contratados a la Factura
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+           {watchedClientId && isLoadingSelectedClient && (
+             <div className="flex items-center justify-center text-sm text-muted-foreground py-3">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Cargando servicios del cliente...
+             </div>
+           )}
+
+
+          <div className="space-y-4 pt-4">
             <h2 className="text-xl font-semibold">Ítems de la Factura</h2>
             {fields.map((item, index) => (
               <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-2 items-end p-3 border rounded-md bg-secondary/30">
@@ -305,10 +424,11 @@ export default function AddInvoicePage() {
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    {fields.length > 1 && (
-                    <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
-                        <Trash2 className="h-4 w-4 text-destructive-foreground" />
-                    </Button>
+                    {/* Permitir eliminar el primer item si es necesario, ajustado para que el array de items no quede vacío y cumpla validación */}
+                    {fields.length > 0 && (
+                      <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
+                          <Trash2 className="h-4 w-4 text-destructive-foreground" />
+                      </Button>
                     )}
                  </div>
               </div>
@@ -317,12 +437,15 @@ export default function AddInvoicePage() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => append({ id: `item-${itemIdCounter++}`, description: '', quantity: 1, unitPrice: 0 })}
+              onClick={() => append({ id: `item-${itemIdCounter++}-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 })}
             >
-              <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem
+              <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem Manualmente
             </Button>
+             {form.formState.errors.items && !form.formState.errors.items.root && form.formState.errors.items.message && (
+                 <p className="text-sm font-medium text-destructive">{form.formState.errors.items.message}</p>
+            )}
           </div>
-          
+
           <div className="text-right text-xl font-semibold">
             Total: {totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}
           </div>
@@ -334,13 +457,13 @@ export default function AddInvoicePage() {
               <FormItem>
                 <FormLabel>Notas Adicionales (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} />
+                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} value={field.value || ''}/>
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients || isLoadingSelectedClient}>
             {form.formState.isSubmitting ? 'Guardando Factura...' : 'Guardar Factura'}
           </Button>
         </form>
@@ -348,3 +471,6 @@ export default function AddInvoicePage() {
     </div>
   );
 }
+
+
+    
