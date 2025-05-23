@@ -1,8 +1,9 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from "next/link";
+import { useSearchParams } from 'next/navigation';
 import {
   Table,
   TableBody,
@@ -13,10 +14,27 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types";
-import { PlusCircle, Download, Eye, Edit2, Loader2, Receipt, AlertTriangle, Trash2 } from "lucide-react"; // Removed Filter, UserCircle, CalendarIconLucide, X
+import type { Invoice, InvoiceStatus, WithConvertedDates, Client, AgencyDetails } from "@/types"; // Added AgencyDetails
+import { PlusCircle, Eye, Edit2, Trash2, Filter, Loader2, Receipt, AlertTriangle, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { CalendarIcon } from "lucide-react";
+import { format, startOfDay, endOfDay, addDays } from "date-fns";
+import { es } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
+
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc } from 'firebase/firestore'; // Removed where, QueryConstraint
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, type QueryConstraint } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -28,16 +46,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-// Removed DropdownMenu imports
-// Removed Popover and Calendar imports
-// Removed format, startOfDay, endOfDay from date-fns
-// Removed DateRange type
+import { useToast } from '@/hooks/use-toast'; // Import useToast
 
 const statusColors: Record<InvoiceStatus, string> = {
   Pagada: "bg-green-500 border-green-600 hover:bg-green-600 text-white",
   "No Pagada": "bg-yellow-500 border-yellow-600 hover:bg-yellow-600 text-white",
   Vencida: "bg-red-500 border-red-600 hover:bg-red-600 text-white",
 };
+
+const ALL_FILTER_VALUE = "__ALL__";
 
 function convertFirestoreTimestamps<T extends Record<string, any>>(docData: any): WithConvertedDates<T> {
   if (!docData) return docData as WithConvertedDates<T>;
@@ -56,19 +73,19 @@ function convertFirestoreTimestamps<T extends Record<string, any>>(docData: any)
   return data as WithConvertedDates<T>;
 }
 
-// Removed filter type definitions
 
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<WithConvertedDates<Invoice>[]>([]);
-  // const [clientsForFilter, setClientsForFilter] = useState<WithConvertedDates<Client>[]>([]); // Removed as client filter is removed
-  // const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null); 
-  // const [isClientSide, setIsClientSide] = useState(false); 
-
+  const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  // const [isLoadingClients, setIsLoadingClients] = useState(true); // Removed
-  // const [isLoadingAgency, setIsLoadingAgency] = useState(true); 
-
+  const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [clientError, setClientError] = useState<string | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | typeof ALL_FILTER_VALUE>(ALL_FILTER_VALUE);
+  const [clientFilter, setClientFilter] = useState<string | typeof ALL_FILTER_VALUE>(ALL_FILTER_VALUE);
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRange | undefined>(undefined);
+
   const [invoiceToDelete, setInvoiceToDelete] = useState<WithConvertedDates<Invoice> | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
@@ -79,18 +96,47 @@ export default function BillingPage() {
   //   setIsClientSide(true);
   // }, []);
 
-  // Simplified fetchInitialData as client list for filter is no longer needed
-  // const fetchInitialData = useCallback(async () => {
-    // Logic for agencyDetails could be kept if needed elsewhere, but not for filters
-  // }, [toast]);
+  const fetchInitialData = useCallback(async () => {
+    setIsLoadingClients(true);
+    setClientError(null);
+    try {
+      const clientsCollection = collection(db, "clients");
+      const qClients = query(clientsCollection, orderBy("name", "asc"));
+      const clientsSnapshot = await getDocs(qClients);
+      const fetchedClients = clientsSnapshot.docs.map(doc => {
+        const data = convertFirestoreTimestamps<Client>(doc.data() as Client);
+        return { id: doc.id, ...data };
+      });
+      setClientsList(fetchedClients);
+    } catch (err: any) {
+      console.error("Error fetching clients for filter: ", err);
+      setClientError("No se pudieron cargar los clientes para el filtro.");
+    } finally {
+      setIsLoadingClients(false);
+    }
+  }, []);
 
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const invoicesCollection = collection(db, "invoices");
-      // Simplified query: only orderBy issuedDate
-      const q = query(invoicesCollection, orderBy("issuedDate", "desc"));
+      let qConstraints: QueryConstraint[] = [orderBy("issuedDate", "desc")];
+
+      if (statusFilter !== ALL_FILTER_VALUE) {
+        qConstraints.push(where("status", "==", statusFilter));
+      }
+      if (clientFilter !== ALL_FILTER_VALUE) {
+        qConstraints.push(where("clientId", "==", clientFilter));
+      }
+      if (dateRangeFilter?.from) {
+        qConstraints.push(where("issuedDate", ">=", Timestamp.fromDate(startOfDay(dateRangeFilter.from))));
+      }
+      if (dateRangeFilter?.to) {
+        qConstraints.push(where("issuedDate", "<=", Timestamp.fromDate(endOfDay(dateRangeFilter.to))));
+      }
+      
+      const q = query(invoicesCollection, ...qConstraints);
       
       const querySnapshot = await getDocs(q);
       const invoicesData = querySnapshot.docs.map(doc => {
@@ -108,17 +154,17 @@ export default function BillingPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []); // Removed filter states from dependencies
+  }, [statusFilter, clientFilter, dateRangeFilter]); 
 
-  // useEffect(() => { // Simplified initial data fetching
-  //   fetchInitialData(); 
-  // }, [fetchInitialData]);
+  useEffect(() => { 
+    fetchInitialData(); 
+  }, [fetchInitialData]);
 
   useEffect(() => {
-    // if (!isLoadingClients /* && !isLoadingAgency */) { 
-    fetchInvoices();
-    // }
-  }, [fetchInvoices]); // Removed isLoadingClients
+    if (!isLoadingClients) { 
+      fetchInvoices();
+    }
+  }, [fetchInvoices, isLoadingClients]);
 
 
   const handleDeleteInvoice = async () => {
@@ -131,6 +177,7 @@ export default function BillingPage() {
         description: `La factura con ID ${invoiceToDelete.id.substring(0, 8).toUpperCase()} ha sido eliminada.`,
       });
       setInvoices(prevInvoices => prevInvoices.filter(inv => inv.id !== invoiceToDelete.id));
+      setInvoiceToDelete(null);
     } catch (error) {
       console.error("Error eliminando factura: ", error);
       toast({
@@ -140,21 +187,46 @@ export default function BillingPage() {
       });
     } finally {
       setIsDeleting(false);
-      setInvoiceToDelete(null);
     }
   };
 
-  // Removed clearAllFilters function
+  const clearAllFilters = () => {
+    setStatusFilter(ALL_FILTER_VALUE);
+    setClientFilter(ALL_FILTER_VALUE);
+    setDateRangeFilter(undefined);
+  };
   
   const getEmptyStateMessage = () => {
-    return "No se encontraron facturas.";
+    const activeFilterCount = [statusFilter, clientFilter, dateRangeFilter?.from].filter(
+      (f) => f !== ALL_FILTER_VALUE && f !== undefined
+    ).length;
+
+    if (activeFilterCount > 0) {
+      let message = "No se encontraron facturas con los filtros aplicados";
+      if (statusFilter !== ALL_FILTER_VALUE) message += ` (Estado: ${statusFilter})`;
+      if (clientFilter !== ALL_FILTER_VALUE) {
+        const clientName = clientsList.find(c => c.id === clientFilter)?.name || clientFilter;
+        message += ` (Cliente: ${clientName})`;
+      }
+      if (dateRangeFilter?.from) {
+        message += ` (Desde: ${format(dateRangeFilter.from, "dd/MM/yy", { locale: es })}${dateRangeFilter.to ? ` - Hasta: ${format(dateRangeFilter.to, "dd/MM/yy", { locale: es })}` : ''})`;
+      }
+      return message + ".";
+    }
+    return "No se encontraron facturas. ¡Crea la primera!";
   };
-
-  // Removed currentFilteredClientName
-
-  const isLoadingOverall = isLoading; // Simplified as isLoadingClients is removed
   
-  // Removed activeFiltersCount
+  const currentFilteredClientName = useMemo(() => {
+    if (clientFilter === ALL_FILTER_VALUE || isLoadingClients) return "Cliente";
+    return clientsList.find(c => c.id === clientFilter)?.name || "Cliente";
+  }, [clientFilter, clientsList, isLoadingClients]);
+
+
+  const isLoadingOverall = isLoading || isLoadingClients;
+  
+  const activeFiltersCount = [statusFilter, clientFilter, dateRangeFilter?.from].filter(
+      (f) => f !== ALL_FILTER_VALUE && f !== undefined
+    ).length;
 
 
   return (
@@ -162,8 +234,94 @@ export default function BillingPage() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Facturación y Cobros</h1>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Removed all Filter DropdownMenus and Popover */}
-          {/* Removed Clear All Filters Button */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant={statusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} className="gap-1.5">
+                <Filter className="h-4 w-4" />
+                {statusFilter === ALL_FILTER_VALUE ? "Estado" : `Estado: ${statusFilter}`}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[200px]">
+              <DropdownMenuLabel>Filtrar por Estado</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={statusFilter} onValueChange={(value) => setStatusFilter(value as InvoiceStatus | typeof ALL_FILTER_VALUE)}>
+                <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todas</DropdownMenuRadioItem>
+                {(['Pagada', 'No Pagada', 'Vencida'] as InvoiceStatus[]).map((status) => (
+                  <DropdownMenuRadioItem key={status} value={status}>{status}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+               <Button variant={clientFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} className="gap-1.5" disabled={isLoadingClients}>
+                <Filter className="h-4 w-4" />
+                 {isLoadingClients ? "Cargando clientes..." : (clientFilter === ALL_FILTER_VALUE ? "Cliente" : `Cliente: ${currentFilteredClientName}`)}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[250px]">
+              <DropdownMenuLabel>Filtrar por Cliente</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+               {isLoadingClients ? (
+                <div className="p-2 text-sm text-muted-foreground">Cargando...</div>
+              ) : clientError ? (
+                <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2"/>{clientError}</div>
+              ) : (
+                <DropdownMenuRadioGroup value={clientFilter} onValueChange={setClientFilter}>
+                  <DropdownMenuRadioItem value={ALL_FILTER_VALUE}>Todos los Clientes</DropdownMenuRadioItem>
+                  {clientsList.map((client) => (
+                    <DropdownMenuRadioItem key={client.id} value={client.id}>{client.name}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={dateRangeFilter?.from ? "secondary" : "outline"}
+                className={cn(
+                  "w-auto justify-start text-left font-normal gap-1.5",
+                  !dateRangeFilter && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="h-4 w-4" />
+                {dateRangeFilter?.from ? (
+                  dateRangeFilter.to ? (
+                    <>
+                      {format(dateRangeFilter.from, "dd LLL, yy", { locale: es })} -{" "}
+                      {format(dateRangeFilter.to, "dd LLL, yy", { locale: es })}
+                    </>
+                  ) : (
+                    format(dateRangeFilter.from, "dd LLL, yy", { locale: es })
+                  )
+                ) : (
+                  <span>Seleccionar rango</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={dateRangeFilter?.from}
+                selected={dateRangeFilter}
+                onSelect={setDateRangeFilter}
+                numberOfMonths={2}
+                locale={es}
+              />
+            </PopoverContent>
+          </Popover>
+          
+          {activeFiltersCount > 0 && (
+            <Button variant="ghost" onClick={clearAllFilters} className="text-muted-foreground hover:text-foreground gap-1.5" title="Limpiar Todos los Filtros">
+              <X className="h-4 w-4" /> Limpiar Filtros
+            </Button>
+          )}
+
           <Button asChild>
             <Link href="/billing/add">
               <PlusCircle className="mr-2 h-4 w-4 text-primary-foreground" /> Crear Nueva Factura
@@ -203,7 +361,6 @@ export default function BillingPage() {
             </TableHeader>
             <TableBody>
               {invoices.map(invoice => {
-                // PDF Download Link logic is commented out / simplified as per previous steps
                 return (
                   <TableRow key={invoice.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
@@ -237,10 +394,11 @@ export default function BillingPage() {
                         onClick={() => setInvoiceToDelete(invoice)}
                         disabled={isDeleting && invoiceToDelete?.id === invoice.id}
                        >
-                        {isDeleting && invoiceToDelete?.id === invoice.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                        {isDeleting && invoiceToDelete?.id === invoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
                       </Button>
+                       {/* PDFDownloadLink and related logic commented out to prevent hasOwnProperty error */}
                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-50 cursor-not-allowed" title="Descargar PDF (deshabilitado en lista)" disabled>
-                          <Download className="h-4 w-4 text-blue-600 opacity-50" />
+                          {/* <Download className="h-4 w-4 text-blue-600 opacity-50" /> */}
                        </Button>
                     </TableCell>
                   </TableRow>
@@ -255,10 +413,11 @@ export default function BillingPage() {
         <div className="text-center py-12 text-muted-foreground">
           <Receipt className="mx-auto h-12 w-12 text-gray-400 mb-3" />
           <p className="text-lg">{getEmptyStateMessage()}</p>
-          {/* Removed condition for filters to show "Crea tu primera factura" */}
-          <Button variant="link" className="mt-2" asChild>
-            <Link href="/billing/add">Crea tu primera factura</Link>
-          </Button>
+          {activeFiltersCount === 0 && (
+            <Button variant="link" className="mt-2" asChild>
+              <Link href="/billing/add">Crea tu primera factura</Link>
+            </Button>
+          )}
         </div>
       )}
 
@@ -271,7 +430,7 @@ export default function BillingPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting} onClick={() => setInvoiceToDelete(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting} onClick={() => { setInvoiceToDelete(null); }}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteInvoice}
               disabled={isDeleting}
