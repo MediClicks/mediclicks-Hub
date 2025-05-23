@@ -28,8 +28,8 @@ import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase'; 
-import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, FieldValue } from 'firebase/firestore'; // Added FieldValue
-import type { ClientFormValues, PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types';
+import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, FieldValue } from 'firebase/firestore';
+import type { PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types'; // ClientFormValues was removed as it's defined locally
 
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
@@ -57,7 +57,7 @@ const clientFormSchema = z.object({
   clinica: z.string().optional(),
   telefono: z.string().optional(),
   contractStartDate: z.date({ required_error: 'La fecha de inicio de contrato es obligatoria.' }),
-  profileSummary: z.string().optional(), // Min length removed for now, can be added back if needed
+  profileSummary: z.string().optional(),
   pagado: z.boolean().default(false).optional(),
   dominioWeb: z.string().optional(),
   tipoServicioWeb: z.string().optional(),
@@ -67,6 +67,8 @@ const clientFormSchema = z.object({
   credencialesRedesUsuario: z.string().optional(), 
   credencialesRedesContrasena: z.string().optional(), 
 });
+
+type ClientFormValues = z.infer<typeof clientFormSchema>;
 
 
 function convertServiceDefinitionTimestamps(docData: any): WithConvertedDates<ServiceDefinition> {
@@ -154,43 +156,31 @@ export default function AddClientPage() {
         name: data.name,
         email: data.email,
         contractStartDate: Timestamp.fromDate(data.contractStartDate),
-        pagado: data.pagado || false, // Ensure pagado always has a boolean value
+        pagado: data.pagado || false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 
-      // Conditionally add optional string fields ONLY if they have a valid, non-empty string value
-      if (typeof data.avatarUrl === 'string' && data.avatarUrl.trim() !== '') {
-        dataToSave.avatarUrl = data.avatarUrl;
-      }
-      if (typeof data.clinica === 'string' && data.clinica.trim() !== '') {
-        dataToSave.clinica = data.clinica;
-      }
-      if (typeof data.telefono === 'string' && data.telefono.trim() !== '') {
-        dataToSave.telefono = data.telefono;
-      }
-      if (typeof data.profileSummary === 'string' && data.profileSummary.trim() !== '') {
-        dataToSave.profileSummary = data.profileSummary;
-      }
-      if (typeof data.dominioWeb === 'string' && data.dominioWeb.trim() !== '') {
-        dataToSave.dominioWeb = data.dominioWeb;
-      }
-      if (typeof data.tipoServicioWeb === 'string' && data.tipoServicioWeb.trim() !== '') {
-        dataToSave.tipoServicioWeb = data.tipoServicioWeb;
-      }
-      if (typeof data.credencialesRedesUsuario === 'string' && data.credencialesRedesUsuario.trim() !== '') {
-        dataToSave.credencialesRedesUsuario = data.credencialesRedesUsuario;
-      }
-      if (typeof data.credencialesRedesContrasena === 'string' && data.credencialesRedesContrasena.trim() !== '') {
-        dataToSave.credencialesRedesContrasena = data.credencialesRedesContrasena;
-      }
+      // Conditionally add optional string fields
+      const optionalStringFields: (keyof ClientFormValues)[] = [
+        'avatarUrl', 'clinica', 'telefono', 'profileSummary', 
+        'dominioWeb', 'tipoServicioWeb', 
+        'credencialesRedesUsuario', 'credencialesRedesContrasena'
+      ];
+
+      optionalStringFields.forEach(key => {
+        const value = data[key] as string | undefined;
+        if (typeof value === 'string' && value.trim() !== '') {
+          dataToSave[key] = value;
+        }
+      });
       
-      // Handle optional date: only add if it's a valid Date instance
+      // Handle optional date: vencimientoWeb
       if (data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime())) {
         dataToSave.vencimientoWeb = Timestamp.fromDate(data.vencimientoWeb);
       }
 
-      // Handle arrays: only add if they have items, and strip client-side IDs
+      // Handle arrays: contractedServices and socialMediaAccounts
       if (data.contractedServices && data.contractedServices.length > 0) {
         dataToSave.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
       }
@@ -198,7 +188,6 @@ export default function AddClientPage() {
       if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
         dataToSave.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
           const account: any = { ...rest };
-          // Only add password if it's a non-empty string
           if (typeof password === 'string' && password.trim() !== '') {
             account.password = password;
           }
@@ -206,15 +195,9 @@ export default function AddClientPage() {
         });
       }
       
-      // Defensive check: Ensure no FieldValue instances (like deleteField()) are in dataToSave for addDoc
-      for (const key in dataToSave) {
-        if (Object.prototype.hasOwnProperty.call(dataToSave, key)) {
-          if (dataToSave[key] instanceof FieldValue) {
-            console.error(`CRITICAL ERROR: Attempting to use FieldValue for key '${key}' in addDoc. Removing field.`);
-            delete dataToSave[key]; // Remove the problematic field before sending
-          }
-        }
-      }
+      // The overly aggressive security loop has been removed.
+      // The construction of dataToSave above now correctly omits fields
+      // that should not be sent, rather than assigning deleteField() to them for addDoc.
 
       const docRef = await addDoc(collection(db, 'clients'), dataToSave);
       console.log('Nuevo cliente guardado con ID: ', docRef.id);
@@ -381,7 +364,7 @@ export default function AddClientPage() {
                                 placeholder={
                                   isLoadingServices ? "Cargando servicios..." : 
                                   (serviceError ? "Error al cargar servicios" : 
-                                  (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
+                                  (serviceDefinitions.length === 0 ? "No hay servicios definidos. Crea uno en Configuración." : "Seleccionar servicio"))
                                 } 
                               />
                           </SelectTrigger>
@@ -449,7 +432,7 @@ export default function AddClientPage() {
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Servicio
             </Button>
-             {form.formState.errors.contractedServices && !form.formState.errors.contractedServices.root && form.formState.errors.contractedServices.message && (
+             {form.formState.errors.contractedServices && !form.formState.errors.contractedServices.root && typeof form.formState.errors.contractedServices.message === 'string' && (
                  <p className="text-sm font-medium text-destructive">{form.formState.errors.contractedServices.message}</p>
             )}
           </div>
@@ -625,3 +608,4 @@ export default function AddClientPage() {
     </div>
   );
 }
+
