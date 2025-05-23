@@ -1,9 +1,9 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import{
@@ -18,17 +18,16 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';;
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, AlertTriangle } from 'lucide-react';
+import { CalendarIcon, AlertTriangle, Loader2 } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, doc, updateDoc, FieldValue } from 'firebase/firestore'; // Added FieldValue
-import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, FieldValue } from 'firebase/firestore';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -37,7 +36,7 @@ const taskFormSchema = z.object({
   name: z.string().min(3, { message: 'El nombre de la tarea debe tener al menos 3 caracteres.' }),
   description: z.string().optional(),
   assignedTo: z.string().min(2, { message: 'Debe asignar la tarea a alguien.' }),
-  clientId: z.string().optional(), 
+  clientId: z.string().optional(),
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   priority: z.enum(taskPriorities, { required_error: 'La prioridad es obligatoria.' }),
   status: z.enum(taskStatuses, { required_error: 'El estado es obligatorio.' }),
@@ -75,34 +74,35 @@ export default function AddTaskPage() {
 
   const [selectedAlertTime, setSelectedAlertTime] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    const fetchClients = async () => {
-      setIsLoadingClients(true);
-      setClientError(null);
-      try {
-        const clientsCollection = collection(db, "clients");
-        const q = query(clientsCollection, orderBy("name", "asc"));
-        const querySnapshot = await getDocs(q);
-        const fetchedClients = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          const convertedData = convertClientTimestampsToDates(data as Client);
-          return { id: doc.id, ...convertedData };
-        });
-        setClientsList(fetchedClients);
-      } catch (err) {
-        console.error("Error fetching clients for dropdown: ", err);
-        setClientError('No se pudieron cargar los clientes para el selector.');
-        toast({
-          title: 'Error al Cargar Clientes',
-          description: 'No se pudieron cargar los clientes. Intenta recargar.',
-          variant: 'destructive',
-        });
-      } finally {
-        setIsLoadingClients(false);
-      }
-    };
-    fetchClients();
+  const fetchClients = useCallback(async () => {
+    setIsLoadingClients(true);
+    setClientError(null);
+    try {
+      const clientsCollection = collection(db, "clients");
+      const q = query(clientsCollection, orderBy("name", "asc"));
+      const querySnapshot = await getDocs(q);
+      const fetchedClients = querySnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        const convertedData = convertClientTimestampsToDates(data as Client);
+        return { id: docSnap.id, ...convertedData };
+      });
+      setClientsList(fetchedClients);
+    } catch (err) {
+      console.error("Error fetching clients for dropdown: ", err);
+      setClientError('No se pudieron cargar los clientes para el selector.');
+      toast({
+        title: 'Error al Cargar Clientes',
+        description: 'No se pudieron cargar los clientes. Intenta recargar.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingClients(false);
+    }
   }, [toast]);
+
+  useEffect(() => {
+    fetchClients();
+  }, [fetchClients]);
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
@@ -111,23 +111,22 @@ export default function AddTaskPage() {
       assignedTo: '',
       priority: 'Media',
       status: 'Pendiente',
-      clientId: TASK_CLIENT_SELECT_NONE_VALUE, 
+      clientId: TASK_CLIENT_SELECT_NONE_VALUE,
       description: '',
       alertDate: null,
     },
   });
 
   async function onSubmit(data: TaskFormValues) {
-    form.clearErrors(); 
+    form.clearErrors();
 
     let combinedAlertDate: Date | null | undefined = data.alertDate;
     if (data.alertDate && selectedAlertTime) {
       const [hours, minutes] = selectedAlertTime.split(':').map(Number);
-      combinedAlertDate = new Date(data.alertDate); 
+      combinedAlertDate = new Date(data.alertDate);
       combinedAlertDate.setHours(hours, minutes, 0, 0);
     } else if (data.alertDate && !selectedAlertTime) {
-       combinedAlertDate = new Date(data.alertDate);
-       combinedAlertDate.setHours(0, 0, 0, 0); // Default to start of day if no time selected
+       combinedAlertDate = startOfDay(new Date(data.alertDate));
     }
 
     try {
@@ -137,93 +136,37 @@ export default function AddTaskPage() {
       }
 
       const taskDataToSave: any = {
-        ...data, // Spread submitted form data first
-        clientName: clientName, // Add or overwrite clientName
+        ...data,
+        clientName: clientName,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        alertDate: combinedAlertDate ? Timestamp.fromDate(combinedAlertDate) : deleteField(),
+        alertFired: combinedAlertDate ? false : deleteField(),
       };
-      
-      // Convert dueDate to Firestore Timestamp
+
       if (data.dueDate) {
         taskDataToSave.dueDate = Timestamp.fromDate(data.dueDate);
       }
-      
-      // Handle alertDate conversion or deletion
-      if (combinedAlertDate) {
-        taskDataToSave.alertDate = Timestamp.fromDate(combinedAlertDate);
-      } else {
-        // If no combinedAlertDate, ensure alertDate is removed from what's saved
-        taskDataToSave.alertDate = deleteField(); 
-      }
-      
-      // Handle optional clientId and clientName
+
       if (!data.clientId || data.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
         taskDataToSave.clientId = deleteField();
-        taskDataToSave.clientName = deleteField(); 
+        taskDataToSave.clientName = deleteField();
       } else {
-         taskDataToSave.clientId = data.clientId; // Ensure it's explicitly set if provided
+         taskDataToSave.clientId = data.clientId;
       }
 
-      // Handle optional description
-      if (data.description === undefined || data.description === '') {
+      if (data.description === undefined || data.description.trim() === '') {
         taskDataToSave.description = deleteField();
       } else {
-        taskDataToSave.description = data.description; // Ensure it's explicitly set if provided
-      }
-      
-      // Remove the form's 'alertDate' if we used combinedAlertDate, to avoid confusion.
-      // The actual alertDate (Timestamp or deleteField()) is already in taskDataToSave.
-      if ('alertDate' in data && data.alertDate !== taskDataToSave.alertDate) {
-        // This condition is a bit tricky, essentially if combinedAlertDate was used,
-        // the original form.alertDate is no longer the source of truth for saving.
-        // delete taskDataToSave.alertDate; // This would be wrong, we set it above.
-        // Actually, taskDataToSave.alertDate is ALREADY CORRECT (Timestamp or deleteField).
-        // The key is that data.alertDate from the form (which is Date | null) is not what we directly save.
+        taskDataToSave.description = data.description;
       }
 
+      await addDoc(collection(db, 'tasks'), taskDataToSave);
 
-      const docRef = await addDoc(collection(db, 'tasks'), taskDataToSave);
-      console.log('Nueva tarea guardada en Firestore con ID: ', docRef.id);
-      
-      // Add alertFired field, only if alertDate was provided and saved (is a Timestamp)
-      if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp ) { 
-          await updateDoc(doc(db, 'tasks', docRef.id), { alertFired: false });
-      }
-      
       toast({
         title: 'Tarea Creada',
         description: `La tarea "${data.name}" ha sido agregada exitosamente.`,
       });
-
-      // Intentar crear evento de Google Calendar si hay fecha de alerta
-      if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp) {
-        try {
-          const calendarResult = await addCalendarEventForTaskAction({
-            name: taskDataToSave.name,
-            description: taskDataToSave.description instanceof FieldValue ? undefined : taskDataToSave.description, // Handle deleteField case
-            alertDate: taskDataToSave.alertDate,
-          });
-          if (calendarResult.success) {
-            toast({
-              title: 'Evento de Calendario Creado',
-              description: calendarResult.message,
-            });
-          } else {
-            toast({
-              title: 'Error de Calendario',
-              description: calendarResult.message,
-              variant: 'destructive',
-            });
-          }
-        } catch (calendarError: any) {
-          console.error('Error directo al llamar addCalendarEventForTaskAction:', calendarError);
-           toast({
-            title: 'Error de Calendario (Excepción)',
-            description: calendarError.message || 'No se pudo crear el evento en Google Calendar.',
-            variant: 'destructive',
-          });
-        }
-      }
       router.push('/tasks');
     } catch (e) {
       console.error('Error al agregar tarea a Firestore: ', e);
@@ -260,7 +203,7 @@ export default function AddTaskPage() {
               <FormItem>
                 <FormLabel>Descripción (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Detalles adicionales sobre la tarea..." {...field} />
+                  <Textarea placeholder="Detalles adicionales sobre la tarea..." {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -287,7 +230,7 @@ export default function AddTaskPage() {
                 <FormItem>
                   <FormLabel>Cliente (Opcional)</FormLabel>
                   <Select
-                    value={field.value || TASK_CLIENT_SELECT_NONE_VALUE} 
+                    value={field.value || TASK_CLIENT_SELECT_NONE_VALUE}
                     onValueChange={(selectedValue) => {
                       field.onChange(selectedValue === TASK_CLIENT_SELECT_NONE_VALUE ? undefined : selectedValue);
                     }}
@@ -370,7 +313,7 @@ export default function AddTaskPage() {
                           {field.value ? (
                             format(field.value, 'PPP', { locale: es }) + (selectedAlertTime ? ` ${selectedAlertTime}` : ' (00:00)')
                           ) : (
-                            <span>Seleccionar fecha</span>
+                            <span>Seleccionar fecha y hora</span>
                           )}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
                         </Button>
@@ -380,12 +323,19 @@ export default function AddTaskPage() {
                       <Calendar
                         mode="single"
                         selected={field.value}
-                        onSelect={(date) => field.onChange(date || null)} 
+                        onSelect={(date) => {
+                            field.onChange(date || null);
+                             if (!date) setSelectedAlertTime(undefined); // Clear time if date is cleared
+                        }}
                         initialFocus
                         locale={es}
                       />
                       <div className="p-3 border-t">
-                        <Select value={selectedAlertTime} onValueChange={setSelectedAlertTime}>
+                        <Select
+                          value={selectedAlertTime}
+                          onValueChange={setSelectedAlertTime}
+                          disabled={!field.value} // Disable time if no date is selected
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Seleccionar hora (opcional)" />
                           </SelectTrigger>
@@ -450,6 +400,7 @@ export default function AddTaskPage() {
          </div>
           <div className="flex gap-4">
             <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients}>
+              {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {form.formState.isSubmitting ? 'Guardando Tarea...' : 'Guardar Tarea'}
             </Button>
           </div>

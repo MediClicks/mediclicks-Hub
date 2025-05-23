@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
@@ -27,7 +27,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates, Task } from '@/types';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, collection, query, orderBy, getDocs, deleteField, FieldValue } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, collection, query, orderBy, getDocs, deleteField } from 'firebase/firestore';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -64,10 +64,9 @@ export default function EditTaskPage() {
   const { toast } = useToast();
   const taskId = params.id as string;
 
-  const [isLoadingForm, setIsLoadingForm] = useState(true); // Combined loading state
+  const [isLoadingForm, setIsLoadingForm] = useState(true);
   const [taskNotFound, setTaskNotFound] = useState(false);
   const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
-  // const [isLoadingClients, setIsLoadingClients] = useState(true); // Covered by isLoadingForm
   const [clientError, setClientError] = useState<string | null>(null);
 
   const [selectedAlertTime, setSelectedAlertTime] = useState<string | undefined>(undefined);
@@ -108,17 +107,15 @@ export default function EditTaskPage() {
     setClientError(null);
 
     try {
-      // Fetch Clients
       const clientsCollection = collection(db, "clients");
       const qClients = query(clientsCollection, orderBy("name", "asc"));
       const clientsSnapshot = await getDocs(qClients);
-      const fetchedClients = clientsSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return { id: doc.id, ...convertClientTimestampsToDates(data as Client) };
+      const fetchedClients = clientsSnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return { id: docSnap.id, ...convertClientTimestampsToDates(data as Client) };
       });
       setClientsList(fetchedClients);
 
-      // Fetch Task
       const taskDocRef = doc(db, 'tasks', taskId);
       const docSnap = await getDoc(taskDocRef);
 
@@ -155,12 +152,11 @@ export default function EditTaskPage() {
     } catch (error) {
       console.error("Error fetching task or clients: ", error);
       toast({ title: 'Error', description: 'No se pudo cargar la información de la tarea o los clientes.', variant: 'destructive' });
-      // Potentially set specific error for clients if that part failed
       if (clientsList.length === 0) setClientError('No se pudieron cargar los clientes.');
     } finally {
       setIsLoadingForm(false);
     }
-  }, [taskId, form, router, toast, clientsList.length]); // Added clientsList.length to dependencies
+  }, [taskId, form, router, toast]);
 
   useEffect(() => {
     fetchTaskAndClients();
@@ -173,9 +169,9 @@ export default function EditTaskPage() {
     let combinedAlertDate: Date | null | undefined = data.alertDate;
     if (data.alertDate && selectedAlertTime) {
       const [hours, minutes] = selectedAlertTime.split(':').map(Number);
-      combinedAlertDate = new Date(data.alertDate); // Create a new Date object from the form's date part
-      combinedAlertDate.setHours(hours, minutes, 0, 0); // Set the time
-    } else if (data.alertDate && !selectedAlertTime) { // If date is set but no time, default to start of day
+      combinedAlertDate = new Date(data.alertDate);
+      combinedAlertDate.setHours(hours, minutes, 0, 0);
+    } else if (data.alertDate && !selectedAlertTime) {
         combinedAlertDate = startOfDay(new Date(data.alertDate));
     }
 
@@ -213,7 +209,7 @@ export default function EditTaskPage() {
 
       if (combinedAlertDate instanceof Date && !isNaN(combinedAlertDate.getTime())) {
         dataToUpdate.alertDate = Timestamp.fromDate(combinedAlertDate);
-        dataToUpdate.alertFired = false; // Reset alertFired when alertDate is set/changed
+        dataToUpdate.alertFired = false;
       } else {
         dataToUpdate.alertDate = deleteField();
         dataToUpdate.alertFired = deleteField();
@@ -311,11 +307,11 @@ export default function EditTaskPage() {
                     onValueChange={(selectedValue) => {
                       field.onChange(selectedValue === TASK_CLIENT_SELECT_NONE_VALUE ? undefined : selectedValue);
                     }}
-                    disabled={clientsList.length === 0 && !clientError}
+                    disabled={clientsList.length === 0 && !clientError && !isLoadingForm}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente")} />
+                        <SelectValue placeholder={isLoadingForm && !clientError ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente"))} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -392,16 +388,16 @@ export default function EditTaskPage() {
                         locale={es}
                       />
                       <div className="p-3 border-t">
-                        <Select 
-                          value={selectedAlertTime} 
-                          onValueChange={setSelectedAlertTime} 
+                        <Select
+                          value={selectedAlertTime}
+                          onValueChange={setSelectedAlertTime}
                           disabled={!field.value} // Disable time if no date is selected
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Hora (opcional)" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={undefined as any}>Sin hora específica</SelectItem>
+                            <SelectItem value={undefined as any}>Sin hora específica (00:00)</SelectItem>
                             {timeOptions.map(time => (
                               <SelectItem key={time} value={time}>{time}</SelectItem>
                             ))}
@@ -467,6 +463,7 @@ export default function EditTaskPage() {
             )}
           </div>
           <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
+            {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>

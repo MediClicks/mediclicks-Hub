@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
@@ -67,10 +67,9 @@ export default function EditInvoicePage() {
   const { toast } = useToast();
   const invoiceId = params.id as string;
 
-  const [isLoadingForm, setIsLoadingForm] = useState(true); // Combined loading state
+  const [isLoadingForm, setIsLoadingForm] = useState(true);
   const [invoiceNotFound, setInvoiceNotFound] = useState(false);
   const [clientsList, setClientsList] = useState<WithConvertedDates<Client>[]>([]);
-  // const [isLoadingClients, setIsLoadingClients] = useState(true); // Covered by isLoadingForm
   const [clientError, setClientError] = useState<string | null>(null);
 
   const form = useForm<InvoiceFormValues>({
@@ -83,7 +82,7 @@ export default function EditInvoicePage() {
     },
   });
 
-  const { fields, append, remove } = useFieldArray({ // `replace` not needed here
+  const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "items"
   });
@@ -102,32 +101,30 @@ export default function EditInvoicePage() {
     setClientError(null);
 
     try {
-      // Fetch Clients
       const clientsCollection = collection(db, "clients");
       const qClients = query(clientsCollection, orderBy("name", "asc"));
       const clientsSnapshot = await getDocs(qClients);
-      const fetchedClients = clientsSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return { id: doc.id, ...convertClientTimestampsToDates(data as Client) };
+      const fetchedClients = clientsSnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return { id: docSnap.id, ...convertClientTimestampsToDates(data as Client) };
       });
       setClientsList(fetchedClients);
 
-      // Fetch Invoice
       const invoiceDocRef = doc(db, 'invoices', invoiceId);
       const docSnap = await getDoc(invoiceDocRef);
 
       if (docSnap.exists()) {
         const data = docSnap.data() as Invoice;
-        itemIdCounter = data.items?.length || 0; // Initialize counter based on existing items
+        itemIdCounter = data.items?.length || 0;
 
         form.reset({
           clientId: data.clientId,
           issuedDate: data.issuedDate instanceof Timestamp ? data.issuedDate.toDate() : new Date(data.issuedDate),
           dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
           status: data.status,
-          items: (data.items || []).map((item, index) => ({ // Ensure items is an array
+          items: (data.items || []).map((item, index) => ({
             ...item,
-            id: `item-${index}-${Date.now()}` // Ensure unique client-side ID for useFieldArray
+            id: `item-${index}-${Date.now()}`
           })),
           notes: data.notes || '',
         });
@@ -143,7 +140,7 @@ export default function EditInvoicePage() {
     } finally {
       setIsLoadingForm(false);
     }
-  }, [invoiceId, form, router, toast, clientsList.length]); // Added clientsList.length
+  }, [invoiceId, form, router, toast]);
 
   useEffect(() => {
     fetchInvoiceAndClients();
@@ -165,7 +162,7 @@ export default function EditInvoicePage() {
         clientName: clientName,
         totalAmount: totalAmount,
         updatedAt: serverTimestamp(),
-        items: data.items.map(({ id, ...rest }) => rest), // Remove client-side id before saving
+        items: data.items.map(({ id, ...rest }) => rest),
       };
 
       if (data.notes && data.notes.trim() !== '') {
@@ -226,11 +223,11 @@ export default function EditInvoicePage() {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={clientsList.length === 0 && !clientError}
+                    disabled={isLoadingForm || (clientsList.length === 0 && !clientError)}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente")} />
+                        <SelectValue placeholder={isLoadingForm && !clientError ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente"))} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -364,11 +361,9 @@ export default function EditInvoicePage() {
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    {/* {fields.length > 1 && ( // Allow removing the last item if needed by business logic, otherwise keep this constraint*/}
                     <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
                         <Trash2 className="h-4 w-4 text-destructive-foreground" />
                     </Button>
-                    {/* )} */}
                  </div>
               </div>
             ))}
@@ -403,6 +398,7 @@ export default function EditInvoicePage() {
             )}
           />
           <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
+            {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>

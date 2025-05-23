@@ -1,60 +1,68 @@
-'use server';
-
-import { createGoogleCalendarEvent, type CalendarEvent } from '@/lib/googleCalendar';
-import type { Timestamp } from 'firebase/firestore';
-
-export async function addCalendarEventForTaskAction(task: {
-  name: string;
-  description?: string;
-  alertDate: Timestamp; // Viene de Firestore Timestamp
-}) {
-  try {
-    const alertDateTime = task.alertDate.toDate();
-    // El evento durará 1 hora por defecto
-    const endDateTime = new Date(alertDateTime.getTime() + 60 * 60 * 1000); 
-
-    // Para Google Calendar, las fechas deben estar en formato ISO 8601.
-    // .toISOString() devuelve la fecha en UTC (ej: '2024-05-21T17:00:00.000Z').
-    // La propiedad timeZone en el evento le dice a Google Calendar cómo interpretar/mostrar esta fecha UTC.
-    // Es importante que la zona horaria sea válida (IANA Time Zone Database name).
-    const timeZone = 'America/New_York'; // TODO: Hacer esto configurable o tomar del perfil de usuario.
-
-    const event: CalendarEvent = {
-      summary: `Recordatorio Tarea: ${task.name}`,
-      description: task.description || `Recordatorio para la tarea "${task.name}"`,
-      start: {
-        dateTime: alertDateTime.toISOString(),
-        timeZone: timeZone,
-      },
-      end: {
-        dateTime: endDateTime.toISOString(),
-        timeZone: timeZone,
-      },
-      reminders: { // Añadir un recordatorio predeterminado (popup 10 minutos antes)
-        useDefault: false,
-        overrides: [
-          { method: 'popup', minutes: 10 },
-        ],
-      },
-    };
-
-    const calendarEvent = await createGoogleCalendarEvent(event);
-    console.log('Calendar event successfully created via server action:', calendarEvent.htmlLink);
-    return { success: true, message: 'Evento de calendario creado exitosamente.', link: calendarEvent.htmlLink };
-  } catch (error: any) {
-    console.error('Error en addCalendarEventForTaskAction:', error.message);
-    let userMessage = 'No se pudo crear el evento en Google Calendar.';
-    
-    // Intentar dar mensajes más específicos basados en el error.
-    if (typeof error.message === 'string') {
-        if (error.message.includes('token.json') || error.message.includes('No access token') || error.message.includes('invalid_grant')) {
-            userMessage += ' Por favor, verifica la autorización con Google Calendar (archivo token.json).';
-        } else if (error.message.includes('Could not load credentials file')) {
-            userMessage += ` Asegúrate de que el archivo de credenciales de Google exista en la raíz del proyecto.`;
-        } else if (error.message.includes('Google API Error')) {
-            userMessage += ` Detalles: ${error.message}`;
-        }
-    }
-    return { success: false, message: userMessage };
+{
+  "name": "nextn",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 9002",
+    "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
+    "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@genkit-ai/googleai": "^1.8.0",
+    "@genkit-ai/next": "^1.8.0",
+    "@hookform/resolvers": "^4.1.3",
+    "@radix-ui/react-accordion": "^1.2.3",
+    "@radix-ui/react-alert-dialog": "^1.1.6",
+    "@radix-ui/react-avatar": "^1.1.3",
+    "@radix-ui/react-checkbox": "^1.1.4",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-dropdown-menu": "^2.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-menubar": "^1.1.6",
+    "@radix-ui/react-popover": "^1.1.6",
+    "@radix-ui/react-progress": "^1.1.2",
+    "@radix-ui/react-radio-group": "^1.2.3",
+    "@radix-ui/react-scroll-area": "^1.2.3",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slider": "^1.2.3",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "@radix-ui/react-toast": "^1.2.6",
+    "@radix-ui/react-tooltip": "^1.1.8",
+    "@react-pdf/renderer": "^3.4.4",
+    "@tanstack-query-firebase/react": "^1.0.5",
+    "@tanstack/react-query": "^5.66.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.5.0",
+    "firebase": "^11.7.3",
+    "genkit": "^1.8.0",
+    "lucide-react": "^0.475.0",
+    "next": "15.2.3",
+    "patch-package": "^8.0.0",
+    "react": "^18.3.1",
+    "react-day-picker": "^8.10.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.54.2",
+    "recharts": "^2.15.1",
+    "tailwind-merge": "^3.0.1",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "genkit-cli": "^1.8.0",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
   }
 }
