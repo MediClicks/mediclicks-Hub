@@ -51,14 +51,27 @@ const invoiceFormSchema = z.object({
 
 type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
-function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
-   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
+// Recursive timestamp converter
+function convertClientTimestampsToDates<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
+  if (!docData) return undefined;
+  const data = { ...docData } as any; // Use 'any' for easier manipulation internally
   for (const key in data) {
-    if (data[key as keyof Client] instanceof Timestamp) {
-      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const value = data[key];
+      if (value instanceof Timestamp) {
+        data[key] = value.toDate();
+      } else if (Array.isArray(value)) {
+        data[key] = value.map((item: any) =>
+          typeof item === 'object' && item !== null && !(item instanceof Date)
+            ? convertClientTimestampsToDates(item) // Recursively convert objects in arrays
+            : item
+        );
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+        data[key] = convertClientTimestampsToDates(value); // Recursively convert nested objects
+      }
     }
   }
-  return data as WithConvertedDates<Client>;
+  return data as WithConvertedDates<T>;
 }
 
 export default function EditInvoicePage() {
@@ -105,8 +118,8 @@ export default function EditInvoicePage() {
       const qClients = query(clientsCollection, orderBy("name", "asc"));
       const clientsSnapshot = await getDocs(qClients);
       const fetchedClients = clientsSnapshot.docs.map(docSnap => {
-        const data = docSnap.data();
-        return { id: docSnap.id, ...convertClientTimestampsToDates(data as Client) };
+        const data = docSnap.data() as Client; // Assume Client type, convert below
+        return { id: docSnap.id, ...convertClientTimestampsToDates(data) };
       });
       setClientsList(fetchedClients);
 
@@ -116,18 +129,19 @@ export default function EditInvoicePage() {
       if (docSnap.exists()) {
         const data = docSnap.data() as Invoice;
         itemIdCounter = data.items?.length || 0;
-
-        form.reset({
+        
+        const formData = {
           clientId: data.clientId,
           issuedDate: data.issuedDate instanceof Timestamp ? data.issuedDate.toDate() : new Date(data.issuedDate),
           dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : new Date(data.dueDate),
           status: data.status,
           items: (data.items || []).map((item, index) => ({
             ...item,
-            id: `item-${index}-${Date.now()}`
+            id: `item-edit-${index}-${Date.now()}` // Ensure unique ID for existing items in the form
           })),
           notes: data.notes || '',
-        });
+        };
+        form.reset(formData);
       } else {
         setInvoiceNotFound(true);
         toast({ title: 'Error', description: 'Factura no encontrada.', variant: 'destructive' });
@@ -140,7 +154,7 @@ export default function EditInvoicePage() {
     } finally {
       setIsLoadingForm(false);
     }
-  }, [invoiceId, form, router, toast]);
+  }, [invoiceId, form, router, toast]); // Removed clientsList from dependencies as it's set within
 
   useEffect(() => {
     fetchInvoiceAndClients();
@@ -159,10 +173,10 @@ export default function EditInvoicePage() {
 
       const invoiceDataToUpdate: any = {
         ...data,
-        clientName: clientName,
+        clientName: clientName || deleteField(), // Ensure clientName is removed if client is somehow not found
         totalAmount: totalAmount,
         updatedAt: serverTimestamp(),
-        items: data.items.map(({ id, ...rest }) => rest),
+        items: data.items.map(({ id, ...rest }) => rest), // Remove client-side ID before saving
       };
 
       if (data.notes && data.notes.trim() !== '') {
@@ -226,7 +240,7 @@ export default function EditInvoicePage() {
                     disabled={isLoadingForm || (clientsList.length === 0 && !clientError)}
                   >
                     <FormControl>
-                      <SelectTrigger>
+                       <SelectTrigger>
                         <SelectValue placeholder={isLoadingForm && !clientError ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente"))} />
                       </SelectTrigger>
                     </FormControl>
@@ -375,7 +389,7 @@ export default function EditInvoicePage() {
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem
             </Button>
-            {form.formState.errors.items && !form.formState.errors.items.root && form.formState.errors.items.message && (
+            {form.formState.errors.items && !form.formState.errors.items.root && typeof form.formState.errors.items.message === 'string' && (
                  <p className="text-sm font-medium text-destructive">{form.formState.errors.items.message}</p>
             )}
           </div>

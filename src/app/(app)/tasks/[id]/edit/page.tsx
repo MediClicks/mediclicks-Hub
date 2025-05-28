@@ -48,14 +48,27 @@ type TaskFormValues = z.infer<typeof taskFormSchema>;
 
 const TASK_CLIENT_SELECT_NONE_VALUE = "__NONE__";
 
-function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
-  const data = { ...docData } as Partial<WithConvertedDates<Client>>;
+// Recursive timestamp converter
+function convertClientTimestampsToDates<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
+  if (!docData) return undefined;
+  const data = { ...docData } as any; 
   for (const key in data) {
-    if (data[key as keyof Client] instanceof Timestamp) {
-      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const value = data[key];
+      if (value instanceof Timestamp) {
+        data[key] = value.toDate();
+      } else if (Array.isArray(value)) {
+        data[key] = value.map((item: any) =>
+          typeof item === 'object' && item !== null && !(item instanceof Date)
+            ? convertClientTimestampsToDates(item)
+            : item
+        );
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+        data[key] = convertClientTimestampsToDates(value);
+      }
     }
   }
-  return data as WithConvertedDates<Client>;
+  return data as WithConvertedDates<T>;
 }
 
 export default function EditTaskPage() {
@@ -107,15 +120,17 @@ export default function EditTaskPage() {
     setClientError(null);
 
     try {
+      // Fetch clients
       const clientsCollection = collection(db, "clients");
       const qClients = query(clientsCollection, orderBy("name", "asc"));
       const clientsSnapshot = await getDocs(qClients);
       const fetchedClients = clientsSnapshot.docs.map(docSnap => {
-        const data = docSnap.data();
-        return { id: docSnap.id, ...convertClientTimestampsToDates(data as Client) };
+        const data = docSnap.data() as Client;
+        return { id: docSnap.id, ...convertClientTimestampsToDates(data) };
       });
       setClientsList(fetchedClients);
 
+      // Fetch task
       const taskDocRef = doc(db, 'tasks', taskId);
       const docSnap = await getDoc(taskDocRef);
 
@@ -156,7 +171,7 @@ export default function EditTaskPage() {
     } finally {
       setIsLoadingForm(false);
     }
-  }, [taskId, form, router, toast]);
+  }, [taskId, form, router, toast]); // clientsList removed from deps
 
   useEffect(() => {
     fetchTaskAndClients();
@@ -171,7 +186,7 @@ export default function EditTaskPage() {
       const [hours, minutes] = selectedAlertTime.split(':').map(Number);
       combinedAlertDate = new Date(data.alertDate);
       combinedAlertDate.setHours(hours, minutes, 0, 0);
-    } else if (data.alertDate && !selectedAlertTime) {
+    } else if (data.alertDate && !selectedAlertTime) { // If date is set but no time, use start of day
         combinedAlertDate = startOfDay(new Date(data.alertDate));
     }
 
@@ -209,7 +224,7 @@ export default function EditTaskPage() {
 
       if (combinedAlertDate instanceof Date && !isNaN(combinedAlertDate.getTime())) {
         dataToUpdate.alertDate = Timestamp.fromDate(combinedAlertDate);
-        dataToUpdate.alertFired = false;
+        dataToUpdate.alertFired = false; // Reset alertFired when alertDate is set/modified
       } else {
         dataToUpdate.alertDate = deleteField();
         dataToUpdate.alertFired = deleteField();
@@ -307,10 +322,10 @@ export default function EditTaskPage() {
                     onValueChange={(selectedValue) => {
                       field.onChange(selectedValue === TASK_CLIENT_SELECT_NONE_VALUE ? undefined : selectedValue);
                     }}
-                    disabled={clientsList.length === 0 && !clientError && !isLoadingForm}
+                    disabled={isLoadingForm || (clientsList.length === 0 && !clientError)}
                   >
                     <FormControl>
-                      <SelectTrigger>
+                       <SelectTrigger>
                         <SelectValue placeholder={isLoadingForm && !clientError ? "Cargando clientes..." : (clientError ? "Error al cargar clientes" : (clientsList.length === 0 ? "No hay clientes" : "Seleccionar un cliente"))} />
                       </SelectTrigger>
                     </FormControl>
@@ -382,7 +397,7 @@ export default function EditTaskPage() {
                         selected={field.value}
                         onSelect={(date) => {
                             field.onChange(date || null);
-                            if (!date) setSelectedAlertTime(undefined); // Clear time if date is cleared
+                            if (!date) setSelectedAlertTime(undefined); 
                         }}
                         initialFocus
                         locale={es}
@@ -391,7 +406,7 @@ export default function EditTaskPage() {
                         <Select
                           value={selectedAlertTime}
                           onValueChange={setSelectedAlertTime}
-                          disabled={!field.value} // Disable time if no date is selected
+                          disabled={!field.value} 
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Hora (opcional)" />
@@ -463,8 +478,8 @@ export default function EditTaskPage() {
             )}
           </div>
           <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
-            {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
+            {form.formState.isSubmitting || isLoadingForm ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {form.formState.isSubmitting || isLoadingForm ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>
       </Form>

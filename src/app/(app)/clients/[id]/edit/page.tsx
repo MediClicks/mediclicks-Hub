@@ -70,15 +70,29 @@ const clientFormSchema = z.object({
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
-function convertServiceDefinitionTimestamps(docData: any): WithConvertedDates<ServiceDefinition> {
-   const data = { ...docData } as Partial<WithConvertedDates<ServiceDefinition>>;
-  for (const key in data) {
-    if (data[key as keyof ServiceDefinition] instanceof Timestamp) {
-      data[key as keyof ServiceDefinition] = (data[key as keyof ServiceDefinition] as Timestamp).toDate() as any;
+// Recursive timestamp converter
+function convertTimestampsRecursively<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
+  if (!data) return undefined;
+  const convertedData = { ...data } as any; 
+  for (const key in convertedData) {
+    if (Object.prototype.hasOwnProperty.call(convertedData, key)) {
+      const value = convertedData[key];
+      if (value instanceof Timestamp) {
+        convertedData[key] = value.toDate();
+      } else if (Array.isArray(value)) {
+        convertedData[key] = value.map((item: any) =>
+          typeof item === 'object' && item !== null && !(item instanceof Date)
+            ? convertTimestampsRecursively(item)
+            : item
+        );
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+        convertedData[key] = convertTimestampsRecursively(value);
+      }
     }
   }
-  return data as WithConvertedDates<ServiceDefinition>;
+  return convertedData as WithConvertedDates<T>;
 }
+
 
 export default function EditClientPage() {
   const router = useRouter();
@@ -91,7 +105,6 @@ export default function EditClientPage() {
   const [initialContractedServices, setInitialContractedServices] = useState<ContractedServiceClient[]>([]);
 
   const [serviceDefinitions, setServiceDefinitions] = useState<WithConvertedDates<ServiceDefinition>[]>([]);
-  // isLoadingServices is now effectively part of isLoadingForm
   const [serviceError, setServiceError] = useState<string | null>(null);
 
   const form = useForm<ClientFormValues>({
@@ -152,14 +165,13 @@ export default function EditClientPage() {
       const q = query(servicesCollection, orderBy("name", "asc"));
       const querySnapshot = await getDocs(q);
       const fetchedServiceDefs = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return { id: doc.id, ...convertServiceDefinitionTimestamps(data as ServiceDefinition) };
+        const data = doc.data() as ServiceDefinition;
+        return { id: doc.id, ...convertTimestampsRecursively(data) }; // Use recursive converter
       });
       setServiceDefinitions(fetchedServiceDefs);
     } catch (err) {
       console.error("Error fetching service definitions: ", err);
       setServiceError('No se pudieron cargar las definiciones de servicios.');
-      // Continue even if services fail, client form can still be used partially
     } finally {
       servicesFetched = true;
       checkAllDataLoaded();
@@ -178,7 +190,7 @@ export default function EditClientPage() {
 
         const fetchedContractedServices = (data.contractedServices || []).map((service, index) => ({
             ...service,
-            id: `service-edit-${index}-${Date.now()}` // Unique ID for useFieldArray
+            id: `service-edit-${index}-${Date.now()}` 
         }));
         
         const fetchedSocialAccounts = (data.socialMediaAccounts || []).map((account, index) => ({
@@ -186,7 +198,7 @@ export default function EditClientPage() {
             id: `social-edit-${index}-${Date.now()}`
         }));
 
-        setInitialContractedServices(fetchedContractedServices.map(s => ({...s}))); // Store initial state for comparison
+        setInitialContractedServices(fetchedContractedServices.map(s => ({...s}))); 
 
         const formData: ClientFormValues = {
           name: data.name || '',
@@ -214,7 +226,6 @@ export default function EditClientPage() {
     } catch (error) {
       console.error("Error fetching client: ", error);
       toast({ title: 'Error', description: 'No se pudo cargar la información del cliente.', variant: 'destructive' });
-      // If client fetching fails, it's a critical error for an edit page
       setClientNotFound(true); 
     } finally {
       clientDataFetched = true;
@@ -229,41 +240,44 @@ export default function EditClientPage() {
 
   async function onSubmit(data: ClientFormValues) {
     form.clearErrors();
-    const { 
-      avatarUrl, clinica, telefono, profileSummary, 
-      dominioWeb, tipoServicioWeb, vencimientoWeb,
-      credencialesRedesUsuario, credencialesRedesContrasena,
-      contractedServices, socialMediaAccounts,
-      ...basicClientData 
-    } = data;
-
+    
     const dataToUpdate: Record<string, any> = {
-      ...basicClientData,
-      contractStartDate: data.contractStartDate ? Timestamp.fromDate(data.contractStartDate) : deleteField(),
+      name: data.name,
+      email: data.email,
+      contractStartDate: Timestamp.fromDate(data.contractStartDate),
+      pagado: data.pagado || false,
       updatedAt: serverTimestamp(),
     };
 
-    if (typeof avatarUrl === 'string' && avatarUrl.trim() !== '') dataToUpdate.avatarUrl = avatarUrl; else dataToUpdate.avatarUrl = deleteField();
-    if (typeof clinica === 'string' && clinica.trim() !== '') dataToUpdate.clinica = clinica; else dataToUpdate.clinica = deleteField();
-    if (typeof telefono === 'string' && telefono.trim() !== '') dataToUpdate.telefono = telefono; else dataToUpdate.telefono = deleteField();
-    if (typeof profileSummary === 'string' && profileSummary.trim() !== '') dataToUpdate.profileSummary = profileSummary; else dataToUpdate.profileSummary = deleteField();
-    if (typeof dominioWeb === 'string' && dominioWeb.trim() !== '') dataToUpdate.dominioWeb = dominioWeb; else dataToUpdate.dominioWeb = deleteField();
-    if (typeof tipoServicioWeb === 'string' && tipoServicioWeb.trim() !== '') dataToUpdate.tipoServicioWeb = tipoServicioWeb; else dataToUpdate.tipoServicioWeb = deleteField();
-    if (typeof credencialesRedesUsuario === 'string' && credencialesRedesUsuario.trim() !== '') dataToUpdate.credencialesRedesUsuario = credencialesRedesUsuario; else dataToUpdate.credencialesRedesUsuario = deleteField();
-    if (typeof credencialesRedesContrasena === 'string' && credencialesRedesContrasena.trim() !== '') dataToUpdate.credencialesRedesContrasena = credencialesRedesContrasena; else dataToUpdate.credencialesRedesContrasena = deleteField();
+    // Handle optional string fields
+    const optionalStringFields: (keyof ClientFormValues)[] = [
+      'avatarUrl', 'clinica', 'telefono', 'profileSummary',
+      'dominioWeb', 'tipoServicioWeb', 'credencialesRedesUsuario', 'credencialesRedesContrasena'
+    ];
+    optionalStringFields.forEach(key => {
+      const value = data[key as keyof ClientFormValues] as string | undefined;
+      if (typeof value === 'string' && value.trim() !== '') {
+        dataToUpdate[key] = value;
+      } else {
+        dataToUpdate[key] = deleteField();
+      }
+    });
     
-    dataToUpdate.vencimientoWeb = vencimientoWeb instanceof Date && !isNaN(vencimientoWeb.getTime()) ? Timestamp.fromDate(vencimientoWeb) : deleteField();
+    dataToUpdate.vencimientoWeb = data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime()) 
+      ? Timestamp.fromDate(data.vencimientoWeb) 
+      : deleteField();
 
-    if (contractedServices && contractedServices.length > 0) {
-      dataToUpdate.contractedServices = contractedServices.map(({ id, ...rest }) => rest);
+    if (data.contractedServices && data.contractedServices.length > 0) {
+      dataToUpdate.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
     } else {
       dataToUpdate.contractedServices = deleteField();
     }
 
-    if (socialMediaAccounts && socialMediaAccounts.length > 0) {
-      dataToUpdate.socialMediaAccounts = socialMediaAccounts.map(({ id, password, ...rest }) => {
+    if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
+      dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
         const account: any = {...rest};
         if(typeof password === 'string' && password.trim() !== '') account.password = password;
+        else account.password = deleteField(); // Ensure password is removed if empty
         return account;
       });
     } else {
@@ -279,7 +293,6 @@ export default function EditClientPage() {
         description: `El cliente ${data.name} ha sido actualizado exitosamente.`,
       });
 
-      // Crear tareas automáticas para servicios recién añadidos
       const currentServiceNames = new Set((data.contractedServices || []).map(s => s.serviceName));
       const initialServiceNamesForCompare = new Set(initialContractedServices.map(s => s.serviceName));
 
@@ -296,7 +309,7 @@ export default function EditClientPage() {
             assignedTo: "Equipo de Cuentas", 
             clientId: clientId,
             clientName: clientNameForTask,
-            dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), // Due in 3 days
+            dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), 
             priority: 'Media' as TaskPriority,
             status: 'Pendiente' as TaskStatus,
             createdAt: serverTimestamp(),
@@ -439,7 +452,7 @@ export default function EditClientPage() {
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} disabled={(date) => date > new Date() || date < new Date('1900-01-01')} initialFocus locale={es} />
+                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -484,14 +497,13 @@ export default function EditClientPage() {
                           }
                         }}
                         value={field.value}
+                        disabled={isLoadingForm || !!serviceError || serviceDefinitions.length === 0}
                       >
                         <FormControl>
-                           <SelectTrigger
-                             disabled={isLoadingForm || !!serviceError || serviceDefinitions.length === 0} // Use isLoadingForm
-                           >
+                           <SelectTrigger>
                              <SelectValue 
                                 placeholder={
-                                  isLoadingForm && !serviceError ? "Cargando servicios..." :  // Check isLoadingForm
+                                  isLoadingForm ? "Cargando servicios..." :  
                                   (serviceError ? "Error al cargar servicios" : 
                                   (serviceDefinitions.length === 0 ? "No hay servicios definidos. Crea uno en Configuración." : "Seleccionar servicio"))
                                 } 
@@ -557,7 +569,7 @@ export default function EditClientPage() {
               variant="outline"
               size="sm"
               onClick={() => appendService({ id: `service-${serviceItemIdCounter++}-${Date.now()}`, serviceName: '', price: 0, paymentModality: 'Mensual' })}
-              disabled={isLoadingForm || !!serviceError || serviceDefinitions.length === 0} // Use isLoadingForm
+              disabled={isLoadingForm || !!serviceError || serviceDefinitions.length === 0}
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Servicio
             </Button>
@@ -727,13 +739,11 @@ export default function EditClientPage() {
             )}
           />
           <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
-            {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
+            {form.formState.isSubmitting || isLoadingForm ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {form.formState.isSubmitting || isLoadingForm ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>
       </Form>
     </div>
   );
 }
-
-    

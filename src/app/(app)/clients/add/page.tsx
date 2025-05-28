@@ -70,18 +70,27 @@ const clientFormSchema = z.object({
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
-
-function convertServiceDefinitionTimestamps(docData: any): WithConvertedDates<ServiceDefinition> {
-   const data = { ...docData } as Partial<WithConvertedDates<ServiceDefinition>>;
+// Recursive timestamp converter for ServiceDefinition
+function convertServiceDefinitionTimestamps<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
+  if (!docData) return undefined;
+  const data = { ...docData } as any;
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
-      const value = data[key as keyof ServiceDefinition];
+      const value = data[key];
       if (value instanceof Timestamp) {
-        data[key as keyof ServiceDefinition] = value.toDate() as any;
+        data[key] = value.toDate();
+      } else if (Array.isArray(value)) {
+        data[key] = value.map((item: any) =>
+          typeof item === 'object' && item !== null && !(item instanceof Date)
+            ? convertServiceDefinitionTimestamps(item)
+            : item
+        );
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+        data[key] = convertServiceDefinitionTimestamps(value);
       }
     }
   }
-  return data as WithConvertedDates<ServiceDefinition>;
+  return data as WithConvertedDates<T>;
 }
 
 
@@ -132,8 +141,8 @@ export default function AddClientPage() {
         const q = query(servicesCollection, orderBy("name", "asc"));
         const querySnapshot = await getDocs(q);
         const fetchedServices = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          return { id: doc.id, ...convertServiceDefinitionTimestamps(data as ServiceDefinition) };
+          const data = doc.data() as ServiceDefinition; // Assume ServiceDefinition type
+          return { id: doc.id, ...convertServiceDefinitionTimestamps(data) };
         });
         setServiceDefinitions(fetchedServices);
       } catch (err) {
@@ -149,41 +158,36 @@ export default function AddClientPage() {
   }, [fetchServiceDefinitions]);
 
   async function onSubmit(data: ClientFormValues) {
-    form.clearErrors(); 
-    const { 
-      avatarUrl, clinica, telefono, profileSummary, 
-      dominioWeb, tipoServicioWeb, vencimientoWeb,
-      credencialesRedesUsuario, credencialesRedesContrasena,
-      contractedServices, socialMediaAccounts,
-      ...basicClientData 
-    } = data;
-
+    form.clearErrors();
+    
     const dataToSave: Record<string, any> = {
-      ...basicClientData,
+      name: data.name,
+      email: data.email,
       contractStartDate: Timestamp.fromDate(data.contractStartDate),
+      pagado: data.pagado || false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
-    if (typeof avatarUrl === 'string' && avatarUrl.trim() !== '') dataToSave.avatarUrl = avatarUrl;
-    if (typeof clinica === 'string' && clinica.trim() !== '') dataToSave.clinica = clinica;
-    if (typeof telefono === 'string' && telefono.trim() !== '') dataToSave.telefono = telefono;
-    if (typeof profileSummary === 'string' && profileSummary.trim() !== '') dataToSave.profileSummary = profileSummary;
-    if (typeof dominioWeb === 'string' && dominioWeb.trim() !== '') dataToSave.dominioWeb = dominioWeb;
-    if (typeof tipoServicioWeb === 'string' && tipoServicioWeb.trim() !== '') dataToSave.tipoServicioWeb = tipoServicioWeb;
-    if (typeof credencialesRedesUsuario === 'string' && credencialesRedesUsuario.trim() !== '') dataToSave.credencialesRedesUsuario = credencialesRedesUsuario;
-    if (typeof credencialesRedesContrasena === 'string' && credencialesRedesContrasena.trim() !== '') dataToSave.credencialesRedesContrasena = credencialesRedesContrasena;
+    if (data.avatarUrl && data.avatarUrl.trim() !== '') dataToSave.avatarUrl = data.avatarUrl;
+    if (data.clinica && data.clinica.trim() !== '') dataToSave.clinica = data.clinica;
+    if (data.telefono && data.telefono.trim() !== '') dataToSave.telefono = data.telefono;
+    if (data.profileSummary && data.profileSummary.trim() !== '') dataToSave.profileSummary = data.profileSummary;
+    if (data.dominioWeb && data.dominioWeb.trim() !== '') dataToSave.dominioWeb = data.dominioWeb;
+    if (data.tipoServicioWeb && data.tipoServicioWeb.trim() !== '') dataToSave.tipoServicioWeb = data.tipoServicioWeb;
+    if (data.credencialesRedesUsuario && data.credencialesRedesUsuario.trim() !== '') dataToSave.credencialesRedesUsuario = data.credencialesRedesUsuario;
+    if (data.credencialesRedesContrasena && data.credencialesRedesContrasena.trim() !== '') dataToSave.credencialesRedesContrasena = data.credencialesRedesContrasena;
     
-    if (vencimientoWeb instanceof Date && !isNaN(vencimientoWeb.getTime())) {
-      dataToSave.vencimientoWeb = Timestamp.fromDate(vencimientoWeb);
+    if (data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime())) {
+      dataToSave.vencimientoWeb = Timestamp.fromDate(data.vencimientoWeb);
     }
 
-    if (contractedServices && contractedServices.length > 0) {
-      dataToSave.contractedServices = contractedServices.map(({ id, ...rest }) => rest);
+    if (data.contractedServices && data.contractedServices.length > 0) {
+      dataToSave.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest); // Remove client-side ID
     }
 
-    if (socialMediaAccounts && socialMediaAccounts.length > 0) {
-      dataToSave.socialMediaAccounts = socialMediaAccounts.map(({ id, password, ...rest }) => {
+    if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
+      dataToSave.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
         const account: any = { ...rest };
         if (typeof password === 'string' && password.trim() !== '') {
           account.password = password;
@@ -191,7 +195,7 @@ export default function AddClientPage() {
         return account;
       });
     }
-    
+        
     try {
       const docRef = await addDoc(collection(db, 'clients'), dataToSave);
       console.log('Nuevo cliente guardado con ID: ', docRef.id);
@@ -201,7 +205,6 @@ export default function AddClientPage() {
         description: `El cliente ${data.name} ha sido agregado exitosamente.`,
       });
 
-      // Crear tareas automáticas para los servicios contratados
       if (dataToSave.contractedServices && dataToSave.contractedServices.length > 0) {
         for (const service of dataToSave.contractedServices as Omit<ContractedServiceClient, 'id'>[]) {
           const newTaskData = {
@@ -210,7 +213,7 @@ export default function AddClientPage() {
             assignedTo: "Equipo de Cuentas",
             clientId: docRef.id,
             clientName: data.name,
-            dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), // Due in 3 days
+            dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), 
             priority: 'Media' as TaskPriority,
             status: 'Pendiente' as TaskStatus,
             createdAt: serverTimestamp(),
@@ -373,11 +376,10 @@ export default function AddClientPage() {
                           }
                         }}
                         value={field.value}
+                        disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
                       >
                         <FormControl>
-                           <SelectTrigger
-                             disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
-                           >
+                           <SelectTrigger>
                              <SelectValue 
                                 placeholder={
                                   isLoadingServices ? "Cargando servicios..." : 
@@ -626,5 +628,3 @@ export default function AddClientPage() {
     </div>
   );
 }
-
-    
