@@ -28,8 +28,8 @@ import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase'; 
-import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, FieldValue, deleteField } from 'firebase/firestore';
-import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types';
+import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, deleteField, FieldValue } from 'firebase/firestore';
+import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates, TaskPriority, TaskStatus } from '@/types';
 
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
@@ -150,47 +150,49 @@ export default function AddClientPage() {
 
   async function onSubmit(data: ClientFormValues) {
     form.clearErrors(); 
-    try {
-      const dataToSave: Record<string, any> = {
-        name: data.name,
-        email: data.email,
-        contractStartDate: Timestamp.fromDate(data.contractStartDate),
-        pagado: data.pagado || false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
+    const { 
+      avatarUrl, clinica, telefono, profileSummary, 
+      dominioWeb, tipoServicioWeb, vencimientoWeb,
+      credencialesRedesUsuario, credencialesRedesContrasena,
+      contractedServices, socialMediaAccounts,
+      ...basicClientData 
+    } = data;
 
-      const optionalStringFields: (keyof ClientFormValues)[] = [
-        'avatarUrl', 'clinica', 'telefono', 'profileSummary', 
-        'dominioWeb', 'tipoServicioWeb', 
-        'credencialesRedesUsuario', 'credencialesRedesContrasena'
-      ];
+    const dataToSave: Record<string, any> = {
+      ...basicClientData,
+      contractStartDate: Timestamp.fromDate(data.contractStartDate),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
 
-      optionalStringFields.forEach(key => {
-        const value = data[key] as string | undefined;
-        if (typeof value === 'string' && value.trim() !== '') {
-          dataToSave[key] = value;
+    if (typeof avatarUrl === 'string' && avatarUrl.trim() !== '') dataToSave.avatarUrl = avatarUrl;
+    if (typeof clinica === 'string' && clinica.trim() !== '') dataToSave.clinica = clinica;
+    if (typeof telefono === 'string' && telefono.trim() !== '') dataToSave.telefono = telefono;
+    if (typeof profileSummary === 'string' && profileSummary.trim() !== '') dataToSave.profileSummary = profileSummary;
+    if (typeof dominioWeb === 'string' && dominioWeb.trim() !== '') dataToSave.dominioWeb = dominioWeb;
+    if (typeof tipoServicioWeb === 'string' && tipoServicioWeb.trim() !== '') dataToSave.tipoServicioWeb = tipoServicioWeb;
+    if (typeof credencialesRedesUsuario === 'string' && credencialesRedesUsuario.trim() !== '') dataToSave.credencialesRedesUsuario = credencialesRedesUsuario;
+    if (typeof credencialesRedesContrasena === 'string' && credencialesRedesContrasena.trim() !== '') dataToSave.credencialesRedesContrasena = credencialesRedesContrasena;
+    
+    if (vencimientoWeb instanceof Date && !isNaN(vencimientoWeb.getTime())) {
+      dataToSave.vencimientoWeb = Timestamp.fromDate(vencimientoWeb);
+    }
+
+    if (contractedServices && contractedServices.length > 0) {
+      dataToSave.contractedServices = contractedServices.map(({ id, ...rest }) => rest);
+    }
+
+    if (socialMediaAccounts && socialMediaAccounts.length > 0) {
+      dataToSave.socialMediaAccounts = socialMediaAccounts.map(({ id, password, ...rest }) => {
+        const account: any = { ...rest };
+        if (typeof password === 'string' && password.trim() !== '') {
+          account.password = password;
         }
+        return account;
       });
-      
-      if (data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime())) {
-        dataToSave.vencimientoWeb = Timestamp.fromDate(data.vencimientoWeb);
-      }
-
-      if (data.contractedServices && data.contractedServices.length > 0) {
-        dataToSave.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
-      }
-
-      if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
-        dataToSave.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
-          const account: any = { ...rest };
-          if (typeof password === 'string' && password.trim() !== '') {
-            account.password = password;
-          }
-          return account;
-        });
-      }
-      
+    }
+    
+    try {
       const docRef = await addDoc(collection(db, 'clients'), dataToSave);
       console.log('Nuevo cliente guardado con ID: ', docRef.id);
 
@@ -198,6 +200,31 @@ export default function AddClientPage() {
         title: 'Cliente Creado',
         description: `El cliente ${data.name} ha sido agregado exitosamente.`,
       });
+
+      // Crear tareas automáticas para los servicios contratados
+      if (dataToSave.contractedServices && dataToSave.contractedServices.length > 0) {
+        for (const service of dataToSave.contractedServices as Omit<ContractedServiceClient, 'id'>[]) {
+          const newTaskData = {
+            name: `Configurar servicio: ${service.serviceName} para ${data.name}`,
+            description: `Iniciar configuración para "${service.serviceName}" (Precio: ${service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })} ${service.paymentModality}) contratado por ${data.name}. Incluir verificación de pago y bienvenida.`,
+            assignedTo: "Equipo de Cuentas",
+            clientId: docRef.id,
+            clientName: data.name,
+            dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), // Due in 3 days
+            priority: 'Media' as TaskPriority,
+            status: 'Pendiente' as TaskStatus,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          };
+          await addDoc(collection(db, 'tasks'), newTaskData);
+          toast({
+            title: "Tarea Automática Creada",
+            description: `Se creó una tarea para configurar el servicio "${service.serviceName}" para ${data.name}.`,
+            duration: 4000,
+          });
+        }
+      }
+
       router.push('/clients');
     } catch (e: any) {
       console.error('Error al agregar cliente a Firestore: ', e);
@@ -346,7 +373,6 @@ export default function AddClientPage() {
                           }
                         }}
                         value={field.value}
-                        disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
                       >
                         <FormControl>
                            <SelectTrigger
@@ -601,3 +627,4 @@ export default function AddClientPage() {
   );
 }
 
+    

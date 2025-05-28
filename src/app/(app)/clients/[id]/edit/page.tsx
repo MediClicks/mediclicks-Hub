@@ -28,8 +28,8 @@ import { es } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, deleteField, collection, query, orderBy, getDocs } from 'firebase/firestore';
-import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types';
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, deleteField, collection, query, orderBy, getDocs, addDoc } from 'firebase/firestore';
+import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates, TaskPriority, TaskStatus } from '@/types';
 
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
@@ -88,9 +88,10 @@ export default function EditClientPage() {
 
   const [isLoadingForm, setIsLoadingForm] = useState(true);
   const [clientNotFound, setClientNotFound] = useState(false);
+  const [initialContractedServices, setInitialContractedServices] = useState<ContractedServiceClient[]>([]);
 
   const [serviceDefinitions, setServiceDefinitions] = useState<WithConvertedDates<ServiceDefinition>[]>([]);
-  const [isLoadingServices, setIsLoadingServices] = useState(true); // Kept for individual service loading feedback
+  // isLoadingServices is now effectively part of isLoadingForm
   const [serviceError, setServiceError] = useState<string | null>(null);
 
   const form = useForm<ClientFormValues>({
@@ -135,8 +136,7 @@ export default function EditClientPage() {
     setIsLoadingForm(true);
     setClientNotFound(false);
     setServiceError(null);
-    setIsLoadingServices(true); // Reset service loading state too
-
+    
     let clientDataFetched = false;
     let servicesFetched = false;
 
@@ -146,6 +146,26 @@ export default function EditClientPage() {
       }
     };
 
+    // Fetch Service Definitions
+    try {
+      const servicesCollection = collection(db, "appServices");
+      const q = query(servicesCollection, orderBy("name", "asc"));
+      const querySnapshot = await getDocs(q);
+      const fetchedServiceDefs = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return { id: doc.id, ...convertServiceDefinitionTimestamps(data as ServiceDefinition) };
+      });
+      setServiceDefinitions(fetchedServiceDefs);
+    } catch (err) {
+      console.error("Error fetching service definitions: ", err);
+      setServiceError('No se pudieron cargar las definiciones de servicios.');
+      // Continue even if services fail, client form can still be used partially
+    } finally {
+      servicesFetched = true;
+      checkAllDataLoaded();
+    }
+
+    // Fetch Client Data
     try {
       const clientDocRef = doc(db, 'clients', clientId);
       const docSnap = await getDoc(clientDocRef);
@@ -155,6 +175,18 @@ export default function EditClientPage() {
 
         serviceItemIdCounter = data.contractedServices?.length || 0;
         socialItemIdCounter = data.socialMediaAccounts?.length || 0;
+
+        const fetchedContractedServices = (data.contractedServices || []).map((service, index) => ({
+            ...service,
+            id: `service-edit-${index}-${Date.now()}` // Unique ID for useFieldArray
+        }));
+        
+        const fetchedSocialAccounts = (data.socialMediaAccounts || []).map((account, index) => ({
+            ...account,
+            id: `social-edit-${index}-${Date.now()}`
+        }));
+
+        setInitialContractedServices(fetchedContractedServices.map(s => ({...s}))); // Store initial state for comparison
 
         const formData: ClientFormValues = {
           name: data.name || '',
@@ -168,14 +200,8 @@ export default function EditClientPage() {
           dominioWeb: data.dominioWeb || '',
           tipoServicioWeb: data.tipoServicioWeb || '',
           vencimientoWeb: data.vencimientoWeb instanceof Timestamp ? data.vencimientoWeb.toDate() : (data.vencimientoWeb === null ? null : undefined),
-          contractedServices: (data.contractedServices || []).map((service, index) => ({
-            ...service,
-            id: `service-${index}-${Date.now()}`
-          })),
-          socialMediaAccounts: (data.socialMediaAccounts || []).map((account, index) => ({
-            ...account,
-            id: `social-${index}-${Date.now()}`
-          })),
+          contractedServices: fetchedContractedServices,
+          socialMediaAccounts: fetchedSocialAccounts,
           credencialesRedesUsuario: data.credencialesRedesUsuario || '',
           credencialesRedesContrasena: data.credencialesRedesContrasena || '',
         };
@@ -185,31 +211,13 @@ export default function EditClientPage() {
         toast({ title: 'Error', description: 'Cliente no encontrado.', variant: 'destructive' });
         router.push('/clients');
       }
-      clientDataFetched = true;
-      checkAllDataLoaded();
-
     } catch (error) {
       console.error("Error fetching client: ", error);
       toast({ title: 'Error', description: 'No se pudo cargar la información del cliente.', variant: 'destructive' });
-      clientDataFetched = true; // Mark as fetched to avoid deadlock if services also fail
-      checkAllDataLoaded();
-    }
-
-    try {
-      const servicesCollection = collection(db, "appServices");
-      const q = query(servicesCollection, orderBy("name", "asc"));
-      const querySnapshot = await getDocs(q);
-      const fetchedServices = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return { id: doc.id, ...convertServiceDefinitionTimestamps(data as ServiceDefinition) };
-      });
-      setServiceDefinitions(fetchedServices);
-    } catch (err) {
-      console.error("Error fetching service definitions: ", err);
-      setServiceError('No se pudieron cargar las definiciones de servicios.');
+      // If client fetching fails, it's a critical error for an edit page
+      setClientNotFound(true); 
     } finally {
-      setIsLoadingServices(false);
-      servicesFetched = true;
+      clientDataFetched = true;
       checkAllDataLoaded();
     }
   }, [clientId, toast, form, router]);
@@ -221,56 +229,94 @@ export default function EditClientPage() {
 
   async function onSubmit(data: ClientFormValues) {
     form.clearErrors();
+    const { 
+      avatarUrl, clinica, telefono, profileSummary, 
+      dominioWeb, tipoServicioWeb, vencimientoWeb,
+      credencialesRedesUsuario, credencialesRedesContrasena,
+      contractedServices, socialMediaAccounts,
+      ...basicClientData 
+    } = data;
+
+    const dataToUpdate: Record<string, any> = {
+      ...basicClientData,
+      contractStartDate: data.contractStartDate ? Timestamp.fromDate(data.contractStartDate) : deleteField(),
+      updatedAt: serverTimestamp(),
+    };
+
+    if (typeof avatarUrl === 'string' && avatarUrl.trim() !== '') dataToUpdate.avatarUrl = avatarUrl; else dataToUpdate.avatarUrl = deleteField();
+    if (typeof clinica === 'string' && clinica.trim() !== '') dataToUpdate.clinica = clinica; else dataToUpdate.clinica = deleteField();
+    if (typeof telefono === 'string' && telefono.trim() !== '') dataToUpdate.telefono = telefono; else dataToUpdate.telefono = deleteField();
+    if (typeof profileSummary === 'string' && profileSummary.trim() !== '') dataToUpdate.profileSummary = profileSummary; else dataToUpdate.profileSummary = deleteField();
+    if (typeof dominioWeb === 'string' && dominioWeb.trim() !== '') dataToUpdate.dominioWeb = dominioWeb; else dataToUpdate.dominioWeb = deleteField();
+    if (typeof tipoServicioWeb === 'string' && tipoServicioWeb.trim() !== '') dataToUpdate.tipoServicioWeb = tipoServicioWeb; else dataToUpdate.tipoServicioWeb = deleteField();
+    if (typeof credencialesRedesUsuario === 'string' && credencialesRedesUsuario.trim() !== '') dataToUpdate.credencialesRedesUsuario = credencialesRedesUsuario; else dataToUpdate.credencialesRedesUsuario = deleteField();
+    if (typeof credencialesRedesContrasena === 'string' && credencialesRedesContrasena.trim() !== '') dataToUpdate.credencialesRedesContrasena = credencialesRedesContrasena; else dataToUpdate.credencialesRedesContrasena = deleteField();
+    
+    dataToUpdate.vencimientoWeb = vencimientoWeb instanceof Date && !isNaN(vencimientoWeb.getTime()) ? Timestamp.fromDate(vencimientoWeb) : deleteField();
+
+    if (contractedServices && contractedServices.length > 0) {
+      dataToUpdate.contractedServices = contractedServices.map(({ id, ...rest }) => rest);
+    } else {
+      dataToUpdate.contractedServices = deleteField();
+    }
+
+    if (socialMediaAccounts && socialMediaAccounts.length > 0) {
+      dataToUpdate.socialMediaAccounts = socialMediaAccounts.map(({ id, password, ...rest }) => {
+        const account: any = {...rest};
+        if(typeof password === 'string' && password.trim() !== '') account.password = password;
+        return account;
+      });
+    } else {
+      dataToUpdate.socialMediaAccounts = deleteField();
+    }
+    
     try {
       const clientDocRef = doc(db, 'clients', clientId);
-
-      const dataToUpdate: Record<string, any> = {
-        name: data.name,
-        email: data.email,
-        contractStartDate: data.contractStartDate ? Timestamp.fromDate(data.contractStartDate) : deleteField(),
-        pagado: data.pagado,
-        updatedAt: serverTimestamp(),
-      };
-
-      const optionalStringFields: (keyof ClientFormValues)[] = [
-        'avatarUrl', 'clinica', 'telefono', 'profileSummary',
-        'dominioWeb', 'tipoServicioWeb',
-        'credencialesRedesUsuario', 'credencialesRedesContrasena'
-      ];
-
-      optionalStringFields.forEach(key => {
-        const value = data[key] as string | undefined;
-        if (typeof value === 'string' && value.trim() !== '') {
-          dataToUpdate[key] = value;
-        } else {
-          dataToUpdate[key] = deleteField();
-        }
-      });
-      
-      dataToUpdate.vencimientoWeb = data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime()) ? Timestamp.fromDate(data.vencimientoWeb) : deleteField();
-
-      if (data.contractedServices && data.contractedServices.length > 0) {
-        dataToUpdate.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
-      } else {
-        dataToUpdate.contractedServices = deleteField();
-      }
-
-      if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
-        dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
-          const account: any = {...rest};
-          if(typeof password === 'string' && password.trim() !== '') account.password = password;
-          return account;
-        });
-      } else {
-        dataToUpdate.socialMediaAccounts = deleteField();
-      }
-
       await updateDoc(clientDocRef, dataToUpdate);
 
       toast({
         title: 'Cliente Actualizado',
         description: `El cliente ${data.name} ha sido actualizado exitosamente.`,
       });
+
+      // Crear tareas automáticas para servicios recién añadidos
+      const currentServiceNames = new Set((data.contractedServices || []).map(s => s.serviceName));
+      const initialServiceNamesForCompare = new Set(initialContractedServices.map(s => s.serviceName));
+
+      const newlyAddedServices = (data.contractedServices || []).filter(
+        currentService => !initialServiceNamesForCompare.has(currentService.serviceName)
+      );
+      
+      if (newlyAddedServices.length > 0) {
+        const clientNameForTask = data.name; 
+        for (const newService of newlyAddedServices) {
+          const newTaskData = {
+            name: `Configurar servicio: ${newService.serviceName} para ${clientNameForTask}`,
+            description: `Iniciar configuración para "${newService.serviceName}" (Precio: ${newService.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })} ${newService.paymentModality}) contratado por ${clientNameForTask}. Incluir verificación de pago y bienvenida.`,
+            assignedTo: "Equipo de Cuentas", 
+            clientId: clientId,
+            clientName: clientNameForTask,
+            dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), // Due in 3 days
+            priority: 'Media' as TaskPriority,
+            status: 'Pendiente' as TaskStatus,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          };
+          await addDoc(collection(db, 'tasks'), newTaskData);
+          toast({
+            title: "Tarea Automática Creada",
+            description: `Se creó una tarea para configurar el servicio "${newService.serviceName}" para ${clientNameForTask}.`,
+            duration: 4000,
+          });
+        }
+      }
+      
+      if (data.contractedServices) {
+        setInitialContractedServices(data.contractedServices.map(s => ({...s})));
+      } else {
+        setInitialContractedServices([]);
+      }
+
       router.push('/clients');
     } catch (e) {
       console.error('Error al actualizar cliente en Firestore: ', e);
@@ -438,15 +484,14 @@ export default function EditClientPage() {
                           }
                         }}
                         value={field.value}
-                        disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
                       >
                         <FormControl>
                            <SelectTrigger
-                             disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
+                             disabled={isLoadingForm || !!serviceError || serviceDefinitions.length === 0} // Use isLoadingForm
                            >
                              <SelectValue 
                                 placeholder={
-                                  isLoadingServices ? "Cargando servicios..." : 
+                                  isLoadingForm && !serviceError ? "Cargando servicios..." :  // Check isLoadingForm
                                   (serviceError ? "Error al cargar servicios" : 
                                   (serviceDefinitions.length === 0 ? "No hay servicios definidos. Crea uno en Configuración." : "Seleccionar servicio"))
                                 } 
@@ -455,8 +500,8 @@ export default function EditClientPage() {
                         </FormControl>
                         <SelectContent>
                           {serviceError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {serviceError}</div>}
-                          {!isLoadingServices && !serviceError && serviceDefinitions.length === 0 && <div className="p-2 text-sm text-muted-foreground">No hay servicios. Crea uno en Configuración.</div>}
-                          {!isLoadingServices && !serviceError && serviceDefinitions.map(serviceDef => (
+                          {!isLoadingForm && !serviceError && serviceDefinitions.length === 0 && <div className="p-2 text-sm text-muted-foreground">No hay servicios. Crea uno en Configuración.</div>}
+                          {!isLoadingForm && !serviceError && serviceDefinitions.map(serviceDef => (
                             <SelectItem key={serviceDef.id} value={serviceDef.name}>{serviceDef.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -512,7 +557,7 @@ export default function EditClientPage() {
               variant="outline"
               size="sm"
               onClick={() => appendService({ id: `service-${serviceItemIdCounter++}-${Date.now()}`, serviceName: '', price: 0, paymentModality: 'Mensual' })}
-              disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
+              disabled={isLoadingForm || !!serviceError || serviceDefinitions.length === 0} // Use isLoadingForm
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Servicio
             </Button>
@@ -681,7 +726,7 @@ export default function EditClientPage() {
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm || isLoadingServices}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
             {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
@@ -690,3 +735,5 @@ export default function EditClientPage() {
     </div>
   );
 }
+
+    
