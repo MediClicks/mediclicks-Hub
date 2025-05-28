@@ -14,15 +14,26 @@ export default function MediClicksAiAgencyPage() { // Nombre de la función camb
       </div>
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle>Tu Asistente de Agencia IA</CardTitle>
+          <CardTitle>Panel de Control de la Agencia IA</CardTitle>
           <CardDescription>
-            Interactúa con tu asistente personal de IA. Con el tiempo, aprenderá a administrar aspectos de Medi Clicks.
+            Interactúa con tu asistente personal y visualiza las futuras capacidades de gestión de tu agencia.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="p-1 md:p-2">
-            <Chatbot /> {/* Chatbot integrado aquí */}
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center">
+                <Bot className="mr-2 h-6 w-6 text-accent" />
+                Tu Asistente de Agencia IA
+              </CardTitle>
+              <CardDescription>
+                Haz preguntas, pide resúmenes o solicita ayuda con tareas relacionadas con la agencia.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-1 md:p-2">
+              <Chatbot /> {/* Chatbot integrado aquí */}
+            </CardContent>
+          </Card>
 
           <div className="border-t pt-6">
             <h3 className="text-lg font-semibold mb-4 text-center text-muted-foreground">Próximas Capacidades del Agente IA:</h3>
