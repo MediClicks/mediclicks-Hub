@@ -28,8 +28,8 @@ import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase'; 
-import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, FieldValue } from 'firebase/firestore';
-import type { PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types'; // ClientFormValues was removed as it's defined locally
+import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, FieldValue, deleteField } from 'firebase/firestore';
+import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates } from '@/types';
 
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
@@ -133,7 +133,7 @@ export default function AddClientPage() {
         const querySnapshot = await getDocs(q);
         const fetchedServices = querySnapshot.docs.map(doc => {
           const data = doc.data();
-          return { id: doc.id, ...convertServiceDefinitionTimestamps(data) };
+          return { id: doc.id, ...convertServiceDefinitionTimestamps(data as ServiceDefinition) };
         });
         setServiceDefinitions(fetchedServices);
       } catch (err) {
@@ -151,7 +151,6 @@ export default function AddClientPage() {
   async function onSubmit(data: ClientFormValues) {
     form.clearErrors(); 
     try {
-      // Start with absolutely required fields from the form data
       const dataToSave: Record<string, any> = {
         name: data.name,
         email: data.email,
@@ -161,7 +160,6 @@ export default function AddClientPage() {
         updatedAt: serverTimestamp(),
       };
 
-      // Conditionally add optional string fields
       const optionalStringFields: (keyof ClientFormValues)[] = [
         'avatarUrl', 'clinica', 'telefono', 'profileSummary', 
         'dominioWeb', 'tipoServicioWeb', 
@@ -175,12 +173,10 @@ export default function AddClientPage() {
         }
       });
       
-      // Handle optional date: vencimientoWeb
       if (data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime())) {
         dataToSave.vencimientoWeb = Timestamp.fromDate(data.vencimientoWeb);
       }
 
-      // Handle arrays: contractedServices and socialMediaAccounts
       if (data.contractedServices && data.contractedServices.length > 0) {
         dataToSave.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
       }
@@ -195,10 +191,6 @@ export default function AddClientPage() {
         });
       }
       
-      // The overly aggressive security loop has been removed.
-      // The construction of dataToSave above now correctly omits fields
-      // that should not be sent, rather than assigning deleteField() to them for addDoc.
-
       const docRef = await addDoc(collection(db, 'clients'), dataToSave);
       console.log('Nuevo cliente guardado con ID: ', docRef.id);
 

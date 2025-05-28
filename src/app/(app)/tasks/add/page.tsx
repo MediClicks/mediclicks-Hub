@@ -130,37 +130,33 @@ export default function AddTaskPage() {
     }
 
     try {
-      let clientName: string | undefined = undefined;
-      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
-        clientName = clientsList.find(c => c.id === data.clientId)?.name;
-      }
-
-      const taskDataToSave: any = {
-        ...data,
-        clientName: clientName,
+      const taskDataToSave: Record<string, any> = {
+        name: data.name,
+        assignedTo: data.assignedTo,
+        dueDate: Timestamp.fromDate(data.dueDate),
+        priority: data.priority,
+        status: data.status,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        alertDate: combinedAlertDate ? Timestamp.fromDate(combinedAlertDate) : deleteField(),
-        alertFired: combinedAlertDate ? false : deleteField(),
       };
 
-      if (data.dueDate) {
-        taskDataToSave.dueDate = Timestamp.fromDate(data.dueDate);
-      }
-
-      if (!data.clientId || data.clientId === TASK_CLIENT_SELECT_NONE_VALUE) {
-        taskDataToSave.clientId = deleteField();
-        taskDataToSave.clientName = deleteField();
-      } else {
-         taskDataToSave.clientId = data.clientId;
-      }
-
-      if (data.description === undefined || data.description.trim() === '') {
-        taskDataToSave.description = deleteField();
-      } else {
+      if (data.description && data.description.trim() !== '') {
         taskDataToSave.description = data.description;
       }
 
+      if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
+        taskDataToSave.clientId = data.clientId;
+        const clientName = clientsList.find(c => c.id === data.clientId)?.name;
+        if (clientName) {
+          taskDataToSave.clientName = clientName;
+        }
+      }
+      
+      if (combinedAlertDate instanceof Date && !isNaN(combinedAlertDate.getTime())) {
+        taskDataToSave.alertDate = Timestamp.fromDate(combinedAlertDate);
+        taskDataToSave.alertFired = false; 
+      }
+      
       await addDoc(collection(db, 'tasks'), taskDataToSave);
 
       toast({
@@ -325,7 +321,7 @@ export default function AddTaskPage() {
                         selected={field.value}
                         onSelect={(date) => {
                             field.onChange(date || null);
-                             if (!date) setSelectedAlertTime(undefined); // Clear time if date is cleared
+                             if (!date) setSelectedAlertTime(undefined); 
                         }}
                         initialFocus
                         locale={es}
@@ -334,7 +330,7 @@ export default function AddTaskPage() {
                         <Select
                           value={selectedAlertTime}
                           onValueChange={setSelectedAlertTime}
-                          disabled={!field.value} // Disable time if no date is selected
+                          disabled={!field.value} 
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Seleccionar hora (opcional)" />

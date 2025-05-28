@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -57,7 +57,7 @@ const clientFormSchema = z.object({
   clinica: z.string().optional(),
   telefono: z.string().optional(),
   contractStartDate: z.date({ required_error: 'La fecha de inicio de contrato es obligatoria.' }),
-  profileSummary: z.string().min(10, { message: 'El resumen del perfil debe tener al menos 10 caracteres.' }).optional(),
+  profileSummary: z.string().optional(),
   pagado: z.boolean().default(false).optional(),
   dominioWeb: z.string().optional(),
   tipoServicioWeb: z.string().optional(),
@@ -86,11 +86,11 @@ export default function EditClientPage() {
   const { toast } = useToast();
   const clientId = params.id as string;
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingForm, setIsLoadingForm] = useState(true);
   const [clientNotFound, setClientNotFound] = useState(false);
 
   const [serviceDefinitions, setServiceDefinitions] = useState<WithConvertedDates<ServiceDefinition>[]>([]);
-  const [isLoadingServices, setIsLoadingServices] = useState(true);
+  const [isLoadingServices, setIsLoadingServices] = useState(true); // Kept for individual service loading feedback
   const [serviceError, setServiceError] = useState<string | null>(null);
 
   const form = useForm<ClientFormValues>({
@@ -123,88 +123,101 @@ export default function EditClientPage() {
     name: "socialMediaAccounts"
   });
 
-  useEffect(() => {
-    const fetchServiceDefinitions = async () => {
-      setIsLoadingServices(true);
-      setServiceError(null);
-      try {
-        const servicesCollection = collection(db, "appServices");
-        const q = query(servicesCollection, orderBy("name", "asc"));
-        const querySnapshot = await getDocs(q);
-        const fetchedServices = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          return { id: doc.id, ...convertServiceDefinitionTimestamps(data) };
-        });
-        setServiceDefinitions(fetchedServices);
-      } catch (err) {
-        console.error("Error fetching service definitions: ", err);
-        setServiceError('No se pudieron cargar las definiciones de servicios.');
-      } finally {
-        setIsLoadingServices(false);
+  const fetchClientAndServices = useCallback(async () => {
+    if (!clientId) {
+      setClientNotFound(true);
+      setIsLoadingForm(false);
+      toast({ title: 'Error', description: 'ID de cliente no válido.', variant: 'destructive' });
+      router.push('/clients');
+      return;
+    }
+
+    setIsLoadingForm(true);
+    setClientNotFound(false);
+    setServiceError(null);
+    setIsLoadingServices(true); // Reset service loading state too
+
+    let clientDataFetched = false;
+    let servicesFetched = false;
+
+    const checkAllDataLoaded = () => {
+      if (clientDataFetched && servicesFetched) {
+        setIsLoadingForm(false);
       }
     };
-    fetchServiceDefinitions();
-  }, []);
 
-  useEffect(() => {
-    if (clientId) {
-      const fetchClient = async () => {
-        setIsLoading(true);
-        setClientNotFound(false);
-        try {
-          const clientDocRef = doc(db, 'clients', clientId);
-          const docSnap = await getDoc(clientDocRef);
+    try {
+      const clientDocRef = doc(db, 'clients', clientId);
+      const docSnap = await getDoc(clientDocRef);
 
-          if (docSnap.exists()) {
-            const data = docSnap.data() as Client;
+      if (docSnap.exists()) {
+        const data = docSnap.data() as Client;
 
-            serviceItemIdCounter = data.contractedServices?.length || 0;
-            socialItemIdCounter = data.socialMediaAccounts?.length || 0;
+        serviceItemIdCounter = data.contractedServices?.length || 0;
+        socialItemIdCounter = data.socialMediaAccounts?.length || 0;
 
-            const formData: ClientFormValues = {
-              name: data.name || '',
-              email: data.email || '',
-              avatarUrl: data.avatarUrl || '',
-              clinica: data.clinica || '',
-              telefono: data.telefono || '',
-              contractStartDate: data.contractStartDate ? (data.contractStartDate as Timestamp).toDate() : new Date(),
-              profileSummary: data.profileSummary || '',
-              pagado: data.pagado || false,
-              dominioWeb: data.dominioWeb || '',
-              tipoServicioWeb: data.tipoServicioWeb || '',
-              vencimientoWeb: data.vencimientoWeb ? (data.vencimientoWeb as Timestamp).toDate() : null,
-              contractedServices: (data.contractedServices || []).map((service, index) => ({
-                ...service,
-                id: `service-${index}-${Date.now()}`
-              })),
-              socialMediaAccounts: (data.socialMediaAccounts || []).map((account, index) => ({
-                ...account,
-                id: `social-${index}-${Date.now()}`
-              })),
-              credencialesRedesUsuario: data.credencialesRedesUsuario || '',
-              credencialesRedesContrasena: data.credencialesRedesContrasena || '',
-            };
-            form.reset(formData);
-          } else {
-            setClientNotFound(true);
-            toast({ title: 'Error', description: 'Cliente no encontrado.', variant: 'destructive' });
-            router.push('/clients');
-          }
-        } catch (error) {
-          console.error("Error fetching client: ", error);
-          toast({ title: 'Error', description: 'No se pudo cargar la información del cliente.', variant: 'destructive' });
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      fetchClient();
-    } else {
-      setIsLoading(false);
-      setClientNotFound(true);
-       toast({ title: 'Error', description: 'ID de cliente no válido.', variant: 'destructive' });
-       router.push('/clients');
+        const formData: ClientFormValues = {
+          name: data.name || '',
+          email: data.email || '',
+          avatarUrl: data.avatarUrl || '',
+          clinica: data.clinica || '',
+          telefono: data.telefono || '',
+          contractStartDate: data.contractStartDate instanceof Timestamp ? data.contractStartDate.toDate() : new Date(),
+          profileSummary: data.profileSummary || '',
+          pagado: data.pagado || false,
+          dominioWeb: data.dominioWeb || '',
+          tipoServicioWeb: data.tipoServicioWeb || '',
+          vencimientoWeb: data.vencimientoWeb instanceof Timestamp ? data.vencimientoWeb.toDate() : (data.vencimientoWeb === null ? null : undefined),
+          contractedServices: (data.contractedServices || []).map((service, index) => ({
+            ...service,
+            id: `service-${index}-${Date.now()}`
+          })),
+          socialMediaAccounts: (data.socialMediaAccounts || []).map((account, index) => ({
+            ...account,
+            id: `social-${index}-${Date.now()}`
+          })),
+          credencialesRedesUsuario: data.credencialesRedesUsuario || '',
+          credencialesRedesContrasena: data.credencialesRedesContrasena || '',
+        };
+        form.reset(formData);
+      } else {
+        setClientNotFound(true);
+        toast({ title: 'Error', description: 'Cliente no encontrado.', variant: 'destructive' });
+        router.push('/clients');
+      }
+      clientDataFetched = true;
+      checkAllDataLoaded();
+
+    } catch (error) {
+      console.error("Error fetching client: ", error);
+      toast({ title: 'Error', description: 'No se pudo cargar la información del cliente.', variant: 'destructive' });
+      clientDataFetched = true; // Mark as fetched to avoid deadlock if services also fail
+      checkAllDataLoaded();
+    }
+
+    try {
+      const servicesCollection = collection(db, "appServices");
+      const q = query(servicesCollection, orderBy("name", "asc"));
+      const querySnapshot = await getDocs(q);
+      const fetchedServices = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return { id: doc.id, ...convertServiceDefinitionTimestamps(data as ServiceDefinition) };
+      });
+      setServiceDefinitions(fetchedServices);
+    } catch (err) {
+      console.error("Error fetching service definitions: ", err);
+      setServiceError('No se pudieron cargar las definiciones de servicios.');
+    } finally {
+      setIsLoadingServices(false);
+      servicesFetched = true;
+      checkAllDataLoaded();
     }
   }, [clientId, toast, form, router]);
+
+  useEffect(() => {
+    fetchClientAndServices();
+  }, [fetchClientAndServices]);
+
 
   async function onSubmit(data: ClientFormValues) {
     form.clearErrors();
@@ -219,21 +232,22 @@ export default function EditClientPage() {
         updatedAt: serverTimestamp(),
       };
 
-      // Handle optional string fields
-      (Object.keys(data) as Array<keyof ClientFormValues>).forEach(key => {
-         if (key === 'name' || key === 'email' || key === 'contractStartDate' || key === 'pagado' ||
-            key === 'contractedServices' || key === 'socialMediaAccounts' || key === 'vencimientoWeb') {
-          return;
-        }
-        if (data[key] !== undefined && data[key] !== null && (data[key] as string).trim() !== '') {
-          dataToUpdate[key] = data[key];
+      const optionalStringFields: (keyof ClientFormValues)[] = [
+        'avatarUrl', 'clinica', 'telefono', 'profileSummary',
+        'dominioWeb', 'tipoServicioWeb',
+        'credencialesRedesUsuario', 'credencialesRedesContrasena'
+      ];
+
+      optionalStringFields.forEach(key => {
+        const value = data[key] as string | undefined;
+        if (typeof value === 'string' && value.trim() !== '') {
+          dataToUpdate[key] = value;
         } else {
-          dataToUpdate[key] = deleteField(); // Delete if empty string, null, or undefined
+          dataToUpdate[key] = deleteField();
         }
       });
       
-      // Handle vencimientoWeb (date or null)
-      dataToUpdate.vencimientoWeb = data.vencimientoWeb ? Timestamp.fromDate(data.vencimientoWeb as Date) : deleteField();
+      dataToUpdate.vencimientoWeb = data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime()) ? Timestamp.fromDate(data.vencimientoWeb) : deleteField();
 
       if (data.contractedServices && data.contractedServices.length > 0) {
         dataToUpdate.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
@@ -244,8 +258,7 @@ export default function EditClientPage() {
       if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
         dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
           const account: any = {...rest};
-          if(password && password.trim() !== '') account.password = password;
-          // If password was cleared or never set, it won't be included
+          if(typeof password === 'string' && password.trim() !== '') account.password = password;
           return account;
         });
       } else {
@@ -269,7 +282,7 @@ export default function EditClientPage() {
     }
   }
 
-  if (isLoading || isLoadingServices) {
+  if (isLoadingForm) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -428,20 +441,22 @@ export default function EditClientPage() {
                         disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
                       >
                         <FormControl>
-                           <SelectTrigger>
-                             <SelectValue
+                           <SelectTrigger
+                             disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
+                           >
+                             <SelectValue 
                                 placeholder={
-                                  isLoadingServices ? "Cargando servicios..." :
-                                  (serviceError ? "Error al cargar servicios" :
-                                  (serviceDefinitions.length === 0 ? "No hay servicios definidos" : "Seleccionar servicio"))
-                                }
+                                  isLoadingServices ? "Cargando servicios..." : 
+                                  (serviceError ? "Error al cargar servicios" : 
+                                  (serviceDefinitions.length === 0 ? "No hay servicios definidos. Crea uno en Configuración." : "Seleccionar servicio"))
+                                } 
                               />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {serviceError && <div className="p-2 text-sm text-destructive flex items-center"><AlertTriangle className="h-4 w-4 mr-2" /> {serviceError}</div>}
                           {!isLoadingServices && !serviceError && serviceDefinitions.length === 0 && <div className="p-2 text-sm text-muted-foreground">No hay servicios. Crea uno en Configuración.</div>}
-                          {serviceDefinitions.map(serviceDef => (
+                          {!isLoadingServices && !serviceError && serviceDefinitions.map(serviceDef => (
                             <SelectItem key={serviceDef.id} value={serviceDef.name}>{serviceDef.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -666,7 +681,8 @@ export default function EditClientPage() {
               </FormItem>
             )}
           />
-          <Button type="submit" disabled={form.formState.isSubmitting || isLoading || isLoadingServices}>
+          <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm || isLoadingServices}>
+            {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>

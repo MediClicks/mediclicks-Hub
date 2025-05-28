@@ -57,14 +57,17 @@ function convertClientTimestampsToDates<T extends Record<string, any>>(docData: 
   if (!docData) return undefined;
   const data = { ...docData } as Partial<WithConvertedDates<T>>;
   for (const key in data) {
-    if (data[key as keyof T] instanceof Timestamp) {
-      data[key as keyof T] = (data[key as keyof T] as Timestamp).toDate() as any;
-    } else if (Array.isArray(data[key as keyof T])) {
-        (data[key as keyof T] as any) = (data[key as keyof T] as any[]).map(item =>
-            typeof item === 'object' && item !== null && !(item instanceof Date) ? convertClientTimestampsToDates(item) : item
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const value = data[key as keyof T];
+      if (value instanceof Timestamp) {
+        (data[key as keyof T] as any) = value.toDate();
+      } else if (Array.isArray(value)) {
+        (data[key as keyof T] as any) = value.map(item =>
+          typeof item === 'object' && item !== null && !(item instanceof Date) ? convertClientTimestampsToDates(item as any) : item
         );
-    } else if (typeof data[key as keyof T] === 'object' && data[key as keyof T] !== null && !((data[key as keyof T]) instanceof Date)) {
-        (data[key as keyof T] as any) = convertClientTimestampsToDates(data[key as keyof T] as any);
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+        (data[key as keyof T] as any) = convertClientTimestampsToDates(value as any);
+      }
     }
   }
   return data as WithConvertedDates<T>;
@@ -104,8 +107,7 @@ export default function AddInvoicePage() {
       const querySnapshot = await getDocs(q);
       const fetchedClients = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        // Assuming Client type might have Timestamps that need conversion
-        const convertedData = convertClientTimestampsToDates(data as Client) || data; 
+        const convertedData = convertClientTimestampsToDates(data as Client) || (data as Client); 
         return { id: doc.id, ...convertedData } as WithConvertedDates<Client>;
       });
       setClientsList(fetchedClients);
@@ -141,8 +143,8 @@ export default function AddInvoicePage() {
             const clientData = convertClientTimestampsToDates(clientDataFromFirestore);
             setSelectedClientDetails({ 
               id: docSnap.id, 
-              ...clientData,
-              contractedServices: Array.isArray(clientData?.contractedServices) ? clientData.contractedServices : [], // Ensure it's an array
+              ...(clientData || {}), // Ensure clientData is not undefined
+              contractedServices: Array.isArray(clientData?.contractedServices) ? clientData.contractedServices : [],
             } as WithConvertedDates<Client>);
           } else {
             toast({ title: 'Error', description: 'Cliente seleccionado no encontrado.', variant: 'destructive' });
@@ -208,9 +210,8 @@ export default function AddInvoicePage() {
     try {
       const clientName = clientsList.find(c => c.id === data.clientId)?.name;
 
-      const invoiceData: any = {
+      const invoiceData: Record<string, any> = {
         clientId: data.clientId,
-        clientName: clientName,
         issuedDate: Timestamp.fromDate(data.issuedDate),
         dueDate: Timestamp.fromDate(data.dueDate),
         status: data.status,
@@ -219,13 +220,15 @@ export default function AddInvoicePage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+      
+      if (clientName) {
+        invoiceData.clientName = clientName;
+      }
 
       if (data.notes && data.notes.trim() !== '') {
         invoiceData.notes = data.notes;
-      } else {
-        invoiceData.notes = deleteField();
       }
-
+      
       const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
       console.log('Nueva factura guardada en Firestore con ID: ', docRef.id);
 
@@ -469,6 +472,7 @@ export default function AddInvoicePage() {
             )}
           />
           <Button type="submit" disabled={form.formState.isSubmitting || isLoadingClients || isLoadingSelectedClient}>
+            {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {form.formState.isSubmitting ? 'Guardando Factura...' : 'Guardar Factura'}
           </Button>
         </form>
