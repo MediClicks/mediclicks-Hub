@@ -4,7 +4,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Bot, Users, Zap, Briefcase, Brain, Lightbulb, MessageSquare, Clock, List, TrendingUp, ShieldCheck, FileText, Cog, BookOpen, BarChart3 } from "lucide-react";
-// Chatbot ya no se importa aquí
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from '@/components/ui/button';
@@ -15,6 +14,8 @@ import type { SavedConversation, WithConvertedDates } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Loader2 } from 'lucide-react';
+import { cn } from "@/lib/utils"; // Assuming cn is imported from lib/utils
+import type { ClassValue } from "clsx"; // Import ClassValue if not globally available
 
 interface CapabilityCardProps {
   icon: React.ElementType;
@@ -61,7 +62,7 @@ export default function MediClicksAiAgencyPage() {
       );
       const querySnapshot = await getDocs(q);
       const fetchedConversations = querySnapshot.docs.map(doc => {
-        const data = doc.data() as Omit<SavedConversation, 'id'>; // Cast to exclude id initially
+        const data = doc.data() as Omit<SavedConversation, 'id'>; 
         const convertedData = {} as Partial<WithConvertedDates<SavedConversation>>;
         for (const key in data) {
           if (Object.prototype.hasOwnProperty.call(data, key)) {
@@ -103,8 +104,7 @@ export default function MediClicksAiAgencyPage() {
             Capacidades de Il Dottore
           </CardTitle>
           <CardDescription>
-            Il Dottore es tu asistente IA personal, integrado para ayudarte con las operaciones de la agencia. 
-            Puedes interactuar con él directamente desde el Panel Principal. 
+            Il Dottore es tu asistente IA personal. Puedes interactuar con él directamente desde el Panel Principal. 
             Aquí puedes explorar sus capacidades actuales y futuras.
           </CardDescription>
         </CardHeader>
@@ -222,20 +222,3 @@ export default function MediClicksAiAgencyPage() {
     </div>
   );
 }
-
-function cn(...inputs: ClassValue[]) {
-  // Assuming cn is already defined in your project, e.g., from @/lib/utils
-  // If not, you'd need to import it or define it:
-  // import { clsx, type ClassValue } from "clsx"
-  // import { twMerge } from "tailwind-merge"
-  // return twMerge(clsx(inputs))
-  // For this example, let's assume it's available.
-  // This is a placeholder if cn is not globally available or imported elsewhere.
-  // Replace with your actual cn function.
-  return inputs.filter(Boolean).join(' ');
-}
-
-// Placeholder for ClassValue if not defined elsewhere
-type ClassValue = string | number | boolean | undefined | null | Record<string, any> | ClassValue[];
-
-    

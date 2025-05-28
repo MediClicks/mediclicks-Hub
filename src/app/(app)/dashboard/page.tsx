@@ -4,18 +4,18 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot } from "lucide-react"; // Asegúrate que Bot está importado
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore'; // No se necesita startOfDay, endOfDay aquí
+import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Client } from '@/types';
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
-import { format, subMonths, startOfMonth, startOfDay, endOfDay } from 'date-fns'; // Importar startOfDay y endOfDay desde date-fns
+import { format, subMonths, startOfMonth, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Chatbot } from "@/components/ai-agency/chatbot"; // Importar Chatbot
+import { Chatbot } from "@/components/ai-agency/chatbot";
 
 interface DashboardStats {
   totalClients: number;
@@ -246,16 +246,16 @@ export default function DashboardPage() {
       fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
       setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
-      const upcomingCutoffDate = startOfDay(now); // Not future, but start of today
+      const upcomingCutoffDate = startOfDay(now); 
       const upcomingTasksQuery = query(tasksCollectionRef, 
         where("status", "in", ["Pendiente", "En Progreso"]), 
-        where("dueDate", ">=", Timestamp.fromDate(upcomingCutoffDate)), // Tareas desde hoy en adelante
+        where("dueDate", ">=", Timestamp.fromDate(upcomingCutoffDate)), 
         orderBy("dueDate", "asc"),
         limit(3)
       );
       const upcomingInvoicesQuery = query(invoicesCollectionRef, 
         where("status", "==", "No Pagada"), 
-        where("dueDate", ">=", Timestamp.fromDate(upcomingCutoffDate)), // Facturas desde hoy en adelante
+        where("dueDate", ">=", Timestamp.fromDate(upcomingCutoffDate)), 
         orderBy("dueDate", "asc"),
         limit(2)
       );
@@ -294,7 +294,6 @@ export default function DashboardPage() {
         }
       });
       fetchedUpcomingItems.sort((a, b) => {
-          // Simple date sort assuming dueDateFormatted is 'dd/MM/yyyy'
           const dateAStr = a.dueDateFormatted.split('/').reverse().join('-');
           const dateBStr = b.dueDateFormatted.split('/').reverse().join('-');
           const dateA = new Date(dateAStr).getTime();
@@ -392,7 +391,7 @@ export default function DashboardPage() {
       <Card className="shadow-xl border-t-4 border-primary">
         <CardHeader>
           <CardTitle className="text-2xl flex items-center">
-            <Bot className="mr-2 h-7 w-7 text-primary" /> {/* Cambiado para usar text-primary */}
+            <Bot className="mr-2 h-7 w-7 text-primary" /> 
             Il Dottore
           </CardTitle>
           <CardDescription>
