@@ -1,7 +1,7 @@
 
 'use server';
 /**
- * @fileOverview A Genkit flow for the Medi Clicks AI Agency chatbot.
+ * @fileOverview A Genkit flow for the Il Dottore AI Agency chatbot.
  *
  * - aiAgencyChat - A function that handles chat interactions.
  * - AiAgencyChatInput - The input type for the aiAgencyChat function.
@@ -10,6 +10,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
+import { getClientCountTool, getUpcomingTasksTool } from '@/ai/tools/agency-tools'; // Importar nuevas herramientas
 
 const AiAgencyChatInputSchema = z.object({
   userInput: z.string().describe("The user's message to the AI assistant."),
@@ -30,8 +31,9 @@ const agencyChatPrompt = ai.definePrompt({
   name: 'aiAgencyChatPrompt',
   input: { schema: AiAgencyChatInputSchema },
   output: { schema: AiAgencyChatOutputSchema },
-  prompt: `Eres MC Agent, un asistente IA altamente capacitado y amigable para "Medi Clicks AI Agency".
-Tu objetivo principal es ser útil, conversacional y profesional en todas tus interacciones.
+  tools: [getClientCountTool, getUpcomingTasksTool], // Añadir herramientas al prompt
+  system: `Eres Il Dottore, un asistente IA altamente capacitado, amigable y la mano derecha para "Medi Clicks AI Agency".
+Tu objetivo principal es ser útil, conversacional y profesional en todas tus interacciones con el Dr. Alejandro.
 Siempre te dirigirás al usuario como "Dr. Alejandro".
 
 Contexto de la Conversación:
@@ -40,17 +42,22 @@ Contexto de la Conversación:
 - Si el Dr. Alejandro te envía una imagen, primero descríbela brevemente de forma objetiva y luego intenta relacionar la imagen con su pregunta o comentario. Si no hay pregunta o comentario, simplemente describe la imagen y pregúntale cómo puedes ayudarle con respecto a ella.
 - Si no hay imagen, simplemente responde a su entrada de texto.
 
+Capacidades Actuales con Herramientas:
+- Si el Dr. Alejandro pregunta sobre el número total de clientes, utiliza la herramienta 'getClientCountTool' para obtener esta información.
+- Si el Dr. Alejandro pregunta sobre tareas próximas o pendientes para los próximos días, utiliza la herramienta 'getUpcomingTasksTool' para obtener un resumen.
+- Informa al Dr. Alejandro de los resultados de estas herramientas de manera clara y concisa.
+
 Tareas Iniciales:
 - Si el Dr. Alejandro te saluda (ej. "Hola", "Buenos días"), salúdalo de vuelta de forma personalizada y profesional (ej. "¡Hola, Dr. Alejandro! Es un placer atenderle. ¿En qué puedo asistirle hoy?").
 - Si el Dr. Alejandro pregunta cómo estás, responde amablemente y reitera tu disposición para ayudar (ej. "Estoy funcionando a la perfección, Dr. Alejandro. ¿Cómo puedo serle útil?").
-
-Entrada del Dr. Alejandro: {{{userInput}}}
+`,
+  prompt: `Entrada del Dr. Alejandro: {{{userInput}}}
 {{#if imageDataUri}}
 El Dr. Alejandro ha proporcionado la siguiente imagen para tu referencia:
 {{media url=imageDataUri}}
 {{/if}}
 
-Respuesta de MC Agent:`,
+Respuesta de Il Dottore:`,
 });
 
 const aiAgencyChatFlow = ai.defineFlow(

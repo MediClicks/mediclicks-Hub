@@ -4,18 +4,18 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot } from "lucide-react"; // Asegúrate que Bot está importado
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore';
+import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore'; // No se necesita startOfDay, endOfDay aquí
 import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Client } from '@/types';
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
-import { format, subMonths, startOfMonth, startOfDay, endOfDay } from 'date-fns';
+import { format, subMonths, startOfMonth, startOfDay, endOfDay } from 'date-fns'; // Importar startOfDay y endOfDay desde date-fns
 import { es } from 'date-fns/locale';
-import { Chatbot } from "@/components/ai-agency/chatbot";
+import { Chatbot } from "@/components/ai-agency/chatbot"; // Importar Chatbot
 
 interface DashboardStats {
   totalClients: number;
@@ -56,7 +56,6 @@ interface TaskStatusChartData {
   fill: string;
 }
 
-// Enhanced recursive converter
 function convertFirestoreTimestamps<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
   if (!data) return undefined;
   const convertedData = { ...data } as any;
@@ -134,7 +133,8 @@ export default function DashboardPage() {
       const todayStart = startOfDay(now);
       const todayEnd = endOfDay(now);
 
-      const clientsSnapshot = await getCountFromServer(collection(db, "clients"));
+      const clientsCollectionRef = collection(db, "clients");
+      const clientsSnapshot = await getCountFromServer(clientsCollectionRef);
       const totalClients = clientsSnapshot.data().count;
 
       const tasksCollectionRef = collection(db, "tasks");
@@ -246,16 +246,16 @@ export default function DashboardPage() {
       fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
       setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
-      const upcomingCutoffDateFirestore = Timestamp.fromDate(now); 
+      const upcomingCutoffDate = startOfDay(now); // Not future, but start of today
       const upcomingTasksQuery = query(tasksCollectionRef, 
         where("status", "in", ["Pendiente", "En Progreso"]), 
-        where("dueDate", ">", upcomingCutoffDateFirestore),
+        where("dueDate", ">=", Timestamp.fromDate(upcomingCutoffDate)), // Tareas desde hoy en adelante
         orderBy("dueDate", "asc"),
         limit(3)
       );
       const upcomingInvoicesQuery = query(invoicesCollectionRef, 
         where("status", "==", "No Pagada"), 
-        where("dueDate", ">", upcomingCutoffDateFirestore),
+        where("dueDate", ">=", Timestamp.fromDate(upcomingCutoffDate)), // Facturas desde hoy en adelante
         orderBy("dueDate", "asc"),
         limit(2)
       );
@@ -294,13 +294,12 @@ export default function DashboardPage() {
         }
       });
       fetchedUpcomingItems.sort((a, b) => {
-          const dateAIsValid = a.dueDateFormatted && !isNaN(new Date(a.dueDateFormatted.split('/').reverse().join('-')).getTime());
-          const dateBIsValid = b.dueDateFormatted && !isNaN(new Date(b.dueDateFormatted.split('/').reverse().join('-')).getTime());
-
-          const dateA = dateAIsValid ? new Date(a.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
-          const dateB = dateBIsValid ? new Date(b.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
-          
-          return dateA.getTime() - dateB.getTime();
+          // Simple date sort assuming dueDateFormatted is 'dd/MM/yyyy'
+          const dateAStr = a.dueDateFormatted.split('/').reverse().join('-');
+          const dateBStr = b.dueDateFormatted.split('/').reverse().join('-');
+          const dateA = new Date(dateAStr).getTime();
+          const dateB = new Date(dateBStr).getTime();
+          return dateA - dateB;
       });
       setUpcomingItems(fetchedUpcomingItems.slice(0,5));
 
@@ -393,8 +392,8 @@ export default function DashboardPage() {
       <Card className="shadow-xl border-t-4 border-primary">
         <CardHeader>
           <CardTitle className="text-2xl flex items-center">
-            <Bot className="mr-2 h-7 w-7 text-accent" />
-            MC Agent
+            <Bot className="mr-2 h-7 w-7 text-primary" /> {/* Cambiado para usar text-primary */}
+            Il Dottore
           </CardTitle>
           <CardDescription>
             Tu asistente IA personal. Haz preguntas, pide resúmenes o envía imágenes para análisis.
@@ -548,4 +547,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

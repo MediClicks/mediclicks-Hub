@@ -9,17 +9,17 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Bot, User, Send, Loader2, Paperclip, XCircle, Image as ImageIcon, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { aiAgencyChat, type AiAgencyChatInput } from '@/ai/flows/ai-agency-chat-flow';
-import type { ChatUIMessage } from '@/types'; // Importar el nuevo tipo
-import Image from 'next/image';
+import type { ChatUIMessage } from '@/types';
+import NextImage from 'next/image'; // Renombrado para evitar conflicto con ImageIcon de lucide
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/auth-context';
-import { saveConversationAction } from '@/app/actions/chatActions'; // Nueva acción
+import { saveConversationAction } from '@/app/actions/chatActions';
 
 const MAX_IMAGE_SIZE_MB = 5;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 
 interface ChatbotProps {
-  onConversationSaved?: () => void; // Callback para refrescar historial
+  onConversationSaved?: () => void;
 }
 
 export function Chatbot({ onConversationSaved }: ChatbotProps) {
@@ -40,7 +40,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       {
         id: Date.now().toString() + '-ai-greeting',
         sender: 'ai',
-        text: '¡Hola, Dr. Alejandro! Soy MC Agent. ¿En qué puedo ayudarte hoy?',
+        text: '¡Hola, Dr. Alejandro! Soy Il Dottore, tu asistente IA. ¿En qué puedo ayudarte hoy?',
       },
     ]);
   }, []);
@@ -123,7 +123,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
     }
 
     setInputValue('');
-    removeAttachedImage(); // Limpia la imagen después de construir el mensaje
+    removeAttachedImage(); 
     setIsLoading(true);
 
     try {
@@ -139,7 +139,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       const errorMessage: ChatUIMessage = {
         id: Date.now().toString() + '-error',
         sender: 'ai',
-        text: 'Lo siento, Dr. Alejandro, ocurrió un error al conectar con el asistente. Por favor, intenta de nuevo.',
+        text: 'Lo siento, Dr. Alejandro, ocurrió un error al conectar con Il Dottore. Por favor, intenta de nuevo.',
       };
       setMessages((prevMessages) => [...prevMessages, errorMessage]);
     } finally {
@@ -152,19 +152,18 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       toast({ title: "Error", description: "Debes iniciar sesión para guardar conversaciones.", variant: "destructive" });
       return;
     }
-    if (messages.length < 2) { // Al menos un saludo de IA y un mensaje de usuario
+    if (messages.length < 2) { 
       toast({ title: "Conversación Vacía", description: "No hay suficiente contenido para guardar.", variant: "default" });
       return;
     }
 
     setIsSavingConversation(true);
-    // Prepara los mensajes para guardar (sin el ID del lado del cliente)
     const messagesToSave = messages.map(({ id, ...rest }) => rest);
 
     try {
       const result = await saveConversationAction(messagesToSave, user.uid);
       if (result.success && result.id) {
-        toast({ title: "Conversación Guardada", description: `La conversación ha sido guardada con ID: ${result.id.substring(0,8)}` });
+        toast({ title: "Conversación Guardada", description: `La conversación con Il Dottore ha sido guardada.` });
         if (onConversationSaved) {
           onConversationSaved();
         }
@@ -186,18 +185,18 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
           <div
             key={message.id}
             className={cn(
-              "flex items-end gap-2.5 mb-4 max-w-[85%] sm:max-w-[75%]", // Aumentado el max-width
+              "flex items-end gap-2.5 mb-4 max-w-[85%] sm:max-w-[75%]",
               message.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'
             )}
           >
-            <Avatar className="h-10 w-10 shrink-0"> {/* Avatar un poco más grande */}
+            <Avatar className="h-10 w-10 shrink-0">
               {message.sender === 'ai' ? (
                 <AvatarFallback className="bg-primary text-primary-foreground">
-                  <Bot className="h-6 w-6" /> {/* Icono un poco más grande */}
+                  <Bot className="h-6 w-6" />
                 </AvatarFallback>
               ) : (
                 <AvatarFallback className="bg-accent text-accent-foreground">
-                  <User className="h-6 w-6" /> {/* Icono un poco más grande */}
+                  <User className="h-6 w-6" />
                 </AvatarFallback>
               )}
             </Avatar>
@@ -211,7 +210,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
             >
               {message.imageUrl && (
                 <div className="mb-2 relative w-full max-w-[250px] sm:max-w-[300px] aspect-square bg-muted rounded-md overflow-hidden" data-ai-hint="user image attachment">
-                  <Image
+                  <NextImage
                     src={message.imageUrl}
                     alt="Adjunto de Dr. Alejandro"
                     layout="fill"
@@ -224,7 +223,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
             </div>
           </div>
         ))}
-        {isLoading && !isSavingConversation && ( // Solo mostrar loader de IA si no se está guardando
+        {isLoading && !isSavingConversation && (
           <div className="flex items-end gap-2.5 mb-4 max-w-[80%] sm:max-w-[75%] mr-auto">
             <Avatar className="h-10 w-10 shrink-0">
               <AvatarFallback className="bg-primary text-primary-foreground">
@@ -280,7 +279,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
         <Textarea
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          placeholder="Dr. Alejandro, pregúntale algo a MC Agent..."
+          placeholder="Dr. Alejandro, pregúntale algo a Il Dottore..."
           className="flex-grow resize-none min-h-[40px] max-h-[120px] text-sm bg-background focus-visible:ring-primary/50"
           rows={1}
           onKeyDown={(e) => {
