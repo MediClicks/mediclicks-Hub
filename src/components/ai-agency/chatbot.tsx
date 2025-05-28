@@ -10,7 +10,7 @@ import { Bot, User, Send, Loader2, Paperclip, XCircle, Image as ImageIcon, Save 
 import { cn } from '@/lib/utils';
 import { aiAgencyChat, type AiAgencyChatInput } from '@/ai/flows/ai-agency-chat-flow';
 import type { ChatUIMessage } from '@/types';
-import NextImage from 'next/image'; // Renombrado para evitar conflicto con ImageIcon de lucide
+import NextImage from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/auth-context';
 import { saveConversationAction } from '@/app/actions/chatActions';
@@ -19,7 +19,7 @@ const MAX_IMAGE_SIZE_MB = 5;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 
 interface ChatbotProps {
-  onConversationSaved?: () => void;
+  onConversationSaved?: () => void; // Callback after a conversation is successfully saved
 }
 
 export function Chatbot({ onConversationSaved }: ChatbotProps) {
@@ -40,7 +40,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       {
         id: Date.now().toString() + '-ai-greeting',
         sender: 'ai',
-        text: '¡Hola, Dr. Alejandro! Soy Il Dottore, tu asistente IA. ¿En qué puedo ayudarte hoy?',
+        text: '¡Hola, Dr. Alejandro! Soy Il Dottore. ¿En qué puedo ayudarte hoy?',
       },
     ]);
   }, []);
@@ -152,20 +152,25 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       toast({ title: "Error", description: "Debes iniciar sesión para guardar conversaciones.", variant: "destructive" });
       return;
     }
-    if (messages.length < 2) { 
+    // Allow saving even if only the initial AI greeting and one user message exist (or an image)
+    if (messages.length < 2 && !attachedImage) { 
       toast({ title: "Conversación Vacía", description: "No hay suficiente contenido para guardar.", variant: "default" });
       return;
     }
 
     setIsSavingConversation(true);
-    const messagesToSave = messages.map(({ id, ...rest }) => rest);
+    // Filter out only the user and AI messages relevant for saving, excluding initial greeting if no user interaction yet.
+    const messagesToSave = messages
+      .filter(msg => msg.sender !== 'ai' || msg.id !== messages[0]?.id || messages.length > 1) // Exclude initial greeting if it's the only message
+      .map(({ id, ...rest }) => rest);
+
 
     try {
       const result = await saveConversationAction(messagesToSave, user.uid);
       if (result.success && result.id) {
         toast({ title: "Conversación Guardada", description: `La conversación con Il Dottore ha sido guardada.` });
         if (onConversationSaved) {
-          onConversationSaved();
+          onConversationSaved(); // Call the callback
         }
       } else {
         toast({ title: "Error al Guardar", description: result.error || "No se pudo guardar la conversación.", variant: "destructive" });
@@ -179,7 +184,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
   };
 
   return (
-    <div className="flex flex-col h-[calc(80vh-120px)] min-h-[450px] max-h-[700px] border rounded-lg shadow-md bg-card">
+    <div className="flex flex-col h-[calc(80vh-120px)] min-h-[450px] max-h-[600px] border rounded-lg shadow-md bg-card">
       <ScrollArea className="flex-grow p-4 space-y-4" ref={scrollAreaRef}>
         {messages.map((message) => (
           <div
@@ -310,3 +315,4 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
     </div>
   );
 }
+
