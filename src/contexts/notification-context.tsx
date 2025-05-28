@@ -54,8 +54,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setIsLoadingNotifications(true);
     try {
       const now = new Date();
-      const todayStart = startOfDay(now); // Usar startOfDay de date-fns
-      const tomorrowEnd = endOfDay(new Date(now.setDate(now.getDate() + 1))); // Hasta el final del día de mañana
+      const todayStart = startOfDay(now);
+      const tomorrowEnd = endOfDay(new Date(new Date().setDate(now.getDate() + 1)));
+
 
       const tasksCollectionRef = collection(db, 'tasks');
       
@@ -63,7 +64,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         tasksCollectionRef,
         where('dueDate', '>=', Timestamp.fromDate(todayStart)),
         where('dueDate', '<=', Timestamp.fromDate(tomorrowEnd)),
-        where('status', 'in', ['Pendiente', 'En Progreso']),
+        where('alertFired', '==', false), // Solo tareas cuya alerta no ha sido "disparada/leída"
         orderBy('dueDate', 'asc')
       );
       
@@ -71,10 +72,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       const fetchedNotifications = querySnapshot.docs.map(docSnap => {
         const data = convertTaskTimestamps(docSnap.data() as Task);
         return { id: docSnap.id, ...data };
-      });
+      }).filter(task => task.status !== 'Completada'); // Filtrar tareas completadas después de la consulta
 
       setNotifications(fetchedNotifications);
-      setUnreadCount(fetchedNotifications.length); // Inicialmente, todas las tareas que cumplen son "no leídas"
+      setUnreadCount(fetchedNotifications.length);
 
     } catch (error) {
       console.error("Error fetching notifications for tasks due in next 24h:", error);
@@ -86,18 +87,28 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated]);
 
  const markNotificationsAsRead = useCallback(async () => {
-    if (notifications.length === 0) return;
+    if (notifications.length === 0 || unreadCount === 0) return;
 
-    // No actualizaremos alertFired en Firestore aquí, solo reseteamos el contador para la UI
-    // La lógica de fetchNotifications volverá a traerlas si cumplen criterios.
-    // Se decidió simplificar para evitar escrituras masivas si el usuario solo abre el panel.
-    
-    // Lo que sí haremos es resetear el unreadCount en la UI.
-    setUnreadCount(0);
-    // Podríamos decidir si queremos limpiar `notifications` aquí o dejarlas visibles hasta el próximo fetch.
-    // Por ahora, las mantenemos visibles, `fetchNotifications` las actualizará.
+    const updatesToPerform = notifications.map(task => {
+      if (task.id) { // Asegurarse de que el task.id existe
+        const taskRef = doc(db, "tasks", task.id);
+        return updateDoc(taskRef, { alertFired: true });
+      }
+      return Promise.resolve(); // No hacer nada si el id no existe
+    });
 
-  }, [notifications]); // No tiene dependencias que cambien frecuentemente, pero si `notifications` cambia, se recrea.
+    try {
+      await Promise.all(updatesToPerform);
+      console.log("Notifications marked as read in Firestore.");
+      // Las notificaciones permanecerán visibles en la UI para esta sesión,
+      // pero no se contarán como no leídas.
+      // En la próxima llamada a fetchNotifications, no se incluirán si alertFired es true.
+    } catch (error) {
+      console.error("Error marking notifications as read in Firestore:", error);
+    }
+    setUnreadCount(0); // Reset unread count in UI regardless of Firestore update success
+    // No limpiar setNotifications([]) aquí para que el usuario pueda interactuar con la lista actual
+  }, [notifications, unreadCount]);
 
 
   return (

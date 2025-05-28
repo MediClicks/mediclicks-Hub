@@ -22,7 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils'; 
 import { useAuth } from '@/contexts/auth-context';
-import { useNotification } from '@/contexts/notification-context'; // Import useNotification
+import { useNotification } from '@/contexts/notification-context';
 import { Loader2, Bell } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -54,10 +54,10 @@ const sidebarIconColors: Record<string, string> = {
   "/clients": "text-lime-400",
   "/tasks": "text-amber-400",
   "/billing": "text-rose-400",
-  "/medi-clicks-agency": "text-teal-400",
+  "/medi-clicks-agency": "text-teal-400", // Ícono Bot
   "/medi-clinic": "text-cyan-400",
   "/settings": "text-slate-400",
-  // Bell icon color will be handled specially
+  // El color de la campana se maneja de forma especial
 };
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -66,7 +66,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(true);
   
   const { isAuthenticated, isLoading: isLoadingAuth, logout } = useAuth();
-  const notificationContext = useNotification(); // Get notification context
+  const notificationContext = useNotification();
   const router = useRouter();
 
   React.useEffect(() => {
@@ -110,9 +110,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         : sidebarIconColors[item.href || ''] || "text-sidebar-foreground/80";
 
       if (item.isNotification && notificationContext && notificationContext.unreadCount > 0) {
-        iconColorClass = "text-red-500"; // Red bell if there are unread notifications
+        iconColorClass = "text-red-500 animate-pulse"; // Campana roja y pulsante si hay notificaciones no leídas
       } else if (item.isNotification) {
-        iconColorClass = sidebarIconColors["/notifications"] || "text-sidebar-foreground/80"; // Default bell color
+        iconColorClass = sidebarIconColors["/notifications"] || "text-sidebar-foreground/80";
       }
       
 
@@ -130,11 +130,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         );
       }
 
-      if (item.isNotification) {
+      if (item.isNotification && notificationContext) {
         return (
           <SidebarMenuItem key={item.href || `notification-item-${index}`}>
              <DropdownMenu onOpenChange={(open) => {
-                if (open && notificationContext && notificationContext.unreadCount > 0) {
+                if (open && notificationContext.unreadCount > 0) {
                   notificationContext.markNotificationsAsRead();
                 }
              }}>
@@ -145,33 +145,46 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 >
                   <IconComponent className={cn("group-hover:text-sidebar-accent-foreground", iconColorClass)} />
                   <span>{item.label}</span>
-                  {notificationContext && notificationContext.unreadCount > 0 && !isCollapsed && (
+                  {notificationContext.unreadCount > 0 && !isCollapsed && (
                     <Badge className="absolute right-2 top-1/2 -translate-y-1/2 h-5 px-1.5 text-xs bg-red-500 text-white">
                       {notificationContext.unreadCount}
                     </Badge>
                   )}
+                   {notificationContext.unreadCount > 0 && isCollapsed && (
+                     <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                      </span>
+                   )}
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-72 ml-2" side="right" align="start">
-                <DropdownMenuLabel>Tareas que vencen hoy ({notificationContext?.notifications.length || 0})</DropdownMenuLabel>
+              <DropdownMenuContent className="w-72 ml-2 max-h-80 overflow-y-auto" side="right" align="start">
+                <DropdownMenuLabel>Notificaciones (Tareas Próximas)</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {notificationContext && notificationContext.notifications.length > 0 ? (
+                {notificationContext.isLoadingNotifications && (
+                  <DropdownMenuItem disabled className="text-sm text-center text-muted-foreground py-3 flex items-center justify-center">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando...
+                  </DropdownMenuItem>
+                )}
+                {!notificationContext.isLoadingNotifications && notificationContext.notifications.length > 0 ? (
                   notificationContext.notifications.map(task => (
                     <DropdownMenuItem key={task.id} asChild>
-                      <Link href={`/tasks/${task.id}/edit`} className="text-sm">
-                        <div className="flex flex-col">
+                      <Link href={`/tasks/${task.id}/edit`} className="text-sm cursor-pointer">
+                        <div className="flex flex-col w-full">
                           <span className="font-medium truncate">{task.name}</span>
                           <span className="text-xs text-muted-foreground">
-                            Cliente: {task.clientName || 'N/A'}
+                            Cliente: {task.clientName || 'N/A'} - Vence: {task.dueDate ? new Date(task.dueDate).toLocaleDateString('es-ES') : 'N/A'}
                           </span>
                         </div>
                       </Link>
                     </DropdownMenuItem>
                   ))
                 ) : (
-                  <DropdownMenuItem disabled className="text-sm text-center text-muted-foreground py-3">
-                    No hay tareas que venzan hoy.
-                  </DropdownMenuItem>
+                  !notificationContext.isLoadingNotifications && (
+                    <DropdownMenuItem disabled className="text-sm text-center text-muted-foreground py-3">
+                      No hay tareas con vencimiento próximo.
+                    </DropdownMenuItem>
+                  )
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
