@@ -1,8 +1,11 @@
 
+'use client';
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BrainCircuit, Lightbulb, BarChart3, CheckCircle, Users, Bot, FileText, Zap, BookOpen, Settings2, Briefcase, MessageSquare, ShieldCheck, Target } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { cn } from '@/lib/utils'; // Added import
 
 interface CapabilityCardProps {
   icon: LucideIcon;
