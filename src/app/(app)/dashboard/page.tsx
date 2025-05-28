@@ -4,7 +4,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from '@/lib/firebase';
@@ -13,8 +13,9 @@ import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Clie
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
-import { format, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from 'date-fns';
+import { format, subMonths, startOfMonth, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { Chatbot } from "@/components/ai-agency/chatbot";
 
 interface DashboardStats {
   totalClients: number;
@@ -58,7 +59,7 @@ interface TaskStatusChartData {
 // Enhanced recursive converter
 function convertFirestoreTimestamps<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
   if (!data) return undefined;
-  const convertedData = { ...data } as any; // Use 'any' for intermediate object to allow flexible property assignment
+  const convertedData = { ...data } as any;
   for (const key in convertedData) {
     if (Object.prototype.hasOwnProperty.call(convertedData, key)) {
       const value = convertedData[key];
@@ -67,11 +68,11 @@ function convertFirestoreTimestamps<T extends Record<string, any>>(data: T | und
       } else if (Array.isArray(value)) {
         convertedData[key] = value.map((item: any) =>
           typeof item === 'object' && item !== null && !(item instanceof Date)
-            ? convertFirestoreTimestamps(item) // Recursively convert objects in arrays
+            ? convertFirestoreTimestamps(item)
             : item
         );
       } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
-        convertedData[key] = convertFirestoreTimestamps(value); // Recursively convert nested objects
+        convertedData[key] = convertFirestoreTimestamps(value);
       }
     }
   }
@@ -125,208 +126,201 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    const fetchDashboardData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const now = new Date();
-        const todayStart = startOfDay(now);
-        const todayEnd = endOfDay(now);
+  const fetchDashboardData = React.useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const now = new Date();
+      const todayStart = startOfDay(now);
+      const todayEnd = endOfDay(now);
 
-        // Total Clients
-        const clientsSnapshot = await getCountFromServer(collection(db, "clients"));
-        const totalClients = clientsSnapshot.data().count;
+      const clientsSnapshot = await getCountFromServer(collection(db, "clients"));
+      const totalClients = clientsSnapshot.data().count;
 
-        // Task Status counts for chart and summary cards
-        const tasksCollectionRef = collection(db, "tasks");
-        const tasksInProgressSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "En Progreso")));
-        const tasksInProgress = tasksInProgressSnapshot.data().count;
-        
-        const pendingTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Pendiente")));
-        const pendingTasks = pendingTasksSnapshot.data().count;
-        
-        const completedTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Completada")));
-        const completedTasks = completedTasksSnapshot.data().count;
+      const tasksCollectionRef = collection(db, "tasks");
+      const tasksInProgressSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "En Progreso")));
+      const tasksInProgress = tasksInProgressSnapshot.data().count;
+      
+      const pendingTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Pendiente")));
+      const pendingTasks = pendingTasksSnapshot.data().count;
+      
+      const completedTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Completada")));
+      const completedTasks = completedTasksSnapshot.data().count;
 
-        setTaskStatusData([
-          { status: "Pendiente", count: pendingTasks, fill: chartColors.pending },
-          { status: "En Progreso", count: tasksInProgress, fill: chartColors.inProgress },
-          { status: "Completada", count: completedTasks, fill: chartColors.completed },
-        ]);
+      setTaskStatusData([
+        { status: "Pendiente", count: pendingTasks, fill: chartColors.pending },
+        { status: "En Progreso", count: tasksInProgress, fill: chartColors.inProgress },
+        { status: "Completada", count: completedTasks, fill: chartColors.completed },
+      ]);
 
-        // Tasks for Today
-        const tasksForTodayQuery = query(tasksCollectionRef, 
-          where("dueDate", ">=", Timestamp.fromDate(todayStart)),
-          where("dueDate", "<=", Timestamp.fromDate(todayEnd)),
-          where("status", "in", ["Pendiente", "En Progreso"])
-        );
-        const tasksForTodaySnap = await getCountFromServer(tasksForTodayQuery);
-        const tasksForToday = tasksForTodaySnap.data().count;
+      const tasksForTodayQuery = query(tasksCollectionRef, 
+        where("dueDate", ">=", Timestamp.fromDate(todayStart)),
+        where("dueDate", "<=", Timestamp.fromDate(todayEnd)),
+        where("status", "in", ["Pendiente", "En Progreso"])
+      );
+      const tasksForTodaySnap = await getCountFromServer(tasksForTodayQuery);
+      const tasksForToday = tasksForTodaySnap.data().count;
 
-        // Revenue This Month
-        const invoicesCollectionRef = collection(db, "invoices");
-        const currentMonthStart = startOfMonth(now);
-        const currentMonthEnd = endOfMonth(now);
-        
-        const paidInvoicesThisMonthQuery = query(invoicesCollectionRef, 
-          where("status", "==", "Pagada"),
-          where("issuedDate", ">=", Timestamp.fromDate(currentMonthStart)),
-          where("issuedDate", "<=", Timestamp.fromDate(currentMonthEnd))
-        );
-        const paidInvoicesThisMonthSnap = await getDocs(paidInvoicesThisMonthQuery);
-        const revenueThisMonthAmount = paidInvoicesThisMonthSnap.docs
-          .reduce((sum, doc) => {
-            const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
-            return sum + (invoice?.totalAmount || 0);
-          }, 0);
-        
-        setStats({
-          totalClients,
-          tasksInProgress,
-          pendingTasks,
-          tasksForToday,
-          revenueThisMonth: revenueThisMonthAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })
+      const invoicesCollectionRef = collection(db, "invoices");
+      const currentMonthStart = startOfMonth(now);
+      const currentMonthEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)); 
+      
+      const paidInvoicesThisMonthQuery = query(invoicesCollectionRef, 
+        where("status", "==", "Pagada"),
+        where("issuedDate", ">=", Timestamp.fromDate(currentMonthStart)),
+        where("issuedDate", "<=", Timestamp.fromDate(currentMonthEnd))
+      );
+      const paidInvoicesThisMonthSnap = await getDocs(paidInvoicesThisMonthQuery);
+      const revenueThisMonthAmount = paidInvoicesThisMonthSnap.docs
+        .reduce((sum, doc) => {
+          const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
+          return sum + (invoice?.totalAmount || 0);
+        }, 0);
+      
+      setStats({
+        totalClients,
+        tasksInProgress,
+        pendingTasks,
+        tasksForToday,
+        revenueThisMonth: revenueThisMonthAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })
+      });
+
+      const revenueByMonth: Record<string, number> = {};
+      const sixMonthsAgo = startOfMonth(subMonths(now, 5)); 
+
+      const allPaidInvoicesQuery = query(invoicesCollectionRef, 
+        where("status", "==", "Pagada"),
+        where("issuedDate", ">=", Timestamp.fromDate(sixMonthsAgo))
+      );
+      const allPaidInvoicesSnap = await getDocs(allPaidInvoicesQuery);
+
+      allPaidInvoicesSnap.docs.forEach(docSnap => {
+        const invoiceData = docSnap.data() as Invoice;
+        const invoice = convertFirestoreTimestamps(invoiceData);
+        if (invoice?.issuedDate) {
+          const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
+          revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + (invoice.totalAmount || 0);
+        }
+      });
+      
+      const formattedRevenueData: MonthlyRevenueChartData[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const dateCursor = subMonths(now, i);
+        const monthYearKey = format(dateCursor, 'LLL yy', { locale: es });
+        formattedRevenueData.push({
+          month: monthYearKey.charAt(0).toUpperCase() + monthYearKey.slice(1), 
+          total: revenueByMonth[monthYearKey] || 0,
         });
+      }
+      setMonthlyRevenueData(formattedRevenueData);
 
-        // Revenue Last 6 Months Chart Data
-        const revenueByMonth: Record<string, number> = {};
-        const sixMonthsAgo = startOfMonth(subMonths(now, 5)); 
+      const recentTasksQuery = query(tasksCollectionRef, orderBy("createdAt", "desc"), limit(3));
+      const recentInvoicesQuery = query(invoicesCollectionRef, orderBy("createdAt", "desc"), limit(2));
+      
+      const [recentTasksSnap, recentInvoicesSnap] = await Promise.all([
+        getDocs(recentTasksQuery),
+        getDocs(recentInvoicesQuery)
+      ]);
 
-        const allPaidInvoicesQuery = query(invoicesCollectionRef, 
-          where("status", "==", "Pagada"),
-          where("issuedDate", ">=", Timestamp.fromDate(sixMonthsAgo))
-        );
-        const allPaidInvoicesSnap = await getDocs(allPaidInvoicesQuery);
-
-        allPaidInvoicesSnap.docs.forEach(docSnap => {
-          const invoiceData = docSnap.data() as Invoice;
-          const invoice = convertFirestoreTimestamps(invoiceData);
-          if (invoice?.issuedDate) {
-            const monthYear = format(new Date(invoice.issuedDate), 'LLL yy', { locale: es });
-            revenueByMonth[monthYear] = (revenueByMonth[monthYear] || 0) + (invoice.totalAmount || 0);
-          }
-        });
-        
-        const formattedRevenueData: MonthlyRevenueChartData[] = [];
-        for (let i = 5; i >= 0; i--) {
-          const dateCursor = subMonths(now, i);
-          const monthYearKey = format(dateCursor, 'LLL yy', { locale: es });
-          formattedRevenueData.push({
-            month: monthYearKey.charAt(0).toUpperCase() + monthYearKey.slice(1), 
-            total: revenueByMonth[monthYearKey] || 0,
+      const fetchedRecentActivity: RecentActivityItem[] = [];
+      recentTasksSnap.docs.forEach(docSnap => {
+        const task = convertFirestoreTimestamps(docSnap.data() as Task);
+        if (task && task.createdAt) {
+          fetchedRecentActivity.push({ 
+            id: docSnap.id, type: 'task', name: task.name || "Tarea sin nombre", 
+            statusOrClient: task.status, date: new Date(task.createdAt), statusType: task.status,
+            href: `/tasks/${docSnap.id}/edit`
           });
         }
-        setMonthlyRevenueData(formattedRevenueData);
-
-        // Recent Activity
-        const recentTasksQuery = query(tasksCollectionRef, orderBy("createdAt", "desc"), limit(3));
-        const recentInvoicesQuery = query(invoicesCollectionRef, orderBy("createdAt", "desc"), limit(2));
-        
-        const [recentTasksSnap, recentInvoicesSnap] = await Promise.all([
-          getDocs(recentTasksQuery),
-          getDocs(recentInvoicesQuery)
-        ]);
-
-        const fetchedRecentActivity: RecentActivityItem[] = [];
-        recentTasksSnap.docs.forEach(docSnap => {
-          const task = convertFirestoreTimestamps(docSnap.data() as Task);
-          if (task && task.createdAt) {
-            fetchedRecentActivity.push({ 
-              id: docSnap.id, type: 'task', name: task.name || "Tarea sin nombre", 
-              statusOrClient: task.status, date: new Date(task.createdAt), statusType: task.status,
-              href: `/tasks/${docSnap.id}/edit`
-            });
-          }
-        });
-        recentInvoicesSnap.docs.forEach(docSnap => {
-          const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
-          if (invoice && invoice.createdAt) {
-            fetchedRecentActivity.push({ 
-              id: docSnap.id, type: 'invoice', name: `Factura ${docSnap.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
-              statusOrClient: invoice.status, date: new Date(invoice.createdAt), statusType: invoice.status,
-              href: `/billing/${docSnap.id}/view`
-            });
-          }
-        });
-        fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
-        setRecentActivity(fetchedRecentActivity.slice(0, 5));
-
-        // Upcoming Items
-        const upcomingCutoffDateFirestore = Timestamp.fromDate(now); 
-        const upcomingTasksQuery = query(tasksCollectionRef, 
-          where("status", "in", ["Pendiente", "En Progreso"]), 
-          where("dueDate", ">", upcomingCutoffDateFirestore),
-          orderBy("dueDate", "asc"),
-          limit(3)
-        );
-        const upcomingInvoicesQuery = query(invoicesCollectionRef, 
-          where("status", "==", "No Pagada"), 
-          where("dueDate", ">", upcomingCutoffDateFirestore),
-          orderBy("dueDate", "asc"),
-          limit(2)
-        );
-
-        const [upcomingTasksSnap, upcomingInvoicesSnap] = await Promise.all([
-          getDocs(upcomingTasksQuery),
-          getDocs(upcomingInvoicesQuery)
-        ]);
-        
-        const fetchedUpcomingItems: UpcomingItem[] = [];
-        upcomingTasksSnap.docs.forEach(docSnap => {
-          const task = convertFirestoreTimestamps(docSnap.data() as Task);
-          if (task && task.dueDate) {
-            let taskDisplayName = `Tarea: ${task.name || "Tarea sin nombre"}`;
-            if (task.clientName) {
-              taskDisplayName += ` (Cliente: ${task.clientName})`;
-            }
-            fetchedUpcomingItems.push({ 
-              id: docSnap.id, type: 'task', name: taskDisplayName, 
-              dueDateFormatted: new Date(task.dueDate).toLocaleDateString('es-ES'),
-              alertDate: task.alertDate,
-              alertFired: task.alertFired,
-              href: `/tasks/${docSnap.id}/edit`
-            });
-          }
-        });
-        upcomingInvoicesSnap.docs.forEach(docSnap => {
-          const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
-          if (invoice && invoice.dueDate) {
-            fetchedUpcomingItems.push({ 
-              id: docSnap.id, type: 'invoice', 
-              name: `Factura ${docSnap.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
-              dueDateFormatted: new Date(invoice.dueDate).toLocaleDateString('es-ES'),
-              href: `/billing/${docSnap.id}/view`
-            });
-          }
-        });
-        fetchedUpcomingItems.sort((a, b) => {
-            const dateAIsValid = a.dueDateFormatted && !isNaN(new Date(a.dueDateFormatted.split('/').reverse().join('-')).getTime());
-            const dateBIsValid = b.dueDateFormatted && !isNaN(new Date(b.dueDateFormatted.split('/').reverse().join('-')).getTime());
-
-            const dateA = dateAIsValid ? new Date(a.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
-            const dateB = dateBIsValid ? new Date(b.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
-            
-            return dateA.getTime() - dateB.getTime();
-        });
-        setUpcomingItems(fetchedUpcomingItems.slice(0,5));
-
-      } catch (err) {
-        console.error("Error fetching dashboard data: ", err);
-        if (err instanceof Error && (err.message.includes("index") || err.message.includes("Index"))) {
-            setError(`Se requiere un índice de Firestore para cargar los datos del panel. Por favor, créalo usando el enlace que aparece en la consola de errores del navegador y luego recarga la página. (${err.message})`);
-        } else if (err instanceof Error) {
-           setError(`Error al cargar datos del panel: ${err.message}`);
-        } else {
-           setError("No se pudieron cargar los datos del panel. Intenta de nuevo más tarde.");
+      });
+      recentInvoicesSnap.docs.forEach(docSnap => {
+        const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
+        if (invoice && invoice.createdAt) {
+          fetchedRecentActivity.push({ 
+            id: docSnap.id, type: 'invoice', name: `Factura ${docSnap.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
+            statusOrClient: invoice.status, date: new Date(invoice.createdAt), statusType: invoice.status,
+            href: `/billing/${docSnap.id}/view`
+          });
         }
-      } finally {
-        setIsLoading(false);
-      }
-    };
+      });
+      fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
+      setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
-    fetchDashboardData();
+      const upcomingCutoffDateFirestore = Timestamp.fromDate(now); 
+      const upcomingTasksQuery = query(tasksCollectionRef, 
+        where("status", "in", ["Pendiente", "En Progreso"]), 
+        where("dueDate", ">", upcomingCutoffDateFirestore),
+        orderBy("dueDate", "asc"),
+        limit(3)
+      );
+      const upcomingInvoicesQuery = query(invoicesCollectionRef, 
+        where("status", "==", "No Pagada"), 
+        where("dueDate", ">", upcomingCutoffDateFirestore),
+        orderBy("dueDate", "asc"),
+        limit(2)
+      );
+
+      const [upcomingTasksSnap, upcomingInvoicesSnap] = await Promise.all([
+        getDocs(upcomingTasksQuery),
+        getDocs(upcomingInvoicesQuery)
+      ]);
+      
+      const fetchedUpcomingItems: UpcomingItem[] = [];
+      upcomingTasksSnap.docs.forEach(docSnap => {
+        const task = convertFirestoreTimestamps(docSnap.data() as Task);
+        if (task && task.dueDate) {
+          let taskDisplayName = task.name || "Tarea sin nombre";
+          if (task.clientName) {
+            taskDisplayName += ` (Cliente: ${task.clientName})`;
+          }
+          fetchedUpcomingItems.push({ 
+            id: docSnap.id, type: 'task', name: taskDisplayName, 
+            dueDateFormatted: new Date(task.dueDate).toLocaleDateString('es-ES'),
+            alertDate: task.alertDate instanceof Date ? task.alertDate : null,
+            alertFired: task.alertFired,
+            href: `/tasks/${docSnap.id}/edit`
+          });
+        }
+      });
+      upcomingInvoicesSnap.docs.forEach(docSnap => {
+        const invoice = convertFirestoreTimestamps(docSnap.data() as Invoice);
+        if (invoice && invoice.dueDate) {
+          fetchedUpcomingItems.push({ 
+            id: docSnap.id, type: 'invoice', 
+            name: `Factura ${docSnap.id.substring(0,6).toUpperCase()} para ${invoice.clientName || 'N/A'}`, 
+            dueDateFormatted: new Date(invoice.dueDate).toLocaleDateString('es-ES'),
+            href: `/billing/${docSnap.id}/view`
+          });
+        }
+      });
+      fetchedUpcomingItems.sort((a, b) => {
+          const dateAIsValid = a.dueDateFormatted && !isNaN(new Date(a.dueDateFormatted.split('/').reverse().join('-')).getTime());
+          const dateBIsValid = b.dueDateFormatted && !isNaN(new Date(b.dueDateFormatted.split('/').reverse().join('-')).getTime());
+
+          const dateA = dateAIsValid ? new Date(a.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
+          const dateB = dateBIsValid ? new Date(b.dueDateFormatted.split('/').reverse().join('-')) : new Date(0);
+          
+          return dateA.getTime() - dateB.getTime();
+      });
+      setUpcomingItems(fetchedUpcomingItems.slice(0,5));
+
+    } catch (err) {
+      console.error("Error fetching dashboard data: ", err);
+      if (err instanceof Error && (err.message.includes("index") || err.message.includes("Index"))) {
+          setError(`Se requiere un índice de Firestore para cargar los datos del panel. Por favor, créalo usando el enlace que aparece en la consola de errores del navegador y luego recarga la página. (${err.message})`);
+      } else if (err instanceof Error) {
+         setError(`Error al cargar datos del panel: ${err.message}`);
+      } else {
+         setError("No se pudieron cargar los datos del panel. Intenta de nuevo más tarde.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  React.useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   if (isLoading) {
     return (
@@ -395,6 +389,21 @@ export default function DashboardPage() {
           href="/billing?status=Pagada"
         />
       </div>
+
+      <Card className="shadow-xl border-t-4 border-primary">
+        <CardHeader>
+          <CardTitle className="text-2xl flex items-center">
+            <Bot className="mr-2 h-7 w-7 text-accent" />
+            MC Agent
+          </CardTitle>
+          <CardDescription>
+            Tu asistente IA personal. Haz preguntas, pide resúmenes o envía imágenes para análisis.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-1 md:p-2">
+          <Chatbot />
+        </CardContent>
+      </Card>
       
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="shadow-lg border-l-4 border-primary">
@@ -539,3 +548,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

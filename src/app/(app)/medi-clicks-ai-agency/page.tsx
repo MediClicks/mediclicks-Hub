@@ -1,7 +1,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Bot, Users, BarChart3, BookOpen, FileText, Zap, Briefcase, Brain, Lightbulb, TrendingUp } from "lucide-react";
-import { Chatbot } from "@/components/ai-agency/chatbot";
+// Chatbot ya no se importa ni se usa aquí
 import { Badge } from "@/components/ui/badge";
 
 interface CapabilityCardProps {
@@ -43,25 +43,11 @@ export default function MediClicksAiAgencyPage() {
         <CardHeader>
           <CardTitle className="text-2xl">Panel de Control de la Agencia IA</CardTitle>
           <CardDescription>
-            Interactúa con MC Agent, tu asistente personal potenciado por IA, y explora las futuras capacidades de gestión para tu agencia.
+            Explora las futuras capacidades de gestión para tu agencia. Puedes interactuar con MC Agent, tu asistente IA, desde el Panel Principal.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-10">
-          <Card className="border-primary/50 shadow-inner">
-            <CardHeader>
-              <CardTitle className="text-xl flex items-center">
-                <Bot className="mr-2 h-6 w-6 text-accent" />
-                MC Agent
-              </CardTitle>
-              <CardDescription>
-                Haz preguntas, pide resúmenes, envía imágenes para análisis o solicita ayuda con tareas relacionadas con la agencia al Dr. Alejandro.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-1 md:p-2">
-              <Chatbot />
-            </CardContent>
-          </Card>
-
+          {/* El Chatbot se ha movido al Dashboard */}
           <div className="border-t border-border pt-8">
             <h3 className="text-2xl font-semibold mb-6 text-center text-primary flex items-center justify-center gap-2">
               <Zap className="h-7 w-7 text-primary/90"/>
@@ -105,3 +91,4 @@ export default function MediClicksAiAgencyPage() {
     </div>
   );
 }
+
