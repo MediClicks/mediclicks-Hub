@@ -4,13 +4,13 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot, Save, ListCollapse } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot, Save, PlusCircle, CalendarIcon as CalendarIconLucide } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer } from 'firebase/firestore';
-import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Client, SavedConversation } from '@/types';
+import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer, addDoc, serverTimestamp } from 'firebase/firestore';
+import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Client, SavedConversation, TaskPriority } from '@/types';
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
@@ -19,6 +19,33 @@ import { es } from 'date-fns/locale';
 import { Chatbot } from "@/components/ai-agency/chatbot";
 import { useAuth } from '@/contexts/auth-context';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useToast } from '@/hooks/use-toast';
+import { updateTaskStatusAction } from '@/app/actions/taskActions';
 
 interface DashboardStats {
   totalClients: number;
@@ -120,6 +147,17 @@ const revenueChartConfig = {
   revenue: { label: "Ingresos", color: chartColors.revenue },
 } satisfies ChartConfig;
 
+const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
+
+const quickTaskFormSchema = z.object({
+  name: z.string().min(3, { message: 'El nombre de la tarea debe tener al menos 3 caracteres.' }),
+  assignedTo: z.string().min(2, { message: 'Debe asignar la tarea a alguien.' }),
+  dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
+  priority: z.enum(taskPriorities, { required_error: 'La prioridad es obligatoria.' }),
+});
+
+type QuickTaskFormValues = z.infer<typeof quickTaskFormSchema>;
+
 export default function DashboardPage() {
   const [stats, setStats] = React.useState<DashboardStats | null>(null);
   const [recentActivity, setRecentActivity] = React.useState<RecentActivityItem[]>([]);
@@ -132,37 +170,18 @@ export default function DashboardPage() {
   const [savedConversations, setSavedConversations] = React.useState<WithConvertedDates<SavedConversation>[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = React.useState(false);
   const { user } = useAuth();
+  const { toast } = useToast();
 
-  const fetchSavedConversations = React.useCallback(async () => {
-    if (!user?.uid) return;
-    setIsLoadingConversations(true);
-    try {
-      const q = query(
-        collection(db, "savedConversations"),
-        where("userId", "==", user.uid),
-        orderBy("createdAt", "desc"),
-        limit(10) // Limit to last 10 conversations for now
-      );
-      const querySnapshot = await getDocs(q);
-      const fetchedConversations = querySnapshot.docs.map(doc => {
-        const data = convertFirestoreTimestamps(doc.data() as SavedConversation);
-        return { id: doc.id, ...data } as WithConvertedDates<SavedConversation>;
-      });
-      setSavedConversations(fetchedConversations);
-    } catch (err) {
-      console.error("Error fetching saved conversations:", err);
-      // Optionally show a toast
-    } finally {
-      setIsLoadingConversations(false);
-    }
-  }, [user?.uid]);
+  const [isQuickTaskDialogOpen, setIsQuickTaskDialogOpen] = React.useState(false);
 
-  React.useEffect(() => {
-    if (user?.uid) {
-      fetchSavedConversations();
-    }
-  }, [user?.uid, fetchSavedConversations]);
-
+  const quickTaskForm = useForm<QuickTaskFormValues>({
+    resolver: zodResolver(quickTaskFormSchema),
+    defaultValues: {
+      name: '',
+      assignedTo: '',
+      priority: 'Media',
+    },
+  });
 
   const fetchDashboardData = React.useCallback(async () => {
     setIsLoading(true);
@@ -355,9 +374,81 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const fetchSavedConversations = React.useCallback(async () => {
+    if (!user?.uid) return;
+    setIsLoadingConversations(true);
+    try {
+      const q = query(
+        collection(db, "savedConversations"),
+        where("userId", "==", user.uid),
+        orderBy("createdAt", "desc"),
+        limit(10) 
+      );
+      const querySnapshot = await getDocs(q);
+      const fetchedConversations = querySnapshot.docs.map(doc => {
+        const data = convertFirestoreTimestamps(doc.data() as SavedConversation);
+        return { id: doc.id, ...data } as WithConvertedDates<SavedConversation>;
+      });
+      setSavedConversations(fetchedConversations);
+    } catch (err) {
+      console.error("Error fetching saved conversations:", err);
+    } finally {
+      setIsLoadingConversations(false);
+    }
+  }, [user?.uid]);
+
   React.useEffect(() => {
     fetchDashboardData();
-  }, [fetchDashboardData]);
+    if (user?.uid) {
+      fetchSavedConversations();
+    }
+  }, [fetchDashboardData, user?.uid, fetchSavedConversations]);
+
+  const onSubmitQuickTask = async (data: QuickTaskFormValues) => {
+    try {
+      const taskData = {
+        ...data,
+        status: 'Pendiente' as TaskStatus,
+        dueDate: Timestamp.fromDate(data.dueDate),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      await addDoc(collection(db, 'tasks'), taskData);
+      toast({
+        title: "Tarea Rápida Agregada",
+        description: `La tarea "${data.name}" ha sido creada.`,
+      });
+      quickTaskForm.reset();
+      setIsQuickTaskDialogOpen(false);
+      fetchDashboardData(); // Refrescar datos del dashboard
+    } catch (e) {
+      console.error("Error agregando tarea rápida: ", e);
+      toast({
+        title: "Error al Crear Tarea",
+        description: "Hubo un problema al guardar la tarea rápida.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  const handleUpdateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
+    try {
+      await updateTaskStatusAction(taskId, newStatus);
+      toast({
+        title: "Estado de Tarea Actualizado",
+        description: `La tarea ha sido marcada como "${newStatus}".`,
+      });
+      fetchDashboardData(); // Refrescar datos del dashboard
+    } catch (error) {
+      console.error("Error updating task status from dashboard:", error);
+      toast({
+        title: "Error al Actualizar Estado",
+        description: "No se pudo actualizar el estado de la tarea.",
+        variant: "destructive",
+      });
+    }
+  };
+
 
   if (isLoading) {
     return (
@@ -383,7 +474,112 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold tracking-tight">Panel Principal</h1>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <h1 className="text-3xl font-bold tracking-tight">Panel Principal</h1>
+        <Dialog open={isQuickTaskDialogOpen} onOpenChange={setIsQuickTaskDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Nueva Tarea Rápida
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Agregar Nueva Tarea Rápida</DialogTitle>
+              <DialogDescription>
+                Ingresa los detalles básicos de la tarea. Puedes añadir más información después.
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...quickTaskForm}>
+              <form onSubmit={quickTaskForm.handleSubmit(onSubmitQuickTask)} className="space-y-4 py-2">
+                <FormField
+                  control={quickTaskForm.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nombre de la Tarea</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ej: Llamar a Cliente X" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={quickTaskForm.control}
+                  name="assignedTo"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Asignada A</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ej: Tu Nombre" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={quickTaskForm.control}
+                  name="dueDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Fecha de Vencimiento</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={'outline'}
+                              className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
+                            >
+                              {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
+                              <CalendarIconLucide className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={quickTaskForm.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Prioridad</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar prioridad" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {taskPriorities.map(priority => (
+                            <SelectItem key={priority} value={priority}>{priority}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <DialogClose asChild>
+                     <Button type="button" variant="outline" disabled={quickTaskForm.formState.isSubmitting}>Cancelar</Button>
+                  </DialogClose>
+                  <Button type="submit" disabled={quickTaskForm.formState.isSubmitting}>
+                    {quickTaskForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {quickTaskForm.formState.isSubmitting ? "Guardando..." : "Guardar Tarea"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <SummaryCard 
           title="Total Clientes" 
@@ -461,14 +657,14 @@ export default function DashboardPage() {
               <p className="text-sm text-muted-foreground text-center py-4">No hay conversaciones guardadas.</p>
             )}
             {!isLoadingConversations && savedConversations.length > 0 && (
-              <ScrollArea className="h-[300px] pr-3"> {/* Ajusta la altura según necesites */}
+              <ScrollArea className="h-[300px] pr-3"> 
                 <ul className="space-y-2">
                   {savedConversations.map(convo => (
                     <li key={convo.id}>
                        <Button
                         variant="ghost"
                         className="w-full justify-start text-left h-auto py-2 px-3 hover:bg-muted/50"
-                        disabled // La funcionalidad de cargar conversación no está implementada
+                        disabled 
                         title="Cargar esta conversación (funcionalidad futura)"
                       >
                         <div className="flex flex-col">
@@ -539,7 +735,7 @@ export default function DashboardPage() {
               {upcomingItems.map(item => {
                 const isAlertActive = item.type === 'task' && item.alertDate && isPast(new Date(item.alertDate)) && !item.alertFired;
                 return (
-                  <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2 hover:bg-muted/50 p-2 rounded-md transition-colors">
+                  <li key={item.id} className="text-sm text-muted-foreground flex items-center gap-2 hover:bg-muted/50 p-2 rounded-md transition-colors group">
                     {item.type === 'task' ? <ListChecks className="h-5 w-5 text-sky-600 shrink-0" /> : <Receipt className="h-5 w-5 text-rose-600 shrink-0" />}
                     <div className="flex-1 min-w-0">
                       <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
@@ -550,6 +746,19 @@ export default function DashboardPage() {
                         {isAlertActive && <BellRing className="h-3 w-3 text-orange-500 shrink-0" title="Alerta Activa"/>}
                       </div>
                     </div>
+                    {item.type === 'task' && (
+                       <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 h-7 px-1.5">...</Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Cambiar Estado</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleUpdateTaskStatus(item.id, 'En Progreso')}>Marcar En Progreso</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleUpdateTaskStatus(item.id, 'Completada')}>Marcar Completada</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </li>
                 );
               })}

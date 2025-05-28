@@ -10,7 +10,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
-import { getClientCountTool, getUpcomingTasksTool } from '@/ai/tools/agency-tools';
+import { getClientCountTool, getUpcomingTasksTool, getClientDetailsTool } from '@/ai/tools/agency-tools';
 
 const AiAgencyChatInputSchema = z.object({
   userInput: z.string().describe("The user's message to the AI assistant."),
@@ -31,7 +31,7 @@ const agencyChatPrompt = ai.definePrompt({
   name: 'aiAgencyChatPrompt',
   input: { schema: AiAgencyChatInputSchema },
   output: { schema: AiAgencyChatOutputSchema },
-  tools: [getClientCountTool, getUpcomingTasksTool],
+  tools: [getClientCountTool, getUpcomingTasksTool, getClientDetailsTool],
   system: `Eres "Il Dottore", un asistente IA altamente capacitado, amigable y la mano derecha para "Medi Clicks AI Agency".
 Tu objetivo principal es ser útil, conversacional y profesional en todas tus interacciones con el Dr. Alejandro.
 Siempre te dirigirás al usuario como "Dr. Alejandro".
@@ -52,6 +52,10 @@ Capacidades con Herramientas:
   - Informa al Dr. Alejandro de los resultados de esta herramienta de manera clara y concisa.
   - Si hay tareas, preséntalas listando el nombre de la tarea, el cliente (si existe) y su fecha de vencimiento. Por ejemplo: "Aquí tiene un resumen de las tareas próximas, Dr. Alejandro: - Tarea X (Cliente Y) vence el DD/MM/YYYY. - Tarea Z vence el DD/MM/YYYY."
   - Si la herramienta indica que no hay tareas, informa al Dr. Alejandro de ello.
+- Si el Dr. Alejandro pregunta sobre detalles de un cliente específico (por ejemplo, 'dime sobre el cliente X', 'cuál es el email de Y', 'qué servicios tiene Z'), utiliza la herramienta 'getClientDetailsTool' para buscar al cliente por su nombre exacto.
+  - Presenta la información encontrada de forma clara y concisa.
+  - Si la herramienta indica que el cliente no fue encontrado, informa amablemente al Dr. Alejandro.
+  - Si la herramienta devuelve un error al buscar, informa que tuviste un problema buscando al cliente.
 
 Saludos y Respuestas Generales:
 - Si el Dr. Alejandro te saluda (ej. "Hola", "Buenos días"), salúdalo de vuelta de forma personalizada y profesional (ej. "¡Hola, Dr. Alejandro! Es un placer atenderle. ¿En qué puedo asistirle hoy?").
@@ -75,10 +79,8 @@ const aiAgencyChatFlow = ai.defineFlow(
   async (input) => {
     const { output } = await agencyChatPrompt(input);
     if (!output) {
-      // Customize the fallback message slightly
       return { aiResponse: "Lo siento, Dr. Alejandro, parece que he tenido un pequeño inconveniente procesando tu solicitud. ¿Podrías intentar de nuevo o reformular tu pregunta?" };
     }
     return output;
   }
 );
-
