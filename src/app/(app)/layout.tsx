@@ -20,7 +20,7 @@ import { AppHeader } from '@/components/layout/app-header';
 import { navItems, bottomNavItems, AppLogo, type NavItem } from '@/components/layout/nav-items';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils'; 
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/auth-context';
 import { useNotification } from '@/contexts/notification-context';
 import { Loader2, Bell } from 'lucide-react';
@@ -58,7 +58,7 @@ const sidebarIconColors: Record<string, string> = {
   "/clients": "text-lime-400",
   "/tasks": "text-amber-400",
   "/billing": "text-rose-400",
-  // "/medi-clicks-ai-agency": "text-purple-400", // Icono Bot, eliminado
+  "/medi-clicks-agency": "text-purple-400", // Nuevo color para Medi Clicks Agency
   "/medi-clinic": "text-cyan-400",
   "/settings": "text-slate-400",
   // El color de la campana se maneja de forma especial
