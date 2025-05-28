@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Bot, User, Send, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { aiAgencyChat, type AiAgencyChatInput } from '@/ai/flows/ai-agency-chat-flow';
@@ -23,8 +23,21 @@ export function Chatbot() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Initial greeting from AI
+    setMessages([
+      {
+        id: Date.now().toString() + '-ai-greeting',
+        sender: 'ai',
+        text: '¡Hola! Soy tu asistente de Medi Clicks AI Agency. ¿En qué puedo ayudarte hoy?',
+      },
+    ]);
+  }, []);
+
+
+  useEffect(() => {
     // Scroll to bottom when new messages are added
     if (scrollAreaRef.current) {
+      // The viewport is usually the first direct child div of the ScrollArea component
       const scrollViewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
       if (scrollViewport) {
         scrollViewport.scrollTop = scrollViewport.scrollHeight;
