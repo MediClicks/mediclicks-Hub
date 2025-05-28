@@ -1,10 +1,10 @@
 
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // Added CardFooter
 import { Badge } from "@/components/ui/badge";
 import { 
-  Bot, // Changed from BrainCircuit
+  Bot,
   Lightbulb, 
   BarChart3, 
   CheckCircle, 
@@ -125,8 +125,8 @@ export default function MediClicksAiAgencyPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight flex items-center">
-          <Bot className="mr-3 h-8 w-8 text-primary" /> {/* Icon updated to Bot */}
-          Medi Clicks AI Agency - Centro de IA Avanzada
+          <Bot className="mr-3 h-8 w-8 text-primary" />
+          Medi Clicks AI Agency
         </h1>
       </div>
       <Card className="shadow-lg border-t-4 border-primary">
@@ -191,7 +191,7 @@ export default function MediClicksAiAgencyPage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <CapabilityCard
-                icon={Lightbulb} // Reutilizando Lightbulb, considera cambiarlo si tienes otro más específico
+                icon={Lightbulb} 
                 title="AI Study Assistant"
                 description="Il Dottore te ayudará a investigar tendencias del mercado, analizar la competencia de tus clientes y obtener insights para estrategias de marketing más efectivas."
                 status="Próximamente"
@@ -209,19 +209,19 @@ export default function MediClicksAiAgencyPage() {
                 status="Próximamente"
               />
               <CapabilityCard
-                icon={MessageSquare} // Reutilizando MessageSquare
+                icon={MessageSquare} 
                 title="Social Media Manager Pro"
                 description="Generación avanzada de calendarios de contenido multicanal, programación inteligente de publicaciones y análisis de engagement con sugerencias de mejora y respuesta."
                 status="Próximamente"
               />
                <CapabilityCard
-                icon={Users} // Reutilizando Users
+                icon={Users} 
                 title="Gestión de Equipo Asistida"
                 description="Asistencia en la asignación de tareas al equipo basada en carga de trabajo y habilidades, seguimiento del progreso y facilitación de la comunicación interna y recordatorios."
                 status="Próximamente"
               />
               <CapabilityCard
-                icon={FileText} // Reutilizando FileText
+                icon={FileText} 
                 title="Gestión de Propuestas Inteligente"
                 description="Ayuda en la redacción de propuestas comerciales personalizadas según el perfil del cliente y los servicios, y seguimiento del estado de las propuestas enviadas."
                 status="Próximamente"
