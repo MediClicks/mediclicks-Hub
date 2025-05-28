@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+/node_modules                      # Ignora node_modules de la raíz de 'studio'
 /.pnp
 .pnp.*
 .yarn/*
@@ -37,12 +37,27 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-.genkit/*
-.env*
+# ENVIRONMENT VARIABLES & SENSITIVE FILES
+.env                               # Ignora el archivo .env principal en la raíz
+.env.* # Ignora cualquier variante de .env (ej. .env.local, .env.development, etc.)
 
-# firebase
-firebase-debug.log
-firestore-debug.log
+# FIREBASE FUNCTIONS (Genkit) specific ignores
+/functions/node_modules/           # Ignora node_modules dentro de tu directorio 'functions'
+/functions/lib/                    # Ignora la carpeta de salida de TypeScript compilada de tus funciones
+/functions/firebase-debug.log* # Logs específicos de Firebase Functions
+/functions/firestore-debug.log* # Logs específicos de Firestore desde Functions
+/functions/.genkit/                # Si Genkit llegara a crear alguna carpeta oculta en el directorio de funciones (menos común, pero por si acaso)
 
-client_secret_961144846241-ljliv9rhihhk9it4sr1go1stj2vc28g1.apps.googleusercontent.com.json
-token.json
+
+# FIREBASE CLI CONFIG & AUTH
+firebase-debug.log                 # Logs de Firebase CLI en la raíz
+firestore-debug.log                # Logs de Firestore en la raíz
+
+# SENSITIVE CREDENTIALS (CRITICAL - DO NOT REMOVE)
+client_secret_*.apps.googleusercontent.com.json # Captura tus client secrets JSON
+token.json                                      # Captura los tokens de autenticación
+*.json                                          # ¡CUIDADO! Si tienes otros JSON que SÍ quieres subir, esto puede ser demasiado amplio.
+                                                # Mejor ser específico con los nombres de tus archivos de credenciales.
+                                                # Por ejemplo: my-firebase-service-account-key.json
+node_modules
+node_modules

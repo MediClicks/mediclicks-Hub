@@ -8,21 +8,21 @@ import {
   Settings,
   Building2,
   Hospital,
-  Bot,
-  Bell, // Added Bell for notifications
+  Bot, // Mantener Bot para AI Agency
+  Bell,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react"; // Ensure LucideIcon is typed if used directly
+import type { LucideIcon } from "lucide-react";
 
 export type NavItem = {
   href: string;
   label: string;
-  icon: LucideIcon; // Use LucideIcon type
+  icon: LucideIcon;
   tooltip?: string;
   subItems?: NavItem[];
   active?: boolean;
   isSectionTitle?: boolean;
-  isNotification?: boolean; // New property for notification item
-  notificationCount?: number; // For the badge
+  isNotification?: boolean;
+  notificationCount?: number;
 };
 
 export const navItems: NavItem[] = [
@@ -31,12 +31,12 @@ export const navItems: NavItem[] = [
   { href: "/tasks", label: "Tareas", icon: ListChecks, tooltip: "Seguimiento de Tareas" },
   { href: "/billing", label: "Facturación", icon: Receipt, tooltip: "Facturas y Pagos" },
   { isSectionTitle: true, label: "Medi Clicks - Extensiones", icon: Building2 },
-  { href: "/medi-clicks-agency", label: "Medi Clicks Agency", icon: Bot, tooltip: "Gestión de Agencia" },
+  { href: "/medi-clicks-agency", label: "Medi Clicks AI Agency", icon: Bot, tooltip: "Agencia IA" }, // Nombre y tooltip actualizados
   { href: "/medi-clinic", label: "Medi Clinic", icon: Hospital, tooltip: "Gestión de Clínica" },
 ];
 
 export const bottomNavItems: NavItem[] = [
-  { href: "#", label: "Notificaciones", icon: Bell, tooltip: "Ver Notificaciones", isNotification: true, notificationCount: 0 }, // Placeholder count
+  { href: "#", label: "Notificaciones", icon: Bell, tooltip: "Ver Notificaciones", isNotification: true, notificationCount: 0 },
   { href: "/settings", label: "Configuración", icon: Settings, tooltip: "Ajustes de la App" },
 ];
 
@@ -51,7 +51,7 @@ export const AppLogo = ({ collapsed }: { collapsed?: boolean }) => (
       data-ai-hint="company logo"
     />
     {!collapsed && (
-      <span className="flex items-baseline">
+       <span className="flex items-baseline">
         <span className="text-lg font-bold text-sidebar-foreground tracking-tight">MEDI</span>
         <span className="text-lg font-bold text-sidebar-foreground tracking-tight">-</span>
         <span className="text-lg font-bold text-sidebar-foreground tracking-tight">CLICKS</span>

@@ -2,13 +2,14 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
+import ReactDOMServer from 'react-dom/server';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates, ContractedServiceClient } from "@/types";
 import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe, Briefcase, Info } from 'lucide-react';
 import { Button, buttonVariants } from "@/components/ui/button";
-import {
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -23,6 +24,7 @@ import { db } from '@/lib/firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { updateUserProfileIcon } from '@/app/actions/clientActions';
 
 interface ClientCardProps {
   client: WithConvertedDates<Client>;
@@ -33,6 +35,44 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  const personIcons = [
+    <svg key="icon1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+      <circle cx="12" cy="8" r="5" />
+      <path d="M20 21a8 8 0 0 0-16 0" />
+    </svg>, // Simple person
+    <svg key="icon2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+      <circle cx="12" cy="7" r="4" />
+      <path d="M19.25 17.25a7 7 0 0 0-14.5 0" />
+      <path d="M15 11l1.5-1.5M9 11l-1.5-1.5" />
+      <path d="M12 15v2" />
+    </svg>, // Person with styled hair
+    <svg key="icon3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+      <circle cx="12" cy="7" r="4" />
+      <path d="M17.5 16.5a7 7 0 0 0-11 0" />
+      <rect x="8" y="9" width="8" height="3" rx="1" ry="1" />
+    </svg>, // Person with glasses
+    <svg key="icon4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>, // Two people (simplified)
+    <svg key="icon5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+      <circle cx="12" cy="6" r="4" />
+      <path d="M12 11v5" />
+      <path d="M8 21h8" />
+      <path d="M12 16v6" />
+      <path d="M10 13l-2 8" />
+      <path d="M14 13l2 8" />
+    </svg>, // Person with a hat
+  ];
+
+  const handleIconSelect = async (iconSvg: string) => {
+    if (client && client.id) {
+      await updateUserProfileIcon(client.id, iconSvg);
+    }
+  };
 
   const formatDate = (dateInput: Date | string | undefined | null) => {
     if (!dateInput) return 'N/A';
@@ -88,16 +128,27 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
   return (
     <>
       <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden flex flex-col bg-card">
-        <CardHeader className="flex flex-row items-start gap-4 p-4 bg-card-foreground/5">
-          <Avatar className="h-16 w-16 border-2 border-primary">
-            {client.avatarUrl ? (
-              <AvatarImage src={client.avatarUrl} alt={client.name || "Avatar del cliente"} data-ai-hint="company logo" />
-            ) : (
-              <AvatarFallback className="bg-primary/20 text-primary font-semibold text-lg">
-                {getAvatarFallbackText(client.name)}
-              </AvatarFallback>
-            )}
-          </Avatar>
+        <CardHeader className="flex flex-row items-start gap-4 p-4 bg-card-foreground/5 relative">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Avatar className="h-16 w-16 border-2 border-primary cursor-pointer">
+                {client.profileIcon ? (
+                  <div dangerouslySetInnerHTML={{ __html: client.profileIcon }} className="h-full w-full flex items-center justify-center text-primary" />
+                ) : (
+                  <AvatarFallback className="bg-primary/20 text-primary font-semibold text-lg flex items-center justify-center">
+                    <UserCircle className="h-10 w-10" /> {/* Default random icon */}
+                  </AvatarFallback>
+                )}
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56">
+              {personIcons.map((icon, index) => (
+                <DropdownMenuItem key={index} onClick={() => handleIconSelect(ReactDOMServer.renderToString(icon))} className="cursor-pointer">
+                  {icon} Icono {index + 1}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="flex-1">
             <CardTitle className="text-xl mb-1 text-foreground">
               <Link href={`/clients/${client.id}/edit`} className="hover:underline text-primary">
