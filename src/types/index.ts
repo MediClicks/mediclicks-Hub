@@ -27,7 +27,7 @@ export interface Client {
   id: string; // Firestore document ID
   name: string;
   email: string;
-  avatarUrl?: string; // New field for avatar URL
+  avatarUrl?: string;
   contractStartDate: Date;
   profileSummary?: string;
 
@@ -42,16 +42,8 @@ export interface Client {
   contractedServices?: ContractedServiceClient[];
   socialMediaAccounts?: SocialMediaAccountClient[];
   
-  // Deprecated fields, ensure they are not actively used or are handled for migration if needed
-  // nextBillingDate?: Date; 
-  // serviciosActivosGeneral?: string;
-  // notas?: string;
-  // plataformasRedesSociales?: string;
-  // detallesRedesSociales?: string;
-  // serviciosContratadosAdicionales?: string;
-  // configuracionRedesSociales?: string;
-  credencialesRedesUsuario?: string; // Kept for potential data from old clients
-  credencialesRedesContrasena?: string; // Kept for potential data from old clients
+  credencialesRedesUsuario?: string;
+  credencialesRedesContrasena?: string;
 
 
   createdAt?: Date | Timestamp;
@@ -113,7 +105,6 @@ export interface Publication {
   updatedAt?: Date | Timestamp;
 }
 
-// Helper type for converting Firestore Timestamps in fetched data
 export type WithConvertedDates<T> = {
   [K in keyof T]: T[K] extends Timestamp ? Date :
     T[K] extends Timestamp | null ? Date | null :
@@ -141,4 +132,27 @@ export interface ServiceDefinition {
   paymentModality: PaymentModality;
   createdAt?: Date | Timestamp;
   updatedAt?: Date | Timestamp;
+}
+
+// Tipos para el Chatbot y Conversaciones Guardadas
+export interface ChatUIMessage { // Renombrado de Message para evitar colisión con Message de HTML
+  id: string; // ID del lado del cliente para la UI (ej. Date.now())
+  sender: 'user' | 'ai';
+  text: string;
+  imageUrl?: string; // Para mostrar imágenes adjuntadas por el usuario en la UI
+}
+
+export interface ChatMessage { // Para guardar en Firestore
+  sender: 'user' | 'ai';
+  text: string;
+  imageUrl?: string; // Data URI de la imagen si el usuario adjuntó una
+}
+
+export interface SavedConversation {
+  id: string; // ID del documento de Firestore
+  userId: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: Date | Timestamp;
+  updatedAt?: Date | Timestamp; // Opcional, si queremos marcar cuándo se actualizó
 }

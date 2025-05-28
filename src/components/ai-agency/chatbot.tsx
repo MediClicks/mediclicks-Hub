@@ -6,32 +6,34 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Bot, User, Send, Loader2, Paperclip, XCircle, Image as ImageIcon } from 'lucide-react';
+import { Bot, User, Send, Loader2, Paperclip, XCircle, Image as ImageIcon, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { aiAgencyChat, type AiAgencyChatInput } from '@/ai/flows/ai-agency-chat-flow';
+import type { ChatUIMessage } from '@/types'; // Importar el nuevo tipo
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
-
-interface Message {
-  id: string;
-  sender: 'user' | 'ai';
-  text: string;
-  imageUrl?: string; // For displaying images sent by the user
-}
+import { useAuth } from '@/contexts/auth-context';
+import { saveConversationAction } from '@/app/actions/chatActions'; // Nueva acción
 
 const MAX_IMAGE_SIZE_MB = 5;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 
-export function Chatbot() {
-  const [messages, setMessages] = useState<Message[]>([]);
+interface ChatbotProps {
+  onConversationSaved?: () => void; // Callback para refrescar historial
+}
+
+export function Chatbot({ onConversationSaved }: ChatbotProps) {
+  const [messages, setMessages] = useState<ChatUIMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingConversation, setIsSavingConversation] = useState(false);
   const [isAttachingImage, setIsAttachingImage] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [attachedImageName, setAttachedImageName] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
     setMessages([
@@ -107,7 +109,7 @@ export function Chatbot() {
     const trimmedInput = inputValue.trim();
     if (!trimmedInput && !attachedImage) return;
 
-    const userMessage: Message = {
+    const userMessage: ChatUIMessage = {
       id: Date.now().toString() + '-user',
       sender: 'user',
       text: trimmedInput,
@@ -121,12 +123,12 @@ export function Chatbot() {
     }
 
     setInputValue('');
-    removeAttachedImage();
+    removeAttachedImage(); // Limpia la imagen después de construir el mensaje
     setIsLoading(true);
 
     try {
       const result = await aiAgencyChat(inputForAI);
-      const aiMessage: Message = {
+      const aiMessage: ChatUIMessage = {
         id: Date.now().toString() + '-ai',
         sender: 'ai',
         text: result.aiResponse,
@@ -134,7 +136,7 @@ export function Chatbot() {
       setMessages((prevMessages) => [...prevMessages, aiMessage]);
     } catch (error) {
       console.error('Error calling AI chat flow:', error);
-      const errorMessage: Message = {
+      const errorMessage: ChatUIMessage = {
         id: Date.now().toString() + '-error',
         sender: 'ai',
         text: 'Lo siento, Dr. Alejandro, ocurrió un error al conectar con el asistente. Por favor, intenta de nuevo.',
@@ -145,25 +147,57 @@ export function Chatbot() {
     }
   };
 
+  const handleSaveConversation = async () => {
+    if (!user || !user.uid) {
+      toast({ title: "Error", description: "Debes iniciar sesión para guardar conversaciones.", variant: "destructive" });
+      return;
+    }
+    if (messages.length < 2) { // Al menos un saludo de IA y un mensaje de usuario
+      toast({ title: "Conversación Vacía", description: "No hay suficiente contenido para guardar.", variant: "default" });
+      return;
+    }
+
+    setIsSavingConversation(true);
+    // Prepara los mensajes para guardar (sin el ID del lado del cliente)
+    const messagesToSave = messages.map(({ id, ...rest }) => rest);
+
+    try {
+      const result = await saveConversationAction(messagesToSave, user.uid);
+      if (result.success && result.id) {
+        toast({ title: "Conversación Guardada", description: `La conversación ha sido guardada con ID: ${result.id.substring(0,8)}` });
+        if (onConversationSaved) {
+          onConversationSaved();
+        }
+      } else {
+        toast({ title: "Error al Guardar", description: result.error || "No se pudo guardar la conversación.", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error("Error saving conversation:", error);
+      toast({ title: "Error al Guardar", description: "Ocurrió un problema al intentar guardar la conversación.", variant: "destructive" });
+    } finally {
+      setIsSavingConversation(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-[calc(80vh-120px)] min-h-[400px] max-h-[700px] border rounded-lg shadow-md bg-card">
+    <div className="flex flex-col h-[calc(80vh-120px)] min-h-[450px] max-h-[700px] border rounded-lg shadow-md bg-card">
       <ScrollArea className="flex-grow p-4 space-y-4" ref={scrollAreaRef}>
         {messages.map((message) => (
           <div
             key={message.id}
             className={cn(
-              "flex items-end gap-2.5 mb-4 max-w-[80%] sm:max-w-[75%]",
+              "flex items-end gap-2.5 mb-4 max-w-[85%] sm:max-w-[75%]", // Aumentado el max-width
               message.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'
             )}
           >
-            <Avatar className="h-9 w-9 shrink-0">
+            <Avatar className="h-10 w-10 shrink-0"> {/* Avatar un poco más grande */}
               {message.sender === 'ai' ? (
                 <AvatarFallback className="bg-primary text-primary-foreground">
-                  <Bot className="h-5 w-5" />
+                  <Bot className="h-6 w-6" /> {/* Icono un poco más grande */}
                 </AvatarFallback>
               ) : (
                 <AvatarFallback className="bg-accent text-accent-foreground">
-                  <User className="h-5 w-5" />
+                  <User className="h-6 w-6" /> {/* Icono un poco más grande */}
                 </AvatarFallback>
               )}
             </Avatar>
@@ -176,7 +210,7 @@ export function Chatbot() {
               )}
             >
               {message.imageUrl && (
-                <div className="mb-2 relative w-full max-w-[250px] aspect-square bg-muted rounded-md overflow-hidden" data-ai-hint="user image attachment">
+                <div className="mb-2 relative w-full max-w-[250px] sm:max-w-[300px] aspect-square bg-muted rounded-md overflow-hidden" data-ai-hint="user image attachment">
                   <Image
                     src={message.imageUrl}
                     alt="Adjunto de Dr. Alejandro"
@@ -190,11 +224,11 @@ export function Chatbot() {
             </div>
           </div>
         ))}
-        {isLoading && (
+        {isLoading && !isSavingConversation && ( // Solo mostrar loader de IA si no se está guardando
           <div className="flex items-end gap-2.5 mb-4 max-w-[80%] sm:max-w-[75%] mr-auto">
-            <Avatar className="h-9 w-9 shrink-0">
+            <Avatar className="h-10 w-10 shrink-0">
               <AvatarFallback className="bg-primary text-primary-foreground">
-                <Bot className="h-5 w-5" />
+                <Bot className="h-6 w-6" />
               </AvatarFallback>
             </Avatar>
             <div className="p-3 rounded-xl shadow-sm text-sm bg-secondary text-secondary-foreground rounded-bl-none">
@@ -228,7 +262,7 @@ export function Chatbot() {
           variant="ghost"
           size="icon"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isLoading || isAttachingImage}
+          disabled={isLoading || isAttachingImage || isSavingConversation}
           title="Adjuntar imagen"
           className="hover:bg-primary/10"
         >
@@ -241,7 +275,7 @@ export function Chatbot() {
           ref={fileInputRef}
           onChange={handleImageAttach}
           className="hidden"
-          disabled={isAttachingImage}
+          disabled={isAttachingImage || isSavingConversation}
         />
         <Textarea
           value={inputValue}
@@ -250,14 +284,26 @@ export function Chatbot() {
           className="flex-grow resize-none min-h-[40px] max-h-[120px] text-sm bg-background focus-visible:ring-primary/50"
           rows={1}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !isLoading) {
+            if (e.key === 'Enter' && !e.shiftKey && !isLoading && !isSavingConversation) {
               e.preventDefault();
               handleSendMessage();
             }
           }}
-          disabled={isLoading || isAttachingImage}
+          disabled={isLoading || isAttachingImage || isSavingConversation}
         />
-        <Button type="submit" size="icon" disabled={isLoading || isAttachingImage || (!inputValue.trim() && !attachedImage)} className="bg-primary hover:bg-primary/90">
+        <Button 
+          type="button" 
+          variant="outline" 
+          size="icon" 
+          onClick={handleSaveConversation} 
+          disabled={isLoading || isSavingConversation || messages.length < 2}
+          title="Guardar Conversación"
+          className="hover:bg-green-500/10 border-green-500 text-green-600"
+        >
+          {isSavingConversation ? <Loader2 className="h-5 w-5 animate-spin"/> : <Save className="h-5 w-5" />}
+          <span className="sr-only">Guardar</span>
+        </Button>
+        <Button type="submit" size="icon" disabled={isLoading || isAttachingImage || (!inputValue.trim() && !attachedImage) || isSavingConversation} className="bg-primary hover:bg-primary/90">
           {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
           <span className="sr-only">Enviar</span>
         </Button>
