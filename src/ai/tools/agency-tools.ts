@@ -46,9 +46,6 @@ export const getClientCountTool = ai.defineTool(
       return { count: snapshot.data().count };
     } catch (error) {
       console.error("Error en getClientCountTool:", error);
-      // Consider how Il Dottore should respond to tool errors.
-      // For now, it might just say it couldn't fetch the data.
-      // Or, you could have it return a specific error structure or message.
       return { count: -1 }; // Indicate an error or inability to fetch
     }
   }
@@ -64,7 +61,7 @@ const UpcomingTaskSchema = z.object({
 export const getUpcomingTasksTool = ai.defineTool(
   {
     name: 'getUpcomingTasksTool',
-    description: 'Obtiene un resumen de las tareas pendientes o en progreso que vencen hoy o en los próximos 2 días.',
+    description: 'Obtiene un resumen de las tareas pendientes o en progreso que vencen hoy o en los próximos 2 días (total 3 días incluyendo hoy).',
     inputSchema: z.object({}), // No input needed
     outputSchema: z.object({
       tasks: z.array(UpcomingTaskSchema).describe("Lista de tareas próximas."),
@@ -101,20 +98,21 @@ export const getUpcomingTasksTool = ai.defineTool(
       });
 
       if (fetchedTasks.length === 0) {
-        return { tasks: [], summary: "No hay tareas pendientes o en progreso con vencimiento en los próximos 3 días, Dr. Alejandro." };
+        return { tasks: [], summary: "No hay tareas próximas con vencimiento en los siguientes 3 días." };
       }
 
       return { 
         tasks: fetchedTasks,
-        summary: `He encontrado ${fetchedTasks.length} tarea(s) próxima(s) para los siguientes días, Dr. Alejandro.`
+        summary: `${fetchedTasks.length} tarea(s) próxima(s) encontrada(s).`
       };
 
     } catch (error: any) {
       console.error("Error en getUpcomingTasksTool:", error);
       return { 
           tasks: [], 
-          summary: `Lo siento Dr. Alejandro, no pude obtener las tareas próximas debido a un error: ${error.message || 'Error desconocido'}.` 
+          summary: `No pude obtener las tareas próximas debido a un error: ${error.message || 'Error desconocido'}.` 
       };
     }
   }
 );
+
