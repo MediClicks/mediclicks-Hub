@@ -41,12 +41,16 @@ function getPageTitle(pathname: string): string {
   let item = allNavItems.find(navItem => navItem.href && pathname === navItem.href);
   if (item) return item.label;
 
+  // Check for active parent items (e.g. /clients for /clients/add)
   item = allNavItems
-    .filter(navItem => navItem.href && navItem.href !== '/') 
-    .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0))
+    .filter(navItem => navItem.href && navItem.href !== '/') // Exclude dashboard for this check
+    .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0)) // Sort by length to match longer paths first
     .find(navItem => navItem.href && pathname.startsWith(navItem.href));
   
-  return item ? item.label : "Panel Principal";
+  if (item) return item.label;
+
+  // Default to "Panel Principal" or a generic title if no match
+  return "Panel Principal";
 }
 
 const sidebarIconColors: Record<string, string> = {
@@ -54,7 +58,7 @@ const sidebarIconColors: Record<string, string> = {
   "/clients": "text-lime-400",
   "/tasks": "text-amber-400",
   "/billing": "text-rose-400",
-  "/medi-clicks-agency": "text-teal-400", // Ícono Bot
+  // "/medi-clicks-ai-agency": "text-purple-400", // Icono Bot, eliminado
   "/medi-clinic": "text-cyan-400",
   "/settings": "text-slate-400",
   // El color de la campana se maneja de forma especial
@@ -75,11 +79,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isLoadingAuth, router]);
 
-  React.useEffect(() => {
+  const fetchNotificationsCallback = React.useCallback(() => {
     if (isAuthenticated && notificationContext) {
       notificationContext.fetchNotifications();
     }
   }, [isAuthenticated, notificationContext]);
+
+  React.useEffect(() => {
+    fetchNotificationsCallback();
+  }, [fetchNotificationsCallback]);
 
 
   if (isLoadingAuth || !isAuthenticated) {
@@ -110,7 +118,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         : sidebarIconColors[item.href || ''] || "text-sidebar-foreground/80";
 
       if (item.isNotification && notificationContext && notificationContext.unreadCount > 0) {
-        iconColorClass = "text-red-500 animate-pulse"; // Campana roja y pulsante si hay notificaciones no leídas
+        iconColorClass = "text-red-500"; 
       } else if (item.isNotification) {
         iconColorClass = sidebarIconColors["/notifications"] || "text-sidebar-foreground/80";
       }
@@ -131,6 +139,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       }
 
       if (item.isNotification && notificationContext) {
+        const bellIconClasses = cn(
+          "group-hover:text-sidebar-accent-foreground",
+          iconColorClass,
+          notificationContext.unreadCount > 0 && isCollapsed && "animate-pulse" // Pulse only when collapsed and unread
+        );
         return (
           <SidebarMenuItem key={item.href || `notification-item-${index}`}>
              <DropdownMenu onOpenChange={(open) => {
@@ -143,7 +156,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   tooltip={isCollapsed ? item.tooltip || item.label : undefined}
                   className="relative"
                 >
-                  <IconComponent className={cn("group-hover:text-sidebar-accent-foreground", iconColorClass)} />
+                  <IconComponent className={bellIconClasses} />
                   <span>{item.label}</span>
                   {notificationContext.unreadCount > 0 && !isCollapsed && (
                     <Badge className="absolute right-2 top-1/2 -translate-y-1/2 h-5 px-1.5 text-xs bg-red-500 text-white">
@@ -182,7 +195,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 ) : (
                   !notificationContext.isLoadingNotifications && (
                     <DropdownMenuItem disabled className="text-sm text-center text-muted-foreground py-3">
-                      No hay tareas con vencimiento próximo.
+                      No hay tareas que venzan en las próximas 24h.
                     </DropdownMenuItem>
                   )
                 )}
