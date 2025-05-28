@@ -9,7 +9,7 @@ import {
   Building2,
   Hospital,
   Bell,
-  BrainCircuit, // Nuevo ícono para Medi Clicks Agency
+  Bot, // Changed from BrainCircuit
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -31,7 +31,7 @@ export const navItems: NavItem[] = [
   { href: "/tasks", label: "Tareas", icon: ListChecks, tooltip: "Seguimiento de Tareas" },
   { href: "/billing", label: "Facturación", icon: Receipt, tooltip: "Facturas y Pagos" },
   { isSectionTitle: true, label: "Medi Clicks - Extensiones", icon: Building2 },
-  { href: "/medi-clicks-agency", label: "Medi Clicks Agency", icon: BrainCircuit, tooltip: "Agencia IA Avanzada" },
+  { href: "/medi-clicks-agency", label: "Medi Clicks Agency", icon: Bot, tooltip: "Agencia IA Avanzada" }, // Icon updated to Bot
   { href: "/medi-clinic", label: "Medi Clinic", icon: Hospital, tooltip: "Gestión de Clínica" },
 ];
 
