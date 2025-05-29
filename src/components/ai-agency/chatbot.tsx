@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Bot, User, Send, Loader2, Paperclip, XCircle, Image as ImageIcon, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { aiAgencyChat, type AiAgencyChatInput } from '@/ai/flows/ai-agency-chat-flow';
-import type { ChatUIMessage } from '@/types';
+import type { ChatUIMessage, ChatMessage } from '@/types'; // Added ChatMessage
 import NextImage from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/auth-context';
@@ -19,7 +19,7 @@ const MAX_IMAGE_SIZE_MB = 5;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 
 interface ChatbotProps {
-  onConversationSaved?: () => void; // Callback after a conversation is successfully saved
+  onConversationSaved?: () => void;
 }
 
 export function Chatbot({ onConversationSaved }: ChatbotProps) {
@@ -94,13 +94,17 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       };
       reader.readAsDataURL(file);
     }
+     // Reset file input to allow selecting the same file again if removed
+    if (event.target) {
+      event.target.value = '';
+    }
   };
 
   const removeAttachedImage = () => {
     setAttachedImage(null);
     setAttachedImageName(null);
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = ''; // Clear the file input
     }
   };
 
@@ -152,17 +156,20 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       toast({ title: "Error", description: "Debes iniciar sesión para guardar conversaciones.", variant: "destructive" });
       return;
     }
-    // Allow saving even if only the initial AI greeting and one user message exist (or an image)
-    if (messages.length < 2 && !attachedImage) { 
+    
+    const actualMessages = messages.filter(msg => msg.id !== messages[0]?.id || messages.length > 1); // Exclude initial AI greeting if it's the only message
+    if (actualMessages.length === 0 && !attachedImage) { // also check if there was an image that was being sent but not yet added to messages
       toast({ title: "Conversación Vacía", description: "No hay suficiente contenido para guardar.", variant: "default" });
       return;
     }
 
     setIsSavingConversation(true);
-    // Filter out only the user and AI messages relevant for saving, excluding initial greeting if no user interaction yet.
-    const messagesToSave = messages
-      .filter(msg => msg.sender !== 'ai' || msg.id !== messages[0]?.id || messages.length > 1) // Exclude initial greeting if it's the only message
-      .map(({ id, ...rest }) => rest);
+    
+    const messagesToSave: ChatMessage[] = actualMessages.map(({ id, ...rest }) => ({
+      ...rest,
+      // Ensure imageUrl is only included if it exists, to match ChatMessage type
+      imageUrl: rest.imageUrl ? rest.imageUrl : undefined,
+    }));
 
 
     try {
@@ -170,7 +177,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       if (result.success && result.id) {
         toast({ title: "Conversación Guardada", description: `La conversación con Il Dottore ha sido guardada.` });
         if (onConversationSaved) {
-          onConversationSaved(); // Call the callback
+          onConversationSaved(); 
         }
       } else {
         toast({ title: "Error al Guardar", description: result.error || "No se pudo guardar la conversación.", variant: "destructive" });
@@ -218,8 +225,9 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
                   <NextImage
                     src={message.imageUrl}
                     alt="Adjunto de Dr. Alejandro"
-                    layout="fill"
-                    objectFit="cover"
+                    fill
+                    sizes="(max-width: 640px) 250px, 300px"
+                    style={{objectFit: "cover"}}
                     className="rounded-md"
                   />
                 </div>
@@ -285,7 +293,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           placeholder="Dr. Alejandro, pregúntale algo a Il Dottore..."
-          className="flex-grow resize-none min-h-[40px] max-h-[120px] text-sm bg-background focus-visible:ring-primary/50"
+          className="flex-grow resize-none min-h-[40px] max-h-[120px] text-sm bg-background focus-visible:ring-primary/50 overflow-y-auto"
           rows={1}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !isLoading && !isSavingConversation) {
@@ -300,7 +308,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
           variant="outline" 
           size="icon" 
           onClick={handleSaveConversation} 
-          disabled={isLoading || isSavingConversation || messages.length < 2}
+          disabled={isLoading || isSavingConversation || (messages.length < 2 && !attachedImage) }
           title="Guardar Conversación"
           className="hover:bg-green-500/10 border-green-500 text-green-600"
         >
@@ -315,4 +323,3 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
     </div>
   );
 }
-
