@@ -1,52 +1,76 @@
-import { NextRequest, NextResponse } from 'next/server';
-// import { handleGoogleCalendarCallback } from '@/lib/googleCalendar'; // Asumimos que esta función se refactorizará o no se usará directamente aquí
-
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const code = searchParams.get('code');
-  const error = searchParams.get('error');
-
-  if (error) {
-    console.error('Error en callback de Google Calendar OAuth:', error);
-    return NextResponse.json({ error: `Error de autorización de Google: ${error}` }, { status: 400 });
-  }
-
-  if (!code) {
-    return NextResponse.json({ error: 'Código de autorización no encontrado.' }, { status: 400 });
-  }
-
-  // TODO: Implementar el intercambio del código por tokens y el almacenamiento seguro de tokens.
-  // Esta es una parte crítica y compleja que generalmente involucra:
-  // 1. Un OAuth2Client configurado (como el que está en googleCalendar.ts, pero podría necesitarse aquí también).
-  // 2. Llamar a oAuth2Client.getToken(code) para obtener los tokens.
-  // 3. Guardar los tokens (access_token, refresh_token, expiry_date) de forma segura,
-  //    idealmente asociados al ID del usuario de Firebase Auth en Firestore.
-  // 4. Crear/actualizar un archivo `token.json` en la raíz del proyecto es una solución
-  //    MUY BÁSICA y solo para un único usuario global, no es segura ni escalable.
-
-  // Por ahora, este endpoint solo registrará el código y mostrará un mensaje.
-  // La lógica real de manejo de tokens debe ser implementada cuidadosamente.
-  console.log('Google Calendar OAuth callback recibido con código:', code);
-  
-  // Ejemplo de cómo podrías intentar guardar el token (esto es simplificado y requiere `token.json` escribible):
-  /*
-  try {
-    // Necesitarías inicializar oAuth2Client aquí o importarlo
-    // const {tokens} = await oAuth2Client.getToken(code);
-    // oAuth2Client.setCredentials(tokens);
-    // fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens)); // TOKEN_PATH debe ser la ruta a token.json
-    // console.log('Token almacenado en', TOKEN_PATH);
-    // return NextResponse.json({ message: 'Autenticación con Google Calendar exitosa! Los tokens han sido guardados (de forma básica).' });
-
-  } catch (e: any) {
-    console.error('Error intercambiando código por token o guardando token:', e.message);
-    return NextResponse.json({ error: 'Error procesando la autenticación con Google Calendar.' }, { status: 500 });
-  }
-  */
-
-  return NextResponse.json({ 
-    message: 'Callback de Google Calendar recibido. El código de autorización es: ' + code + 
-             '. Necesitas implementar el intercambio de este código por tokens y su almacenamiento seguro. '+
-             'Actualmente, debes generar "token.json" manualmente para usar la API.'
-  });
+{
+  "name": "nextn",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 9002",
+    "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
+    "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@genkit-ai/googleai": "^1.8.0",
+    "@genkit-ai/next": "^1.8.0",
+    "@hookform/resolvers": "^4.1.3",
+    "@radix-ui/react-accordion": "^1.2.3",
+    "@radix-ui/react-alert-dialog": "^1.1.6",
+    "@radix-ui/react-avatar": "^1.1.3",
+    "@radix-ui/react-checkbox": "^1.1.4",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-dropdown-menu": "^2.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-menubar": "^1.1.6",
+    "@radix-ui/react-popover": "^1.1.6",
+    "@radix-ui/react-progress": "^1.1.2",
+    "@radix-ui/react-radio-group": "^1.2.3",
+    "@radix-ui/react-scroll-area": "^1.2.3",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slider": "^1.2.3",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "@radix-ui/react-toast": "^1.2.6",
+    "@radix-ui/react-tooltip": "^1.1.8",
+    "@react-pdf/renderer": "^3.4.4",
+    "@tanstack-query-firebase/react": "^1.0.5",
+    "@tanstack/react-query": "^5.66.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.5.0",
+    "firebase": "^11.7.3",
+    "genkit": "^1.8.0",
+    "lucide-react": "^0.475.0",
+    "next": "15.2.3",
+    "patch-package": "^8.0.0",
+    "react": "^18.3.1",
+    "react-day-picker": "^8.10.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.54.2",
+    "recharts": "^2.15.1",
+    "tailwind-merge": "^3.0.1",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "genkit-cli": "^1.8.0",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  },
+  "description": "This is a NextJS starter in Firebase Studio.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

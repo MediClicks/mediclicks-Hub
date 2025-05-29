@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -6,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
-import{
+import {
   Form,
   FormControl,
   FormField,
@@ -16,7 +15,7 @@ import{
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';;
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, AlertTriangle, Loader2 } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -28,8 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, FieldValue } from 'firebase/firestore';
-import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
-
+// Removed: import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -50,8 +48,17 @@ type TaskFormValues = z.infer<typeof taskFormSchema>;
 function convertClientTimestampsToDates(docData: any): WithConvertedDates<Client> {
   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
-    if (data[key as keyof Client] instanceof Timestamp) {
-      data[key as keyof Client] = (data[key as keyof Client] as Timestamp).toDate() as any;
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+        const value = data[key as keyof Client];
+        if (value instanceof Timestamp) {
+          (data[key as keyof Client] as any) = value.toDate();
+        } else if (Array.isArray(value)) {
+          (data[key as keyof Client] as any) = value.map(item =>
+            typeof item === 'object' && item !== null && !(item instanceof Date) ? convertClientTimestampsToDates(item as any) : item
+          );
+        } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+          (data[key as keyof Client] as any) = convertClientTimestampsToDates(value as any);
+        }
     }
   }
   return data as WithConvertedDates<Client>;
@@ -168,35 +175,34 @@ export default function AddTaskPage() {
       }
       
       const docRef = await addDoc(collection(db, 'tasks'), taskDataToSave);
-      // console.log('Nueva tarea guardada con ID: ', docRef.id); // Removed debug log
 
       toast({
         title: 'Tarea Creada',
         description: `La tarea "${data.name}" ha sido agregada exitosamente.`,
       });
 
-      // Attempt to create Google Calendar event if alertDate is set
-      if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp) {
-          const calendarResult = await addCalendarEventForTaskAction({
-            name: taskDataToSave.name,
-            description: taskDataToSave.description instanceof FieldValue ? undefined : taskDataToSave.description, 
-            alertDate: taskDataToSave.alertDate.toDate(), // Convert Timestamp back to Date for the action
-          });
-          if (calendarResult.success) {
-            toast({
-              title: "Evento de Calendario Creado",
-              description: "La alerta de la tarea se agregó a Google Calendar.",
-              duration: 4000,
-            });
-          } else {
-            toast({
-              title: "Error al Crear Evento de Calendario",
-              description: calendarResult.error || "No se pudo agregar la alerta a Google Calendar. Revisa la configuración y el archivo token.json.",
-              variant: "destructive",
-              duration: 7000,
-            });
-          }
-      }
+      // Removed Google Calendar event creation logic
+      // if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp) {
+      //     const calendarResult = await addCalendarEventForTaskAction({
+      //       name: taskDataToSave.name,
+      //       description: taskDataToSave.description instanceof FieldValue ? undefined : taskDataToSave.description, 
+      //       alertDate: (taskDataToSave.alertDate as Timestamp).toDate(),
+      //     });
+      //     if (calendarResult.success) {
+      //       toast({
+      //         title: "Evento de Calendario Creado",
+      //         description: "La alerta de la tarea se agregó a Google Calendar.",
+      //         duration: 4000,
+      //       });
+      //     } else {
+      //       toast({
+      //         title: "Error al Crear Evento de Calendario",
+      //         description: calendarResult.error || "No se pudo agregar la alerta a Google Calendar. Revisa la configuración y el archivo token.json.",
+      //         variant: "destructive",
+      //         duration: 7000,
+      //       });
+      //     }
+      // }
 
       router.push('/tasks');
     } catch (e) {

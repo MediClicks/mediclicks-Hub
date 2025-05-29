@@ -1,85 +1,76 @@
-import { google } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
-import * as path from 'path';
-import * as fs from 'fs';
-
-// Carga las credenciales desde el archivo JSON en la raíz del proyecto
-const CREDENTIALS_FILENAME = 'client_secret_961144846241-ljliv9rhihhk9it4sr1go1stj2vc28g1.apps.googleusercontent.com.json';
-const CREDENTIALS_PATH = path.join(process.cwd(), CREDENTIALS_FILENAME);
-
-let credentials;
-try {
-  credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
-} catch (err) {
-  console.error(`Error loading credentials file (${CREDENTIALS_FILENAME}):`, err);
-  throw new Error(`Could not load credentials file: ${CREDENTIALS_FILENAME}. Make sure it's in the project root.`);
-}
-
-const { client_secret, client_id } = credentials.web;
-// Este URI DEBE estar registrado en tu Google Cloud Console como un URI de redireccionamiento autorizado para este ID de cliente.
-const redirectUri = 'http://localhost:9002/api/google-calendar/callback';
-const oAuth2Client = new OAuth2Client(client_id, client_secret, redirectUri);
-
-// Ruta para guardar/cargar el token
-const TOKEN_FILENAME = 'token.json';
-const TOKEN_PATH = path.join(process.cwd(), TOKEN_FILENAME);
-
-try {
-  const token = fs.readFileSync(TOKEN_PATH, 'utf8');
-  oAuth2Client.setCredentials(JSON.parse(token));
-} catch (err) {
-  console.warn(`Warning: Error loading ${TOKEN_FILENAME}, or file not found. Google Calendar integration will fail unless a valid token is present.`);
-  // No lanzamos un error aquí, permitimos que la app continúe, pero la creación de eventos fallará.
-}
-
-const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
-
-export interface CalendarEvent {
-  summary: string;
-  description?: string;
-  start: {
-    dateTime: string; // ISO 8601 format e.g. '2023-05-28T09:00:00-07:00' or '2023-05-28T16:00:00Z'
-    timeZone?: string; // IANA Time Zone Database name, e.g., 'America/New_York'
-  };
-  end: {
-    dateTime: string;
-    timeZone?: string;
-  };
-  attendees?: Array<{ email: string }>;
-  reminders?: {
-    useDefault: boolean;
-    overrides?: Array<{ method: 'email' | 'popup'; minutes: number }>;
-  };
-}
-
-export async function createGoogleCalendarEvent(event: CalendarEvent): Promise<any> {
-  if (!oAuth2Client.credentials || !oAuth2Client.credentials.access_token) {
-    console.error('Google Calendar: No access token found. Ensure token.json is valid and readable.');
-    throw new Error('No access token available for Google Calendar. Please authorize the application.');
-  }
-  try {
-    const response = await calendar.events.insert({
-      calendarId: 'primary', // O el ID del calendario donde quieres crear el evento
-      requestBody: event,
-    });
-    console.log('Google Calendar event created: %s', response.data.htmlLink);
-    return response.data;
-  } catch (error: any) {
-    // Log more detailed error information from Google API if available
-    if (error.response && error.response.data && error.response.data.error) {
-      console.error('Error creating Google Calendar event (API Error):', error.response.data.error);
-      const apiError = error.response.data.error;
-      let message = `Google API Error: ${apiError.message} (Code: ${apiError.code}).`;
-      if (apiError.errors && apiError.errors.length > 0) {
-        message += ` Details: ${apiError.errors[0].reason} - ${apiError.errors[0].message}`;
-      }
-      if (apiError.code === 401 || apiError.code === 403 || (typeof error.message === 'string' && error.message.toLowerCase().includes('token'))) {
-        message += ' This might be due to an invalid, expired, or missing token in token.json, or insufficient permissions.';
-      }
-      throw new Error(message);
-    } else {
-      console.error('Error creating Google Calendar event (General):', error.message || error);
-      throw error; // Re-throw original error if no detailed API error info
-    }
-  }
+{
+  "name": "nextn",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 9002",
+    "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
+    "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@genkit-ai/googleai": "^1.8.0",
+    "@genkit-ai/next": "^1.8.0",
+    "@hookform/resolvers": "^4.1.3",
+    "@radix-ui/react-accordion": "^1.2.3",
+    "@radix-ui/react-alert-dialog": "^1.1.6",
+    "@radix-ui/react-avatar": "^1.1.3",
+    "@radix-ui/react-checkbox": "^1.1.4",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-dropdown-menu": "^2.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-menubar": "^1.1.6",
+    "@radix-ui/react-popover": "^1.1.6",
+    "@radix-ui/react-progress": "^1.1.2",
+    "@radix-ui/react-radio-group": "^1.2.3",
+    "@radix-ui/react-scroll-area": "^1.2.3",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slider": "^1.2.3",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "@radix-ui/react-toast": "^1.2.6",
+    "@radix-ui/react-tooltip": "^1.1.8",
+    "@react-pdf/renderer": "^3.4.4",
+    "@tanstack-query-firebase/react": "^1.0.5",
+    "@tanstack/react-query": "^5.66.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.5.0",
+    "firebase": "^11.7.3",
+    "genkit": "^1.8.0",
+    "lucide-react": "^0.475.0",
+    "next": "15.2.3",
+    "patch-package": "^8.0.0",
+    "react": "^18.3.1",
+    "react-day-picker": "^8.10.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.54.2",
+    "recharts": "^2.15.1",
+    "tailwind-merge": "^3.0.1",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "genkit-cli": "^1.8.0",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  },
+  "description": "This is a NextJS starter in Firebase Studio.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
