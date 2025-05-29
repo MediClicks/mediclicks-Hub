@@ -28,6 +28,8 @@ import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, FieldValue } from 'firebase/firestore';
+import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
+
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -130,7 +132,7 @@ export default function AddTaskPage() {
     }
 
     try {
-      const taskDataToSave: Record<string, any> = {
+      const taskDataToSave: Record<string, any | FieldValue> = {
         name: data.name,
         assignedTo: data.assignedTo,
         dueDate: Timestamp.fromDate(data.dueDate),
@@ -142,6 +144,8 @@ export default function AddTaskPage() {
 
       if (data.description && data.description.trim() !== '') {
         taskDataToSave.description = data.description;
+      } else {
+        taskDataToSave.description = deleteField();
       }
 
       if (data.clientId && data.clientId !== TASK_CLIENT_SELECT_NONE_VALUE) {
@@ -150,19 +154,50 @@ export default function AddTaskPage() {
         if (clientName) {
           taskDataToSave.clientName = clientName;
         }
+      } else {
+        taskDataToSave.clientId = deleteField();
+        taskDataToSave.clientName = deleteField();
       }
       
       if (combinedAlertDate instanceof Date && !isNaN(combinedAlertDate.getTime())) {
         taskDataToSave.alertDate = Timestamp.fromDate(combinedAlertDate);
         taskDataToSave.alertFired = false; 
+      } else {
+        taskDataToSave.alertDate = deleteField();
+        taskDataToSave.alertFired = deleteField();
       }
       
-      await addDoc(collection(db, 'tasks'), taskDataToSave);
+      const docRef = await addDoc(collection(db, 'tasks'), taskDataToSave);
+      // console.log('Nueva tarea guardada con ID: ', docRef.id); // Removed debug log
 
       toast({
         title: 'Tarea Creada',
         description: `La tarea "${data.name}" ha sido agregada exitosamente.`,
       });
+
+      // Attempt to create Google Calendar event if alertDate is set
+      if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp) {
+          const calendarResult = await addCalendarEventForTaskAction({
+            name: taskDataToSave.name,
+            description: taskDataToSave.description instanceof FieldValue ? undefined : taskDataToSave.description, 
+            alertDate: taskDataToSave.alertDate.toDate(), // Convert Timestamp back to Date for the action
+          });
+          if (calendarResult.success) {
+            toast({
+              title: "Evento de Calendario Creado",
+              description: "La alerta de la tarea se agregó a Google Calendar.",
+              duration: 4000,
+            });
+          } else {
+            toast({
+              title: "Error al Crear Evento de Calendario",
+              description: calendarResult.error || "No se pudo agregar la alerta a Google Calendar. Revisa la configuración y el archivo token.json.",
+              variant: "destructive",
+              duration: 7000,
+            });
+          }
+      }
+
       router.push('/tasks');
     } catch (e) {
       console.error('Error al agregar tarea a Firestore: ', e);
@@ -186,7 +221,7 @@ export default function AddTaskPage() {
               <FormItem>
                 <FormLabel>Nombre de la Tarea</FormLabel>
                 <FormControl>
-                  <Input placeholder="Ej: Diseñar banners para campaña X" {...field} />
+                  <Input placeholder="Ej: Diseñar banners para campaña X" {...field} disabled={form.formState.isSubmitting}/>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -199,7 +234,7 @@ export default function AddTaskPage() {
               <FormItem>
                 <FormLabel>Descripción (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Detalles adicionales sobre la tarea..." {...field} value={field.value ?? ''} />
+                  <Textarea placeholder="Detalles adicionales sobre la tarea..." {...field} value={field.value ?? ''} disabled={form.formState.isSubmitting}/>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -213,7 +248,7 @@ export default function AddTaskPage() {
                 <FormItem>
                   <FormLabel>Asignada A</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Juan Pérez" {...field} />
+                    <Input placeholder="Ej: Juan Pérez" {...field} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -230,7 +265,7 @@ export default function AddTaskPage() {
                     onValueChange={(selectedValue) => {
                       field.onChange(selectedValue === TASK_CLIENT_SELECT_NONE_VALUE ? undefined : selectedValue);
                     }}
-                    disabled={isLoadingClients || !!clientError}
+                    disabled={isLoadingClients || !!clientError || form.formState.isSubmitting}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -266,6 +301,7 @@ export default function AddTaskPage() {
                             'w-full pl-3 text-left font-normal',
                             !field.value && 'text-muted-foreground'
                           )}
+                          disabled={form.formState.isSubmitting}
                         >
                           {field.value ? (
                             format(field.value, 'PPP', { locale: es })
@@ -283,6 +319,7 @@ export default function AddTaskPage() {
                         onSelect={field.onChange}
                         initialFocus
                         locale={es}
+                        disabled={form.formState.isSubmitting}
                       />
                     </PopoverContent>
                   </Popover>
@@ -305,6 +342,7 @@ export default function AddTaskPage() {
                             'w-full pl-3 text-left font-normal',
                             !field.value && 'text-muted-foreground'
                           )}
+                          disabled={form.formState.isSubmitting}
                         >
                           {field.value ? (
                             format(field.value, 'PPP', { locale: es }) + (selectedAlertTime ? ` ${selectedAlertTime}` : ' (00:00)')
@@ -325,12 +363,13 @@ export default function AddTaskPage() {
                         }}
                         initialFocus
                         locale={es}
+                        disabled={form.formState.isSubmitting}
                       />
                       <div className="p-3 border-t">
                         <Select
                           value={selectedAlertTime}
                           onValueChange={setSelectedAlertTime}
-                          disabled={!field.value} 
+                          disabled={!field.value || form.formState.isSubmitting} 
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Seleccionar hora (opcional)" />
@@ -355,7 +394,7 @@ export default function AddTaskPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Prioridad</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value} disabled={form.formState.isSubmitting}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar prioridad" />
@@ -377,7 +416,7 @@ export default function AddTaskPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Estado</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value} disabled={form.formState.isSubmitting}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar estado" />

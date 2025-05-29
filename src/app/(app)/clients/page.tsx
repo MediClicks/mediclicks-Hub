@@ -1,10 +1,10 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from "next/link";
 import { ClientCard } from "@/components/clients/client-card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { PlusCircle, Loader2, AlertTriangle, Users, Filter, X } from "lucide-react";
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, where, type QueryConstraint } from 'firebase/firestore';
@@ -18,37 +18,34 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from '@/lib/utils';
 
+// Recursive timestamp converter
 function convertTimestampsToDates(docData: any): WithConvertedDates<Client> {
   const data = { ...docData } as Partial<WithConvertedDates<Client>>;
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
       const value = data[key as keyof Client];
       if (value instanceof Timestamp) {
-        data[key as keyof Client] = value.toDate() as any;
-      } else if (typeof value === 'object' && value !== null && !(value instanceof Date) && !Array.isArray(value)) {
-          data[key as keyof Client] = convertTimestampsToDates(value) as any;
+        (data[key as keyof Client] as any) = value.toDate();
       } else if (Array.isArray(value)) {
         (data[key as keyof Client] as any) = value.map(item =>
-          typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
+          typeof item === 'object' && item !== null && !(item instanceof Date) 
+            ? convertTimestampsToDates(item as any) // Recursively convert objects in arrays
+            : item
         );
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+          (data[key as keyof Client] as any) = convertTimestampsToDates(value as any); // Recursively convert nested objects
       }
     }
   }
   // Ensure contractedServices and socialMediaAccounts are arrays
-  if (data.contractedServices && !Array.isArray(data.contractedServices)) {
-    data.contractedServices = [];
-  } else if (!data.contractedServices) {
-    data.contractedServices = [];
-  }
-
-  if (data.socialMediaAccounts && !Array.isArray(data.socialMediaAccounts)) {
-    data.socialMediaAccounts = [];
-  } else if (!data.socialMediaAccounts) {
-    data.socialMediaAccounts = [];
-  }
+  data.contractedServices = Array.isArray(data.contractedServices) ? data.contractedServices : [];
+  data.socialMediaAccounts = Array.isArray(data.socialMediaAccounts) ? data.socialMediaAccounts : [];
+  
   return data as WithConvertedDates<Client>;
 }
+
 
 const ALL_FILTER_VALUE = "__ALL__";
 type PaymentStatusFilterType = typeof ALL_FILTER_VALUE | 'paid' | 'pending';
@@ -72,12 +69,13 @@ export default function ClientsPage() {
       
       const q = query(clientsCollection, ...qConstraints);
       const querySnapshot = await getDocs(q);
-      const clientsData = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        const convertedData = convertTimestampsToDates(data as Client);
-        return { id: doc.id, ...convertedData };
+      const clientsData = querySnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        const convertedData = convertTimestampsToDates(data as Client); // Use the recursive converter
+        return { id: docSnap.id, ...convertedData };
       });
       setClients(clientsData);
+      // console.log('Fetched clients:', clientsData.length, clientsData.map(c => c.name)); // Removed debug log
     } catch (err: any) {
       console.error("Error fetching clients: ", err);
        if (err.message && (err.message.includes("index") || err.message.includes("Index"))) {
@@ -116,7 +114,10 @@ export default function ClientsPage() {
         <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant={paymentStatusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} className="gap-1.5">
+              <Button 
+                variant={paymentStatusFilter !== ALL_FILTER_VALUE ? "secondary" : "outline"} 
+                className="gap-1.5"
+              >
                 <Filter className="h-4 w-4" />
                 {paymentStatusFilter === ALL_FILTER_VALUE ? "Estado de Pago" : 
                  paymentStatusFilter === 'paid' ? "Pago: Al día" : "Pago: Pendiente"}
@@ -134,7 +135,12 @@ export default function ClientsPage() {
           </DropdownMenu>
           
           {paymentStatusFilter !== ALL_FILTER_VALUE && (
-            <Button variant="ghost" onClick={clearPaymentFilter} className="text-muted-foreground hover:text-foreground gap-1.5" title="Limpiar Filtro">
+            <Button 
+              variant="ghost" 
+              onClick={clearPaymentFilter} 
+              className="text-muted-foreground hover:text-foreground gap-1.5" 
+              title="Limpiar Filtro"
+            >
               <X className="h-4 w-4" /> Limpiar Filtro
             </Button>
           )}
@@ -184,4 +190,3 @@ export default function ClientsPage() {
     </div>
   );
 }
-

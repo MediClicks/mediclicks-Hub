@@ -71,7 +71,7 @@ const clientFormSchema = z.object({
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
 // Recursive timestamp converter for ServiceDefinition
-function convertServiceDefinitionTimestamps<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
+function convertTimestampsRecursively<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
   if (!docData) return undefined;
   const data = { ...docData } as any;
   for (const key in data) {
@@ -82,11 +82,11 @@ function convertServiceDefinitionTimestamps<T extends Record<string, any>>(docDa
       } else if (Array.isArray(value)) {
         data[key] = value.map((item: any) =>
           typeof item === 'object' && item !== null && !(item instanceof Date)
-            ? convertServiceDefinitionTimestamps(item)
+            ? convertTimestampsRecursively(item) // Recursively convert objects in arrays
             : item
         );
       } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
-        data[key] = convertServiceDefinitionTimestamps(value);
+        data[key] = convertTimestampsRecursively(value); // Recursively convert nested objects
       }
     }
   }
@@ -140,18 +140,23 @@ export default function AddClientPage() {
         const servicesCollection = collection(db, "appServices");
         const q = query(servicesCollection, orderBy("name", "asc"));
         const querySnapshot = await getDocs(q);
-        const fetchedServices = querySnapshot.docs.map(doc => {
-          const data = doc.data() as ServiceDefinition; // Assume ServiceDefinition type
-          return { id: doc.id, ...convertServiceDefinitionTimestamps(data) };
+        const fetchedServices = querySnapshot.docs.map(docSnap => {
+          const data = docSnap.data() as ServiceDefinition; 
+          return { id: docSnap.id, ...convertTimestampsRecursively(data) };
         });
         setServiceDefinitions(fetchedServices);
       } catch (err) {
         console.error("Error fetching service definitions: ", err);
         setServiceError('No se pudieron cargar las definiciones de servicios.');
+        toast({
+          title: "Error al Cargar Servicios",
+          description: "No se pudieron cargar las definiciones de servicios para el selector.",
+          variant: "destructive",
+        });
       } finally {
         setIsLoadingServices(false);
       }
-    }, []);
+    }, [toast]);
 
   useEffect(() => {
     fetchServiceDefinitions();
@@ -169,21 +174,24 @@ export default function AddClientPage() {
       updatedAt: serverTimestamp(),
     };
 
-    if (data.avatarUrl && data.avatarUrl.trim() !== '') dataToSave.avatarUrl = data.avatarUrl;
-    if (data.clinica && data.clinica.trim() !== '') dataToSave.clinica = data.clinica;
-    if (data.telefono && data.telefono.trim() !== '') dataToSave.telefono = data.telefono;
-    if (data.profileSummary && data.profileSummary.trim() !== '') dataToSave.profileSummary = data.profileSummary;
-    if (data.dominioWeb && data.dominioWeb.trim() !== '') dataToSave.dominioWeb = data.dominioWeb;
-    if (data.tipoServicioWeb && data.tipoServicioWeb.trim() !== '') dataToSave.tipoServicioWeb = data.tipoServicioWeb;
-    if (data.credencialesRedesUsuario && data.credencialesRedesUsuario.trim() !== '') dataToSave.credencialesRedesUsuario = data.credencialesRedesUsuario;
-    if (data.credencialesRedesContrasena && data.credencialesRedesContrasena.trim() !== '') dataToSave.credencialesRedesContrasena = data.credencialesRedesContrasena;
+    // Handle optional string fields
+    const optionalStringFields: (keyof ClientFormValues)[] = [
+      'avatarUrl', 'clinica', 'telefono', 'profileSummary',
+      'dominioWeb', 'tipoServicioWeb', 'credencialesRedesUsuario', 'credencialesRedesContrasena'
+    ];
+    optionalStringFields.forEach(key => {
+      const value = data[key as keyof ClientFormValues] as string | undefined;
+      if (typeof value === 'string' && value.trim() !== '') {
+        dataToSave[key] = value;
+      }
+    });
     
     if (data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime())) {
       dataToSave.vencimientoWeb = Timestamp.fromDate(data.vencimientoWeb);
     }
 
     if (data.contractedServices && data.contractedServices.length > 0) {
-      dataToSave.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest); // Remove client-side ID
+      dataToSave.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest); 
     }
 
     if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
@@ -198,13 +206,14 @@ export default function AddClientPage() {
         
     try {
       const docRef = await addDoc(collection(db, 'clients'), dataToSave);
-      console.log('Nuevo cliente guardado con ID: ', docRef.id);
+      // console.log('Nuevo cliente guardado con ID: ', docRef.id); // Removed debug log
 
       toast({
         title: 'Cliente Creado',
         description: `El cliente ${data.name} ha sido agregado exitosamente.`,
       });
 
+      // Create automatic tasks for each contracted service
       if (dataToSave.contractedServices && dataToSave.contractedServices.length > 0) {
         for (const service of dataToSave.contractedServices as Omit<ContractedServiceClient, 'id'>[]) {
           const newTaskData = {
@@ -254,7 +263,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Nombre Completo / Razón Social</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Clínica Dental Sonrisas" {...field} />
+                    <Input placeholder="Ej: Clínica Dental Sonrisas" {...field} disabled={form.formState.isSubmitting} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -267,7 +276,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Email de Contacto</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="Ej: contacto@sonrisas.com" {...field} />
+                    <Input type="email" placeholder="Ej: contacto@sonrisas.com" {...field} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -280,7 +289,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>URL del Avatar (Opcional)</FormLabel>
                   <FormControl>
-                    <Input type="url" placeholder="https://ejemplo.com/logo.png" {...field} value={field.value || ''} />
+                    <Input type="url" placeholder="https://ejemplo.com/logo.png" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -293,7 +302,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Nombre de la Clínica (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Sonrisas Centro" {...field} value={field.value || ''} />
+                    <Input placeholder="Ej: Sonrisas Centro" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -306,7 +315,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Teléfono (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: +34 900 123 456" {...field} value={field.value || ''} />
+                    <Input placeholder="Ej: +34 900 123 456" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -324,6 +333,7 @@ export default function AddClientPage() {
                         <Button
                           variant={'outline'}
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
+                          disabled={form.formState.isSubmitting}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
@@ -331,7 +341,7 @@ export default function AddClientPage() {
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
+                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} disabled={form.formState.isSubmitting}/>
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -348,7 +358,7 @@ export default function AddClientPage() {
               <FormItem>
                 <FormLabel>Resumen del Perfil (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Describe la marca, valores, público objetivo, tono deseado, etc." className="resize-y min-h-[100px]" {...field} value={field.value || ''} />
+                  <Textarea placeholder="Describe la marca, valores, público objetivo, tono deseado, etc." className="resize-y min-h-[100px]" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                 </FormControl>
                 <FormDescription>Esta información ayudará a generar mejores sugerencias de contenido.</FormDescription>
                 <FormMessage />
@@ -376,13 +386,13 @@ export default function AddClientPage() {
                           }
                         }}
                         value={field.value}
-                        disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
+                        disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0 || form.formState.isSubmitting}
                       >
                         <FormControl>
                            <SelectTrigger>
                              <SelectValue 
                                 placeholder={
-                                  isLoadingServices ? "Cargando servicios..." : 
+                                  isLoadingServices ? "Cargando servicios..." :  
                                   (serviceError ? "Error al cargar servicios" : 
                                   (serviceDefinitions.length === 0 ? "No hay servicios definidos. Crea uno en Configuración." : "Seleccionar servicio"))
                                 } 
@@ -408,7 +418,7 @@ export default function AddClientPage() {
                     <FormItem className="md:col-span-3">
                        {index === 0 && <FormLabel>Precio</FormLabel>}
                       <FormControl>
-                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
+                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -420,7 +430,7 @@ export default function AddClientPage() {
                   render={({ field }) => (
                     <FormItem className="md:col-span-3">
                       {index === 0 && <FormLabel>Modalidad Pago</FormLabel>}
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={form.formState.isSubmitting}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Seleccionar modalidad" />
@@ -437,7 +447,7 @@ export default function AddClientPage() {
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    <Button type="button" variant="destructive" size="icon" onClick={() => removeService(index)} className="h-9 w-9">
+                    <Button type="button" variant="destructive" size="icon" onClick={() => removeService(index)} className="h-9 w-9" disabled={form.formState.isSubmitting}>
                         <Trash2 className="h-4 w-4 text-destructive-foreground" />
                     </Button>
                  </div>
@@ -448,7 +458,7 @@ export default function AddClientPage() {
               variant="outline"
               size="sm"
               onClick={() => appendService({ id: `service-${serviceItemIdCounter++}-${Date.now()}`, serviceName: '', price: 0, paymentModality: 'Mensual' })}
-              disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0}
+              disabled={isLoadingServices || !!serviceError || serviceDefinitions.length === 0 || form.formState.isSubmitting}
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Servicio
             </Button>
@@ -466,7 +476,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Dominio Web (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: www.sonrisas.com" {...field} value={field.value || ''} />
+                    <Input placeholder="Ej: www.sonrisas.com" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -479,7 +489,7 @@ export default function AddClientPage() {
                 <FormItem>
                   <FormLabel>Tipo de Servicio Web (Opcional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Hosting Compartido Pro" {...field} value={field.value || ''} />
+                    <Input placeholder="Ej: Hosting Compartido Pro" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -497,6 +507,7 @@ export default function AddClientPage() {
                         <Button
                           variant={'outline'}
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
+                          disabled={form.formState.isSubmitting}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
@@ -504,7 +515,7 @@ export default function AddClientPage() {
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={(date) => field.onChange(date || null)} initialFocus locale={es} />
+                      <Calendar mode="single" selected={field.value} onSelect={(date) => field.onChange(date || null)} initialFocus locale={es} disabled={form.formState.isSubmitting}/>
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -524,7 +535,7 @@ export default function AddClientPage() {
                     <FormItem className="md:col-span-3">
                       {index === 0 && <FormLabel>Plataforma</FormLabel>}
                       <FormControl>
-                        <Input placeholder="Ej: Instagram" {...field} />
+                        <Input placeholder="Ej: Instagram" {...field} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -537,7 +548,7 @@ export default function AddClientPage() {
                     <FormItem className="md:col-span-4">
                        {index === 0 && <FormLabel>Usuario</FormLabel>}
                       <FormControl>
-                        <Input placeholder="Nombre de usuario" {...field} />
+                        <Input placeholder="Nombre de usuario" {...field} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -550,14 +561,14 @@ export default function AddClientPage() {
                     <FormItem className="md:col-span-3">
                        {index === 0 && <FormLabel>Contraseña (Opcional)</FormLabel>}
                       <FormControl>
-                        <Input type="password" placeholder="Contraseña" {...field} value={field.value || ''} />
+                        <Input type="password" placeholder="Contraseña" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    <Button type="button" variant="destructive" size="icon" onClick={() => removeSocial(index)} className="h-9 w-9">
+                    <Button type="button" variant="destructive" size="icon" onClick={() => removeSocial(index)} className="h-9 w-9" disabled={form.formState.isSubmitting}>
                         <Trash2 className="h-4 w-4 text-destructive-foreground" />
                     </Button>
                  </div>
@@ -568,6 +579,7 @@ export default function AddClientPage() {
               variant="outline"
               size="sm"
               onClick={() => appendSocial({ id: `social-${socialItemIdCounter++}-${Date.now()}`, platform: '', username: '', password: '' })}
+              disabled={form.formState.isSubmitting}
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Cuenta Social
             </Button>
@@ -583,7 +595,7 @@ export default function AddClientPage() {
                 <FormItem className="hidden">
                   <FormLabel>Usuario Credenciales RRSS (Legacy)</FormLabel>
                   <FormControl>
-                    <Input {...field} value={field.value || ''}/>
+                    <Input {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                   </FormControl>
                 </FormItem>
               )}
@@ -595,11 +607,10 @@ export default function AddClientPage() {
               <FormItem className="hidden">
                 <FormLabel>Contraseña Credenciales RRSS (Legacy)</FormLabel>
                 <FormControl>
-                  <Input type="password" {...field} value={field.value || ''}/>
-                </FormControl>
-              </FormItem>
-            )}
-          />
+                  <Input type="password" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
+                </FormItem>
+              )}
+            />
           
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Otros</h2>
           <FormField
@@ -608,7 +619,7 @@ export default function AddClientPage() {
             render={({ field }) => (
               <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow">
                 <FormControl>
-                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} disabled={form.formState.isSubmitting}/>
                 </FormControl>
                 <div className="space-y-1 leading-none">
                   <FormLabel>¿Cliente al día con los pagos?</FormLabel>

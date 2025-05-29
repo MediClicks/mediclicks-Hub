@@ -70,6 +70,12 @@ function convertClientTimestampsToDates<T extends Record<string, any>>(docData: 
       }
     }
   }
+  // Ensure contractedServices is an array
+  if (data.hasOwnProperty('contractedServices') && !Array.isArray(data['contractedServices' as keyof T])) {
+    (data['contractedServices' as keyof T] as any) = [];
+  } else if (!data.hasOwnProperty('contractedServices')) {
+    (data['contractedServices' as keyof T] as any) = [];
+  }
   return data as WithConvertedDates<T>;
 }
 
@@ -105,10 +111,10 @@ export default function AddInvoicePage() {
       const clientsCollection = collection(db, "clients");
       const q = query(clientsCollection, orderBy("name", "asc"));
       const querySnapshot = await getDocs(q);
-      const fetchedClients = querySnapshot.docs.map(doc => {
-        const data = doc.data();
+      const fetchedClients = querySnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
         const convertedData = convertClientTimestampsToDates(data as Client) || (data as Client); 
-        return { id: doc.id, ...convertedData } as WithConvertedDates<Client>;
+        return { id: docSnap.id, ...convertedData } as WithConvertedDates<Client>;
       });
       setClientsList(fetchedClients);
     } catch (err) {
@@ -143,7 +149,7 @@ export default function AddInvoicePage() {
             const clientData = convertClientTimestampsToDates(clientDataFromFirestore);
             setSelectedClientDetails({ 
               id: docSnap.id, 
-              ...(clientData || {}), // Ensure clientData is not undefined
+              ...(clientData || {}),
               contractedServices: Array.isArray(clientData?.contractedServices) ? clientData.contractedServices : [],
             } as WithConvertedDates<Client>);
           } else {
@@ -227,10 +233,12 @@ export default function AddInvoicePage() {
 
       if (data.notes && data.notes.trim() !== '') {
         invoiceData.notes = data.notes;
+      } else {
+        invoiceData.notes = deleteField();
       }
       
       const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
-      console.log('Nueva factura guardada en Firestore con ID: ', docRef.id);
+      // console.log('Nueva factura guardada en Firestore con ID: ', docRef.id); // Removed debug log
 
       toast({
         title: 'Factura Creada',
@@ -263,7 +271,7 @@ export default function AddInvoicePage() {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={isLoadingClients || !!clientError}
+                    disabled={isLoadingClients || !!clientError || form.formState.isSubmitting}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -287,7 +295,7 @@ export default function AddInvoicePage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Estado</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value} disabled={form.formState.isSubmitting}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar estado" />
@@ -315,6 +323,7 @@ export default function AddInvoicePage() {
                         <Button
                           variant={'outline'}
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
+                          disabled={form.formState.isSubmitting}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
@@ -322,7 +331,7 @@ export default function AddInvoicePage() {
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
+                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} disabled={form.formState.isSubmitting}/>
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -341,6 +350,7 @@ export default function AddInvoicePage() {
                         <Button
                           variant={'outline'}
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
+                          disabled={form.formState.isSubmitting}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
@@ -348,7 +358,7 @@ export default function AddInvoicePage() {
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
+                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} disabled={form.formState.isSubmitting}/>
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -373,7 +383,7 @@ export default function AddInvoicePage() {
                   type="button"
                   variant="outline"
                   onClick={addClientServicesToInvoice}
-                  disabled={isLoadingSelectedClient}
+                  disabled={isLoadingSelectedClient || form.formState.isSubmitting}
                 >
                   {isLoadingSelectedClient ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4 text-green-600" />}
                   Agregar Servicios Contratados a la Factura
@@ -400,7 +410,7 @@ export default function AddInvoicePage() {
                     <FormItem className="md:col-span-5">
                       {index === 0 && <FormLabel>Descripción</FormLabel>}
                       <FormControl>
-                        <Input placeholder="Descripción del servicio/producto" {...field} />
+                        <Input placeholder="Descripción del servicio/producto" {...field} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -413,7 +423,7 @@ export default function AddInvoicePage() {
                     <FormItem className="md:col-span-2">
                        {index === 0 && <FormLabel>Cantidad</FormLabel>}
                       <FormControl>
-                        <Input type="number" placeholder="1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
+                        <Input type="number" placeholder="1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -426,7 +436,7 @@ export default function AddInvoicePage() {
                     <FormItem className="md:col-span-3">
                        {index === 0 && <FormLabel>Precio Unit.</FormLabel>}
                       <FormControl>
-                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
+                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -434,7 +444,7 @@ export default function AddInvoicePage() {
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
                     {fields.length > 0 && (
-                      <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
+                      <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9" disabled={form.formState.isSubmitting}>
                           <Trash2 className="h-4 w-4 text-destructive-foreground" />
                       </Button>
                     )}
@@ -446,6 +456,7 @@ export default function AddInvoicePage() {
               variant="outline"
               size="sm"
               onClick={() => append({ id: `item-${itemIdCounter++}-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 })}
+              disabled={form.formState.isSubmitting}
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem Manualmente
             </Button>
@@ -465,7 +476,7 @@ export default function AddInvoicePage() {
               <FormItem>
                 <FormLabel>Notas Adicionales (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} value={field.value || ''}/>
+                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -480,5 +491,3 @@ export default function AddInvoicePage() {
     </div>
   );
 }
-
-    
