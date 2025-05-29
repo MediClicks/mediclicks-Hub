@@ -27,7 +27,6 @@ import { useToast } from '@/hooks/use-toast';
 import type { TaskPriority, TaskStatus, Client, WithConvertedDates } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField, FieldValue } from 'firebase/firestore';
-// Removed: import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
 
 const taskPriorities: TaskPriority[] = ['Baja', 'Media', 'Alta'];
 const taskStatuses: TaskStatus[] = ['Pendiente', 'En Progreso', 'Completada'];
@@ -180,29 +179,6 @@ export default function AddTaskPage() {
         title: 'Tarea Creada',
         description: `La tarea "${data.name}" ha sido agregada exitosamente.`,
       });
-
-      // Removed Google Calendar event creation logic
-      // if (taskDataToSave.alertDate && taskDataToSave.alertDate instanceof Timestamp) {
-      //     const calendarResult = await addCalendarEventForTaskAction({
-      //       name: taskDataToSave.name,
-      //       description: taskDataToSave.description instanceof FieldValue ? undefined : taskDataToSave.description, 
-      //       alertDate: (taskDataToSave.alertDate as Timestamp).toDate(),
-      //     });
-      //     if (calendarResult.success) {
-      //       toast({
-      //         title: "Evento de Calendario Creado",
-      //         description: "La alerta de la tarea se agregó a Google Calendar.",
-      //         duration: 4000,
-      //       });
-      //     } else {
-      //       toast({
-      //         title: "Error al Crear Evento de Calendario",
-      //         description: calendarResult.error || "No se pudo agregar la alerta a Google Calendar. Revisa la configuración y el archivo token.json.",
-      //         variant: "destructive",
-      //         duration: 7000,
-      //       });
-      //     }
-      // }
 
       router.push('/tasks');
     } catch (e) {
