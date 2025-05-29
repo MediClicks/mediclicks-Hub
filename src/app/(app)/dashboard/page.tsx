@@ -4,7 +4,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { SummaryCard } from "@/components/dashboard/summary-card";
-import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot, Save, PlusCircle, CalendarIcon as CalendarIconLucide } from "lucide-react";
+import { Users, Briefcase, ListTodo, DollarSign, Loader2, TrendingUp, AlertTriangle, FileText, Clock, Receipt, ListChecks, Package, BellRing, Bot, Save, PlusCircle, CalendarIcon as CalendarIconLucide, ListCollapse, BellOff } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,7 @@ import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Clie
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
-import { format, subMonths, startOfMonth, startOfDay, endOfDay, isPast, isEqual, isToday, isTomorrow } from 'date-fns';
+import { format, subMonths, startOfMonth, endOfDay, isPast, isEqual, isToday, isTomorrow, startOfDay as dateFnsStartOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Chatbot } from "@/components/ai-agency/chatbot";
 import { useAuth } from '@/contexts/auth-context';
@@ -45,7 +45,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useToast } from '@/hooks/use-toast';
-import { updateTaskStatusAction } from '@/app/actions/taskActions';
+import { updateTaskStatusAction } from '@/app/actions/taskActions'; // Corrected import path
 
 interface DashboardStats {
   totalClients: number;
@@ -86,7 +86,7 @@ interface TaskStatusChartData {
   fill: string;
 }
 
-// Enhanced recursive timestamp converter
+// Recursive timestamp converter
 function convertFirestoreTimestamps<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
   if (!data) return undefined;
   const convertedData = { ...data } as any;
@@ -188,47 +188,63 @@ export default function DashboardPage() {
     setError(null);
     try {
       const now = new Date();
-      const todayStart = startOfDay(now);
+      const todayStart = dateFnsStartOfDay(now);
       const todayEnd = endOfDay(now);
 
       const clientsCollectionRef = collection(db, "clients");
-      const clientsSnapshot = await getCountFromServer(clientsCollectionRef);
-      const totalClients = clientsSnapshot.data().count;
+      const clientsSnapshotPromise = getCountFromServer(clientsCollectionRef);
 
       const tasksCollectionRef = collection(db, "tasks");
-      const tasksInProgressSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "En Progreso")));
-      const tasksInProgress = tasksInProgressSnapshot.data().count;
+      const tasksInProgressSnapshotPromise = getCountFromServer(query(tasksCollectionRef, where("status", "==", "En Progreso")));
+      const pendingTasksSnapshotPromise = getCountFromServer(query(tasksCollectionRef, where("status", "==", "Pendiente")));
+      const completedTasksSnapshotPromise = getCountFromServer(query(tasksCollectionRef, where("status", "==", "Completada")));
       
-      const pendingTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Pendiente")));
-      const pendingTasks = pendingTasksSnapshot.data().count;
-      
-      const completedTasksSnapshot = await getCountFromServer(query(tasksCollectionRef, where("status", "==", "Completada")));
-      const completedTasks = completedTasksSnapshot.data().count;
-
-      setTaskStatusData([
-        { status: "Pendiente", count: pendingTasks, fill: chartColors.pending },
-        { status: "En Progreso", count: tasksInProgress, fill: chartColors.inProgress },
-        { status: "Completada", count: completedTasks, fill: chartColors.completed },
-      ]);
-
       const tasksForTodayQuery = query(tasksCollectionRef, 
         where("dueDate", ">=", Timestamp.fromDate(todayStart)),
         where("dueDate", "<=", Timestamp.fromDate(todayEnd)),
         where("status", "in", ["Pendiente", "En Progreso"])
       );
-      const tasksForTodaySnap = await getCountFromServer(tasksForTodayQuery);
-      const tasksForToday = tasksForTodaySnap.data().count;
+      const tasksForTodaySnapPromise = getCountFromServer(tasksForTodayQuery);
 
       const invoicesCollectionRef = collection(db, "invoices");
       const currentMonthStart = startOfMonth(now);
-      const currentMonthEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)); 
+      const currentMonthEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
       
       const paidInvoicesThisMonthQuery = query(invoicesCollectionRef, 
         where("status", "==", "Pagada"),
         where("issuedDate", ">=", Timestamp.fromDate(currentMonthStart)),
         where("issuedDate", "<=", Timestamp.fromDate(currentMonthEnd))
       );
-      const paidInvoicesThisMonthSnap = await getDocs(paidInvoicesThisMonthQuery);
+      const paidInvoicesThisMonthSnapPromise = getDocs(paidInvoicesThisMonthQuery);
+      
+      const [
+        clientsSnapshot, 
+        tasksInProgressSnapshot, 
+        pendingTasksSnapshot, 
+        completedTasksSnapshot, 
+        tasksForTodaySnap, 
+        paidInvoicesThisMonthSnap
+      ] = await Promise.all([
+        clientsSnapshotPromise,
+        tasksInProgressSnapshotPromise,
+        pendingTasksSnapshotPromise,
+        completedTasksSnapshotPromise,
+        tasksForTodaySnapPromise,
+        paidInvoicesThisMonthSnapPromise
+      ]);
+
+      const totalClients = clientsSnapshot.data().count;
+      const tasksInProgress = tasksInProgressSnapshot.data().count;
+      const pendingTasks = pendingTasksSnapshot.data().count;
+      const completedTasks = completedTasksSnapshot.data().count;
+      const tasksForToday = tasksForTodaySnap.data().count;
+
+      setTaskStatusData([
+        { status: "Pendiente", count: pendingTasks, fill: chartColors.pending },
+        { status: "En Progreso", count: tasksInProgress, fill: chartColors.inProgress },
+        { status: "Completada", count: completedTasks, fill: chartColors.completed },
+      ]);
+      
       const revenueThisMonthAmount = paidInvoicesThisMonthSnap.docs
         .reduce((sum, doc) => {
           const invoice = convertFirestoreTimestamps(doc.data() as Invoice);
@@ -304,7 +320,7 @@ export default function DashboardPage() {
       fetchedRecentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
       setRecentActivity(fetchedRecentActivity.slice(0, 5));
 
-      const upcomingCutoffDate = startOfDay(now); 
+      const upcomingCutoffDate = dateFnsStartOfDay(now); 
       const upcomingTasksQuery = query(tasksCollectionRef, 
         where("status", "in", ["Pendiente", "En Progreso"]), 
         where("dueDate", ">=", Timestamp.fromDate(upcomingCutoffDate)), 
@@ -392,6 +408,7 @@ export default function DashboardPage() {
       setSavedConversations(fetchedConversations);
     } catch (err) {
       console.error("Error fetching saved conversations:", err);
+      // Consider adding a toast or specific error state for conversation fetching
     } finally {
       setIsLoadingConversations(false);
     }
@@ -420,7 +437,7 @@ export default function DashboardPage() {
       });
       quickTaskForm.reset();
       setIsQuickTaskDialogOpen(false);
-      fetchDashboardData(); // Refrescar datos del dashboard
+      fetchDashboardData(); 
     } catch (e) {
       console.error("Error agregando tarea rápida: ", e);
       toast({
@@ -438,7 +455,7 @@ export default function DashboardPage() {
         title: "Estado de Tarea Actualizado",
         description: `La tarea ha sido marcada como "${newStatus}".`,
       });
-      fetchDashboardData(); // Refrescar datos del dashboard
+      fetchDashboardData(); 
     } catch (error) {
       console.error("Error updating task status from dashboard:", error);
       toast({
@@ -448,7 +465,6 @@ export default function DashboardPage() {
       });
     }
   };
-
 
   if (isLoading) {
     return (
@@ -518,6 +534,28 @@ export default function DashboardPage() {
                     </FormItem>
                   )}
                 />
+                 <FormField
+                  control={quickTaskForm.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Prioridad</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar prioridad" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {taskPriorities.map(priority => (
+                            <SelectItem key={priority} value={priority}>{priority}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={quickTaskForm.control}
                   name="dueDate"
@@ -540,28 +578,6 @@ export default function DashboardPage() {
                           <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
                         </PopoverContent>
                       </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={quickTaskForm.control}
-                  name="priority"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Prioridad</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Seleccionar prioridad" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {taskPriorities.map(priority => (
-                            <SelectItem key={priority} value={priority}>{priority}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -651,6 +667,7 @@ export default function DashboardPage() {
             {isLoadingConversations && (
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <span className="ml-2 text-sm text-muted-foreground">Cargando...</span>
               </div>
             )}
             {!isLoadingConversations && savedConversations.length === 0 && (
@@ -744,20 +761,25 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-1">
                         <span className="text-xs">Vence: {item.dueDateFormatted}</span>
                         {isAlertActive && <BellRing className="h-3 w-3 text-orange-500 shrink-0" title="Alerta Activa"/>}
+                        {item.type === 'task' && item.alertFired && isPast(new Date(item.alertDate!)) && <BellOff className="h-3 w-3 text-slate-400 shrink-0" title="Alerta Atendida"/>}
                       </div>
                     </div>
-                    {item.type === 'task' && (
-                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                    {item.type === 'task' && item.statusOrClient !== 'Completada' && (
+                       <DropdownMenu.Root>
+                        <DropdownMenu.Trigger asChild>
                           <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 h-7 px-1.5">...</Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Cambiar Estado</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleUpdateTaskStatus(item.id, 'En Progreso')}>Marcar En Progreso</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleUpdateTaskStatus(item.id, 'Completada')}>Marcar Completada</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Content align="end">
+                          <DropdownMenu.Label>Cambiar Estado</DropdownMenu.Label>
+                          <DropdownMenu.Separator />
+                          {(item.statusOrClient === 'Pendiente') && 
+                            <DropdownMenu.Item onClick={() => handleUpdateTaskStatus(item.id, 'En Progreso')}>Marcar En Progreso</DropdownMenu.Item>
+                          }
+                          {(item.statusOrClient === 'Pendiente' || item.statusOrClient === 'En Progreso') &&
+                            <DropdownMenu.Item onClick={() => handleUpdateTaskStatus(item.id, 'Completada')}>Marcar Completada</DropdownMenu.Item>
+                          }
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Root>
                     )}
                   </li>
                 );
@@ -842,4 +864,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
