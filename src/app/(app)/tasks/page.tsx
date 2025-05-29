@@ -29,7 +29,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { format, isPast, isToday, isTomorrow, startOfDay, endOfDay, addDays } from "date-fns";
 import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
-
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, type QueryConstraint } from 'firebase/firestore';
