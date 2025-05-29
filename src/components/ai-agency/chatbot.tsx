@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Bot, User, Send, Loader2, Paperclip, XCircle, Image as ImageIcon, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { aiAgencyChat, type AiAgencyChatInput } from '@/ai/flows/ai-agency-chat-flow';
-import type { ChatUIMessage, ChatMessage } from '@/types'; // Added ChatMessage
+import type { ChatUIMessage, ChatMessage } from '@/types';
 import NextImage from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/auth-context';
@@ -70,7 +70,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       if (file.size > MAX_IMAGE_SIZE_BYTES) {
          toast({
           title: 'Imagen Demasiado Grande',
-          description: `El tamaño máximo de imagen es de ${MAX_IMAGE_SIZE_MB}MB. Por favor, selecciona una imagen más pequeña.`,
+          description: `¡Archivo muy grande! El tamaño máximo de imagen permitido es de ${MAX_IMAGE_SIZE_MB}MB.`,
           variant: 'destructive',
         });
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -94,7 +94,6 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
       };
       reader.readAsDataURL(file);
     }
-     // Reset file input to allow selecting the same file again if removed
     if (event.target) {
       event.target.value = '';
     }
@@ -104,7 +103,7 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
     setAttachedImage(null);
     setAttachedImageName(null);
     if (fileInputRef.current) {
-      fileInputRef.current.value = ''; // Clear the file input
+      fileInputRef.current.value = '';
     }
   };
 
@@ -153,38 +152,38 @@ export function Chatbot({ onConversationSaved }: ChatbotProps) {
 
   const handleSaveConversation = async () => {
     if (!user || !user.uid) {
-      toast({ title: "Error", description: "Debes iniciar sesión para guardar conversaciones.", variant: "destructive" });
+      toast({ title: "Error de Autenticación", description: "Debes iniciar sesión para guardar conversaciones.", variant: "destructive" });
       return;
     }
     
-    const actualMessages = messages.filter(msg => msg.id !== messages[0]?.id || messages.length > 1); // Exclude initial AI greeting if it's the only message
-    if (actualMessages.length === 0 && !attachedImage) { // also check if there was an image that was being sent but not yet added to messages
+    // Exclude initial AI greeting if it's the only message or if no user interaction has occurred
+    const conversationMessages = messages.slice(messages[0]?.text.startsWith("¡Hola, Dr. Alejandro!") ? 1 : 0);
+
+    if (conversationMessages.length === 0 && !attachedImage) {
       toast({ title: "Conversación Vacía", description: "No hay suficiente contenido para guardar.", variant: "default" });
       return;
     }
 
     setIsSavingConversation(true);
     
-    const messagesToSave: ChatMessage[] = actualMessages.map(({ id, ...rest }) => ({
+    const messagesToSave: ChatMessage[] = conversationMessages.map(({ id, ...rest }) => ({
       ...rest,
-      // Ensure imageUrl is only included if it exists, to match ChatMessage type
       imageUrl: rest.imageUrl ? rest.imageUrl : undefined,
     }));
-
 
     try {
       const result = await saveConversationAction(messagesToSave, user.uid);
       if (result.success && result.id) {
-        toast({ title: "Conversación Guardada", description: `La conversación con Il Dottore ha sido guardada.` });
+        toast({ title: "Conversación Guardada", description: `La conversación con Il Dottore ha sido guardada con el ID: ${result.id.substring(0,8)}.` });
         if (onConversationSaved) {
           onConversationSaved(); 
         }
       } else {
         toast({ title: "Error al Guardar", description: result.error || "No se pudo guardar la conversación.", variant: "destructive" });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving conversation:", error);
-      toast({ title: "Error al Guardar", description: "Ocurrió un problema al intentar guardar la conversación.", variant: "destructive" });
+      toast({ title: "Error al Guardar", description: error.message || "Ocurrió un problema al intentar guardar la conversación.", variant: "destructive" });
     } finally {
       setIsSavingConversation(false);
     }
