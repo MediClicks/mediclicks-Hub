@@ -19,19 +19,32 @@ import {
   ShieldCheck, 
   Target,
   ListCollapse,
-  Loader2
+  Loader2,
+  MessageSquareText,
+  User as UserIcon // Renamed to avoid conflict
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from '@/lib/utils';
-import Link from "next/link";
 import { db } from "@/lib/firebase";
 import { collection, query, where, orderBy, limit, getDocs, Timestamp } from "firebase/firestore";
-import type { SavedConversation, WithConvertedDates } from "@/types";
+import type { SavedConversation, WithConvertedDates, ChatMessage, ChatUIMessage } from "@/types"; // Added ChatMessage
 import { useAuth } from "@/contexts/auth-context";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose
+} from "@/components/ui/dialog";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import NextImage from 'next/image';
+
 
 interface CapabilityCardProps {
   icon: LucideIcon;
@@ -64,6 +77,7 @@ function CapabilityCard({ icon: Icon, title, description, status }: CapabilityCa
   );
 }
 
+// Helper function to convert Firestore Timestamps
 function convertConversationTimestamps(docData: any): WithConvertedDates<SavedConversation> {
   const data = { ...docData } as Partial<WithConvertedDates<SavedConversation>>;
   for (const key in data) {
@@ -71,10 +85,10 @@ function convertConversationTimestamps(docData: any): WithConvertedDates<SavedCo
       const value = data[key as keyof SavedConversation];
       if (value instanceof Timestamp) {
         (data[key as keyof SavedConversation] as any) = value.toDate();
-      } else if (Array.isArray(value)) {
-        // Assuming messages array doesn't contain Timestamps directly
-      } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
-        // Recursively convert for nested objects if any
+      } else if (Array.isArray(value) && key === 'messages') {
+         // Messages array should already be ChatMessage[], no direct Timestamps expected inside
+      } else if (typeof value === 'object' && value !== null && !(value instanceof Date) && !Array.isArray(value)) {
+        // Recursively convert for nested objects if any (not expected for SavedConversation)
       }
     }
   }
@@ -85,6 +99,8 @@ function convertConversationTimestamps(docData: any): WithConvertedDates<SavedCo
 export default function MediClicksAiAgencyPage() {
   const [savedConversations, setSavedConversations] = useState<WithConvertedDates<SavedConversation>[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+  const [selectedConversation, setSelectedConversation] = useState<WithConvertedDates<SavedConversation> | null>(null);
+  const [isViewConversationDialogOpen, setIsViewConversationDialogOpen] = useState(false);
   const { user } = useAuth();
 
   const fetchSavedConversations = useCallback(async () => {
@@ -103,11 +119,12 @@ export default function MediClicksAiAgencyPage() {
       const querySnapshot = await getDocs(q);
       const fetchedConversations = querySnapshot.docs.map(doc => {
         const data = convertConversationTimestamps(doc.data() as SavedConversation);
-        return { id: doc.id, ...data } as WithConvertedDates<SavedConversation>;
+        return { id: doc.id, ...data };
       });
       setSavedConversations(fetchedConversations);
     } catch (err) {
       console.error("Error fetching saved conversations:", err);
+      // Consider adding a toast message here for the user
     } finally {
       setIsLoadingConversations(false);
     }
@@ -119,6 +136,10 @@ export default function MediClicksAiAgencyPage() {
     }
   }, [fetchSavedConversations, user?.uid]);
 
+  const handleViewConversation = (conversation: WithConvertedDates<SavedConversation>) => {
+    setSelectedConversation(conversation);
+    setIsViewConversationDialogOpen(true);
+  };
 
   return (
     <div className="space-y-8">
@@ -130,23 +151,24 @@ export default function MediClicksAiAgencyPage() {
       </div>
       <Card className="shadow-lg border-t-4 border-primary">
         <CardHeader>
-          <CardTitle>Centro de IA Avanzada</CardTitle>
+          <CardTitle>Centro de IA Avanzada - Il Dottore</CardTitle>
           <CardDescription>
-            Explora las capacidades actuales y futuras de Il Dottore. Puedes interactuar con Il Dottore desde el chatbot en el Panel Principal.
+            Explora las capacidades actuales y futuras de Il Dottore, tu asistente IA personal.
+            Puedes interactuar directamente con Il Dottore desde el chatbot en el Panel Principal.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-8">
           
           <div className="border-t pt-6">
-            <h3 className="text-xl font-semibold mb-6 text-center text-primary flex items-center justify-center">
-              <Zap className="mr-2 h-6 w-6"/>
-              Módulos de Asistencia (En Evolución)
+            <h3 className="text-xl font-semibold mb-6 text-primary flex items-center">
+              <Zap className="mr-2 h-5 w-5"/>
+              Capacidades y Asistencia de Il Dottore (En Evolución)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <CapabilityCard
                 icon={MessageSquare}
                 title="Asistencia Conversacional"
-                description="Il Dottore responde a tus preguntas, ofrece resúmenes y te ayuda con tareas de información general. Disponible en el Panel Principal."
+                description="Il Dottore responde a tus preguntas, ofrece resúmenes, te ayuda con información general y ahora puede analizar imágenes que le envíes."
                 status="En Desarrollo"
               />
                <CapabilityCard
@@ -183,8 +205,8 @@ export default function MediClicksAiAgencyPage() {
           </div>
           
           <div className="border-t pt-6">
-            <h3 className="text-xl font-semibold mb-6 text-center text-primary flex items-center justify-center">
-              <Briefcase className="mr-2 h-6 w-6"/>
+            <h3 className="text-xl font-semibold mb-6 text-primary flex items-center">
+              <Briefcase className="mr-2 h-5 w-5"/>
               Próximas Capacidades Avanzadas del Agente IA
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -252,13 +274,13 @@ export default function MediClicksAiAgencyPage() {
                   <ListCollapse className="mr-2 h-5 w-5 text-accent" />
                   Historial de Conversaciones con Il Dottore
                 </CardTitle>
-                <CardDescription>Conversaciones guardadas previamente.</CardDescription>
+                <CardDescription>Revisa tus interacciones guardadas previamente.</CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingConversations && (
                   <div className="flex items-center justify-center py-4">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                    <span className="ml-2 text-sm text-muted-foreground">Cargando...</span>
+                    <span className="ml-2 text-sm text-muted-foreground">Cargando conversaciones...</span>
                   </div>
                 )}
                 {!isLoadingConversations && savedConversations.length === 0 && (
@@ -272,9 +294,9 @@ export default function MediClicksAiAgencyPage() {
                           <Button
                             variant="ghost"
                             className="w-full justify-start text-left h-auto py-2 px-3 hover:bg-muted/50"
-                            disabled // La funcionalidad de cargar conversación no está implementada
-                            title="Cargar esta conversación (funcionalidad futura)"
+                            onClick={() => handleViewConversation(convo)}
                           >
+                            <MessageSquareText className="mr-2 h-4 w-4 text-muted-foreground flex-shrink-0" />
                             <div className="flex flex-col">
                               <span className="font-medium text-primary text-sm truncate">{convo.title}</span>
                               <span className="text-xs text-muted-foreground">
@@ -296,6 +318,72 @@ export default function MediClicksAiAgencyPage() {
 
         </CardContent>
       </Card>
+
+      {selectedConversation && (
+        <Dialog open={isViewConversationDialogOpen} onOpenChange={setIsViewConversationDialogOpen}>
+          <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="truncate pr-10">{selectedConversation.title}</DialogTitle>
+              <DialogDescription>
+                Conversación guardada el: {selectedConversation.createdAt ? format(new Date(selectedConversation.createdAt), 'dd MMMM yyyy, HH:mm', { locale: es }) : 'N/A'}
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="flex-grow p-1 pr-3 -mx-1">
+              <div className="space-y-4 py-2 px-1">
+              {selectedConversation.messages.map((message, index) => (
+                <div
+                  key={`${selectedConversation.id}-msg-${index}`}
+                  className={cn(
+                    "flex items-end gap-2.5 max-w-[85%] sm:max-w-[75%]",
+                    message.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'
+                  )}
+                >
+                  <Avatar className="h-8 w-8 shrink-0">
+                    {message.sender === 'ai' ? (
+                      <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                        <Bot className="h-4 w-4" />
+                      </AvatarFallback>
+                    ) : (
+                      <AvatarFallback className="bg-accent text-accent-foreground text-xs">
+                        <UserIcon className="h-4 w-4" />
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+                  <div
+                    className={cn(
+                      "p-2.5 rounded-xl shadow-sm text-sm",
+                      message.sender === 'user'
+                        ? 'bg-primary text-primary-foreground rounded-br-none'
+                        : 'bg-secondary text-secondary-foreground rounded-bl-none'
+                    )}
+                  >
+                    {message.imageUrl && (
+                      <div className="mb-2 relative w-full max-w-[200px] sm:max-w-[250px] aspect-square bg-muted rounded-md overflow-hidden">
+                        <NextImage
+                          src={message.imageUrl}
+                          alt="Adjunto en conversación guardada"
+                          layout="fill"
+                          objectFit="cover"
+                          className="rounded-md"
+                          data-ai-hint="user image"
+                        />
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap">{message.text}</p>
+                  </div>
+                </div>
+              ))}
+              </div>
+            </ScrollArea>
+            <DialogClose asChild>
+                <Button type="button" variant="outline" className="mt-4 self-end">Cerrar</Button>
+            </DialogClose>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
+
+
+    
