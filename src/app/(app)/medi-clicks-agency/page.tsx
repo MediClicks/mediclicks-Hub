@@ -1,7 +1,8 @@
 
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // Added CardFooter
+import React, { useEffect, useState, useCallback } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { 
   Bot,
@@ -23,7 +24,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { cn } from '@/lib/utils';
 import Link from "next/link";
-import React, { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/firebase";
 import { collection, query, where, orderBy, limit, getDocs, Timestamp } from "firebase/firestore";
 import type { SavedConversation, WithConvertedDates } from "@/types";
@@ -72,9 +72,9 @@ function convertConversationTimestamps(docData: any): WithConvertedDates<SavedCo
       if (value instanceof Timestamp) {
         (data[key as keyof SavedConversation] as any) = value.toDate();
       } else if (Array.isArray(value)) {
-        // Assuming messages array doesn't contain Timestamps directly, but if it did, you'd convert here.
+        // Assuming messages array doesn't contain Timestamps directly
       } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
-        // Recursively convert for nested objects if any (not typical for SavedConversation)
+        // Recursively convert for nested objects if any
       }
     }
   }
@@ -89,7 +89,7 @@ export default function MediClicksAiAgencyPage() {
 
   const fetchSavedConversations = useCallback(async () => {
     if (!user?.uid) {
-      setIsLoadingConversations(false); // Stop loading if no user
+      setIsLoadingConversations(false);
       return;
     }
     setIsLoadingConversations(true);
@@ -108,7 +108,6 @@ export default function MediClicksAiAgencyPage() {
       setSavedConversations(fetchedConversations);
     } catch (err) {
       console.error("Error fetching saved conversations:", err);
-      // Optionally show a toast or error message to the user
     } finally {
       setIsLoadingConversations(false);
     }
@@ -118,7 +117,7 @@ export default function MediClicksAiAgencyPage() {
     if (user?.uid) {
       fetchSavedConversations();
     }
-  }, [user?.uid, fetchSavedConversations]);
+  }, [fetchSavedConversations, user?.uid]);
 
 
   return (
@@ -131,10 +130,9 @@ export default function MediClicksAiAgencyPage() {
       </div>
       <Card className="shadow-lg border-t-4 border-primary">
         <CardHeader>
-          <CardTitle>Capacidades de Il Dottore</CardTitle>
+          <CardTitle>Centro de IA Avanzada</CardTitle>
           <CardDescription>
-            Explora las capacidades actuales y futuras de Il Dottore para optimizar las operaciones de tu agencia.
-            Puedes interactuar con Il Dottore desde el chatbot en el Panel Principal.
+            Explora las capacidades actuales y futuras de Il Dottore. Puedes interactuar con Il Dottore desde el chatbot en el Panel Principal.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-8">
@@ -142,7 +140,7 @@ export default function MediClicksAiAgencyPage() {
           <div className="border-t pt-6">
             <h3 className="text-xl font-semibold mb-6 text-center text-primary flex items-center justify-center">
               <Zap className="mr-2 h-6 w-6"/>
-              Módulos de Asistencia Avanzada (En Evolución)
+              Módulos de Asistencia (En Evolución)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <CapabilityCard
@@ -260,6 +258,7 @@ export default function MediClicksAiAgencyPage() {
                 {isLoadingConversations && (
                   <div className="flex items-center justify-center py-4">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    <span className="ml-2 text-sm text-muted-foreground">Cargando...</span>
                   </div>
                 )}
                 {!isLoadingConversations && savedConversations.length === 0 && (

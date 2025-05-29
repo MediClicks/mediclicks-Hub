@@ -9,7 +9,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, query, where, Timestamp, orderBy, limit, getCountFromServer, addDoc, serverTimestamp, updateDoc, doc as firestoreDoc } from 'firebase/firestore';
 import type { Task, Invoice, WithConvertedDates, TaskStatus, InvoiceStatus, Client, SavedConversation, TaskPriority } from '@/types';
 import { cn } from '@/lib/utils';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
@@ -81,7 +81,7 @@ interface UpcomingItem {
   href: string;
   alertDate?: Date | null;
   alertFired?: boolean;
-  statusOrClient?: TaskStatus | InvoiceStatus; // Added for quick status update
+  statusOrClient?: TaskStatus | InvoiceStatus;
 }
 
 interface MonthlyRevenueChartData {
@@ -95,7 +95,6 @@ interface TaskStatusChartData {
   fill: string;
 }
 
-// Recursive timestamp converter
 function convertFirestoreTimestamps<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
   if (!data) return undefined;
   const convertedData = { ...data } as any;
@@ -175,10 +174,6 @@ export default function DashboardPage() {
   const [taskStatusData, setTaskStatusData] = React.useState<TaskStatusChartData[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-
-  const [savedConversations, setSavedConversations] = React.useState<WithConvertedDates<SavedConversation>[]>([]);
-  const [isLoadingConversations, setIsLoadingConversations] = React.useState(false);
-  const { user } = useAuth();
   const { toast } = useToast();
 
   const [isQuickTaskDialogOpen, setIsQuickTaskDialogOpen] = React.useState(false);
@@ -400,36 +395,10 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const fetchSavedConversations = React.useCallback(async () => {
-    if (!user?.uid) return;
-    setIsLoadingConversations(true);
-    try {
-      const q = query(
-        collection(db, "savedConversations"),
-        where("userId", "==", user.uid),
-        orderBy("createdAt", "desc"),
-        limit(10) 
-      );
-      const querySnapshot = await getDocs(q);
-      const fetchedConversations = querySnapshot.docs.map(doc => {
-        const data = convertFirestoreTimestamps(doc.data() as SavedConversation);
-        return { id: doc.id, ...data } as WithConvertedDates<SavedConversation>;
-      });
-      setSavedConversations(fetchedConversations);
-    } catch (err) {
-      console.error("Error fetching saved conversations:", err);
-      // Consider adding a toast or specific error state for conversation fetching
-    } finally {
-      setIsLoadingConversations(false);
-    }
-  }, [user?.uid]);
 
   React.useEffect(() => {
     fetchDashboardData();
-    if (user?.uid) {
-      fetchSavedConversations();
-    }
-  }, [fetchDashboardData, user?.uid, fetchSavedConversations]);
+  }, [fetchDashboardData]);
 
   const onSubmitQuickTask = async (data: QuickTaskFormValues) => {
     try {
@@ -649,8 +618,8 @@ export default function DashboardPage() {
         />
       </div>
 
-       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="shadow-xl border-t-4 border-primary lg:col-span-2">
+       <div className="grid grid-cols-1 gap-6"> {/* Chatbot will take full width */}
+        <Card className="shadow-xl border-t-4 border-primary">
           <CardHeader>
             <CardTitle className="text-2xl flex items-center">
               <Bot className="mr-2 h-7 w-7 text-primary" /> 
@@ -661,55 +630,8 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="p-1 md:p-2">
-            <Chatbot onConversationSaved={fetchSavedConversations} />
+            <Chatbot />
           </CardContent>
-        </Card>
-        
-        <Card className="shadow-lg border-t-4 border-accent">
-          <CardHeader>
-            <CardTitle className="text-xl flex items-center">
-              <ListCollapse className="mr-2 h-5 w-5 text-accent" />
-              Historial de Conversaciones
-            </CardTitle>
-            <CardDescription>Conversaciones guardadas con Il Dottore.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoadingConversations && (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                <span className="ml-2 text-sm text-muted-foreground">Cargando...</span>
-              </div>
-            )}
-            {!isLoadingConversations && savedConversations.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">No hay conversaciones guardadas.</p>
-            )}
-            {!isLoadingConversations && savedConversations.length > 0 && (
-              <ScrollArea className="h-[300px] pr-3"> 
-                <ul className="space-y-2">
-                  {savedConversations.map(convo => (
-                    <li key={convo.id}>
-                       <Button
-                        variant="ghost"
-                        className="w-full justify-start text-left h-auto py-2 px-3 hover:bg-muted/50"
-                        disabled 
-                        title="Cargar esta conversación (funcionalidad futura)"
-                      >
-                        <div className="flex flex-col">
-                          <span className="font-medium text-primary text-sm truncate">{convo.title}</span>
-                          <span className="text-xs text-muted-foreground">
-                            Guardada: {convo.createdAt ? format(new Date(convo.createdAt), 'dd/MM/yy HH:mm', { locale: es }) : 'N/A'}
-                          </span>
-                        </div>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </ScrollArea>
-            )}
-          </CardContent>
-           <CardFooter className="text-xs text-muted-foreground pt-2">
-             Se muestran las últimas 10 conversaciones.
-           </CardFooter>
         </Card>
       </div>
       
@@ -728,8 +650,7 @@ export default function DashboardPage() {
                 {recentActivity.map(item => (
                   <li key={item.id} className="text-sm text-muted-foreground flex justify-between items-center hover:bg-muted/50 p-2 rounded-md transition-colors">
                     <div className="flex-1 min-w-0 flex items-center gap-2">
-                        {item.type === 'task' && <ListChecks className="inline-block h-5 w-5 text-sky-600 shrink-0" />}
-                        {item.type === 'invoice' && <Receipt className="inline-block h-5 w-5 text-rose-600 shrink-0" />}
+                        {item.type === 'task' ? <ListChecks className="inline-block h-5 w-5 text-sky-600 shrink-0" /> : <Receipt className="inline-block h-5 w-5 text-rose-600 shrink-0" />}
                         <Link href={item.href} className="font-medium text-primary hover:underline truncate block" title={item.name}>
                             {item.name}
                         </Link>
@@ -771,10 +692,10 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-1">
                         <span className="text-xs">Vence: {item.dueDateFormatted}</span>
                         {isAlertActive && <BellRing className="h-3 w-3 text-orange-500 shrink-0" title="Alerta Activa"/>}
-                        {item.type === 'task' && item.alertFired && isPast(new Date(item.alertDate!)) && <BellOff className="h-3 w-3 text-slate-400 shrink-0" title="Alerta Atendida"/>}
+                        {item.type === 'task' && item.alertFired && item.alertDate && isPast(new Date(item.alertDate)) && <BellOff className="h-3 w-3 text-slate-400 shrink-0" title="Alerta Atendida"/>}
                       </div>
                     </div>
-                    {item.type === 'task' && item.statusOrClient !== 'Completada' && (
+                    {item.type === 'task' && item.statusOrClient && item.statusOrClient !== 'Completada' && (
                        <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 h-7 px-1.5">...</Button>
