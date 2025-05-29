@@ -30,6 +30,14 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Form,
   FormControl,
   FormField,
@@ -45,7 +53,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useToast } from '@/hooks/use-toast';
-import { updateTaskStatusAction } from '@/app/actions/taskActions'; // Corrected import path
+import { updateTaskStatusAction } from '@/app/actions/taskActions';
 
 interface DashboardStats {
   totalClients: number;
@@ -73,6 +81,7 @@ interface UpcomingItem {
   href: string;
   alertDate?: Date | null;
   alertFired?: boolean;
+  statusOrClient?: TaskStatus | InvoiceStatus; // Added for quick status update
 }
 
 interface MonthlyRevenueChartData {
@@ -352,6 +361,7 @@ export default function DashboardPage() {
             dueDateFormatted: new Date(task.dueDate).toLocaleDateString('es-ES'),
             alertDate: task.alertDate instanceof Date ? task.alertDate : null,
             alertFired: task.alertFired,
+            statusOrClient: task.status,
             href: `/tasks/${docSnap.id}/edit`
           });
         }
@@ -639,7 +649,7 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="shadow-xl border-t-4 border-primary lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-2xl flex items-center">
@@ -765,21 +775,21 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     {item.type === 'task' && item.statusOrClient !== 'Completada' && (
-                       <DropdownMenu.Root>
-                        <DropdownMenu.Trigger asChild>
+                       <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 h-7 px-1.5">...</Button>
-                        </DropdownMenu.Trigger>
-                        <DropdownMenu.Content align="end">
-                          <DropdownMenu.Label>Cambiar Estado</DropdownMenu.Label>
-                          <DropdownMenu.Separator />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Cambiar Estado</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
                           {(item.statusOrClient === 'Pendiente') && 
-                            <DropdownMenu.Item onClick={() => handleUpdateTaskStatus(item.id, 'En Progreso')}>Marcar En Progreso</DropdownMenu.Item>
+                            <DropdownMenuItem onClick={() => handleUpdateTaskStatus(item.id, 'En Progreso')}>Marcar En Progreso</DropdownMenuItem>
                           }
                           {(item.statusOrClient === 'Pendiente' || item.statusOrClient === 'En Progreso') &&
-                            <DropdownMenu.Item onClick={() => handleUpdateTaskStatus(item.id, 'Completada')}>Marcar Completada</DropdownMenu.Item>
+                            <DropdownMenuItem onClick={() => handleUpdateTaskStatus(item.id, 'Completada')}>Marcar Completada</DropdownMenuItem>
                           }
-                        </DropdownMenu.Content>
-                      </DropdownMenu.Root>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </li>
                 );
@@ -864,3 +874,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
