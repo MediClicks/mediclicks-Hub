@@ -30,6 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase'; 
 import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, deleteField, FieldValue } from 'firebase/firestore';
 import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates, TaskPriority, TaskStatus } from '@/types';
+import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
 
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
@@ -70,7 +71,6 @@ const clientFormSchema = z.object({
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
-// Recursive timestamp converter for ServiceDefinition
 function convertTimestampsRecursively<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
   if (!docData) return undefined;
   const data = { ...docData } as any;
@@ -82,11 +82,11 @@ function convertTimestampsRecursively<T extends Record<string, any>>(docData: T 
       } else if (Array.isArray(value)) {
         data[key] = value.map((item: any) =>
           typeof item === 'object' && item !== null && !(item instanceof Date)
-            ? convertTimestampsRecursively(item) // Recursively convert objects in arrays
+            ? convertTimestampsRecursively(item)
             : item
         );
       } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
-        data[key] = convertTimestampsRecursively(value); // Recursively convert nested objects
+        data[key] = convertTimestampsRecursively(value);
       }
     }
   }
@@ -145,7 +145,7 @@ export default function AddClientPage() {
           return { id: docSnap.id, ...convertTimestampsRecursively(data) };
         });
         setServiceDefinitions(fetchedServices);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error fetching service definitions: ", err);
         setServiceError('No se pudieron cargar las definiciones de servicios.');
         toast({
@@ -184,6 +184,7 @@ export default function AddClientPage() {
       if (typeof value === 'string' && value.trim() !== '') {
         dataToSave[key] = value;
       }
+      // No usamos deleteField() para addDoc, simplemente no incluimos el campo si está vacío
     });
     
     if (data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime())) {
@@ -206,7 +207,6 @@ export default function AddClientPage() {
         
     try {
       const docRef = await addDoc(collection(db, 'clients'), dataToSave);
-      // console.log('Nuevo cliente guardado con ID: ', docRef.id); // Removed debug log
 
       toast({
         title: 'Cliente Creado',
@@ -215,13 +215,14 @@ export default function AddClientPage() {
 
       // Create automatic tasks for each contracted service
       if (dataToSave.contractedServices && dataToSave.contractedServices.length > 0) {
+        const clientNameForTask = data.name;
         for (const service of dataToSave.contractedServices as Omit<ContractedServiceClient, 'id'>[]) {
-          const newTaskData = {
-            name: `Configurar servicio: ${service.serviceName} para ${data.name}`,
-            description: `Iniciar configuración para "${service.serviceName}" (Precio: ${service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })} ${service.paymentModality}) contratado por ${data.name}. Incluir verificación de pago y bienvenida.`,
+          const newTaskData: Record<string, any> = {
+            name: `Configurar servicio: ${service.serviceName} para ${clientNameForTask}`,
+            description: `Iniciar configuración para "${service.serviceName}" (Precio: ${service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })} ${service.paymentModality}) contratado por ${clientNameForTask}. Incluir verificación de pago y bienvenida.`,
             assignedTo: "Equipo de Cuentas",
             clientId: docRef.id,
-            clientName: data.name,
+            clientName: clientNameForTask,
             dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), 
             priority: 'Media' as TaskPriority,
             status: 'Pendiente' as TaskStatus,
@@ -231,7 +232,7 @@ export default function AddClientPage() {
           await addDoc(collection(db, 'tasks'), newTaskData);
           toast({
             title: "Tarea Automática Creada",
-            description: `Se creó una tarea para configurar el servicio "${service.serviceName}" para ${data.name}.`,
+            description: `Se creó una tarea para configurar el servicio "${service.serviceName}" para ${clientNameForTask}.`,
             duration: 4000,
           });
         }
@@ -608,9 +609,10 @@ export default function AddClientPage() {
                 <FormLabel>Contraseña Credenciales RRSS (Legacy)</FormLabel>
                 <FormControl>
                   <Input type="password" {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
-                </FormItem>
-              )}
-            />
+                </FormControl>
+              </FormItem>
+            )}
+          />
           
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Otros</h2>
           <FormField
