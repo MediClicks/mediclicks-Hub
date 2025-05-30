@@ -34,7 +34,7 @@ import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
 
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, type QueryConstraint } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, deleteDoc, doc, where, type QueryConstraint, getDoc } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -196,7 +196,7 @@ export default function BillingPage() {
       await deleteDoc(doc(db, "invoices", invoiceToDelete.id));
       toast({
         title: "Factura Eliminada",
-        description: `La factura con ID ${invoiceToDelete.id.substring(0, 8).toUpperCase()} ha sido eliminada.`,
+        description: `La factura "${invoiceToDelete.id.substring(0, 8).toUpperCase()}" ha sido eliminada.`,
       });
       setInvoices(prevInvoices => prevInvoices.filter(inv => inv.id !== invoiceToDelete.id));
     } catch (error) {
