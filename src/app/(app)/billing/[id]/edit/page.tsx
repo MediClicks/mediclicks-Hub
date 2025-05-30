@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,9 +25,11 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import type { InvoiceStatus, InvoiceItem, Client, WithConvertedDates, Invoice } from '@/types';
+import type { InvoiceStatus, Client, WithConvertedDates, Invoice } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, doc, getDoc, updateDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, deleteField } from 'firebase/firestore';
+import { Separator } from '@/components/ui/separator';
+
 
 const invoiceStatuses: InvoiceStatus[] = ['No Pagada', 'Pagada', 'Vencida'];
 
@@ -46,6 +48,7 @@ const invoiceFormSchema = z.object({
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   status: z.enum(invoiceStatuses, { required_error: 'El estado es obligatorio.' }),
   items: z.array(invoiceItemSchema).min(1, { message: 'Debe agregar al menos un ítem a la factura.' }),
+  taxRate: z.coerce.number().min(0, "La tasa no puede ser negativa.").optional().default(0),
   notes: z.string().optional(),
 });
 
@@ -91,6 +94,7 @@ export default function EditInvoicePage() {
       clientId: '',
       status: 'No Pagada',
       items: [],
+      taxRate: 0,
       notes: '',
     },
   });
@@ -114,20 +118,22 @@ export default function EditInvoicePage() {
     setClientError(null);
 
     try {
+      // Fetch clients
       const clientsCollection = collection(db, "clients");
       const qClients = query(clientsCollection, orderBy("name", "asc"));
       const clientsSnapshot = await getDocs(qClients);
       const fetchedClients = clientsSnapshot.docs.map(docSnap => {
-        const data = docSnap.data() as Client; // Assume Client type, convert below
+        const data = docSnap.data() as Client;
         return { id: docSnap.id, ...convertClientTimestampsToDates(data) };
       });
       setClientsList(fetchedClients);
 
+      // Fetch invoice
       const invoiceDocRef = doc(db, 'invoices', invoiceId);
       const docSnap = await getDoc(invoiceDocRef);
 
       if (docSnap.exists()) {
-        const data = docSnap.data() as Invoice;
+        const data = docSnap.data() as Invoice; // Firestore data type
         itemIdCounter = data.items?.length || 0;
         
         const formData = {
@@ -139,6 +145,7 @@ export default function EditInvoicePage() {
             ...item,
             id: `item-edit-${index}-${Date.now()}` // Ensure unique ID for existing items in the form
           })),
+          taxRate: data.taxRate || 0,
           notes: data.notes || '',
         };
         form.reset(formData);
@@ -150,19 +157,24 @@ export default function EditInvoicePage() {
     } catch (error) {
       console.error("Error fetching invoice or clients: ", error);
       toast({ title: 'Error', description: 'No se pudo cargar la información de la factura o los clientes.', variant: 'destructive' });
-      if (clientsList.length === 0) setClientError('No se pudieron cargar los clientes.');
+      if (clientsList.length === 0 && !clientError) setClientError('No se pudieron cargar los clientes.');
     } finally {
       setIsLoadingForm(false);
     }
-  }, [invoiceId, form, router, toast]); // Removed clientsList from dependencies as it's set within
+  }, [invoiceId, form, router, toast]); // clientsList removed
 
   useEffect(() => {
     fetchInvoiceAndClients();
   }, [fetchInvoiceAndClients]);
 
 
-  const watchItems = form.watch('items');
-  const totalAmount = watchItems.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+  const watchedItems = form.watch('items');
+  const watchedTaxRate = form.watch('taxRate');
+
+  const subtotal = watchedItems.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+  const taxRateDecimal = (watchedTaxRate || 0) / 100;
+  const calculatedTaxAmount = subtotal * taxRateDecimal;
+  const totalAmountWithTax = subtotal + calculatedTaxAmount;
 
 
   async function onSubmit(data: InvoiceFormValues) {
@@ -171,12 +183,22 @@ export default function EditInvoicePage() {
       const invoiceDocRef = doc(db, 'invoices', invoiceId);
       const clientName = clientsList.find(c => c.id === data.clientId)?.name;
 
+      const currentSubtotal = data.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+      const currentTaxRateDecimal = (data.taxRate || 0) / 100;
+      const currentCalculatedTaxAmount = currentSubtotal * currentTaxRateDecimal;
+      const currentFinalTotalAmount = currentSubtotal + currentCalculatedTaxAmount;
+
       const invoiceDataToUpdate: any = {
-        ...data,
-        clientName: clientName || deleteField(), // Ensure clientName is removed if client is somehow not found
-        totalAmount: totalAmount,
+        clientId: data.clientId,
+        clientName: clientName || deleteField(),
+        issuedDate: Timestamp.fromDate(data.issuedDate),
+        dueDate: Timestamp.fromDate(data.dueDate),
+        status: data.status,
+        items: data.items.map(({ id, ...rest }) => rest),
+        taxRate: data.taxRate || 0,
+        taxAmount: currentCalculatedTaxAmount,
+        totalAmount: currentFinalTotalAmount,
         updatedAt: serverTimestamp(),
-        items: data.items.map(({ id, ...rest }) => rest), // Remove client-side ID before saving
       };
 
       if (data.notes && data.notes.trim() !== '') {
@@ -189,7 +211,7 @@ export default function EditInvoicePage() {
 
       toast({
         title: 'Factura Actualizada',
-        description: `La factura para ${clientName || 'el cliente seleccionado'} ha sido actualizada.`,
+        description: `La factura "${invoiceId.substring(0,8).toUpperCase()}" para ${clientName || 'el cliente seleccionado'} ha sido actualizada.`,
       });
       router.push('/billing');
 
@@ -237,7 +259,7 @@ export default function EditInvoicePage() {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={isLoadingForm || (clientsList.length === 0 && !clientError)}
+                    disabled={isLoadingForm || (clientsList.length === 0 && !clientError) || form.formState.isSubmitting}
                   >
                     <FormControl>
                        <SelectTrigger>
@@ -261,7 +283,7 @@ export default function EditInvoicePage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Estado</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value} disabled={form.formState.isSubmitting}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar estado" />
@@ -289,6 +311,7 @@ export default function EditInvoicePage() {
                         <Button
                           variant={'outline'}
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
+                           disabled={form.formState.isSubmitting}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
@@ -296,7 +319,7 @@ export default function EditInvoicePage() {
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
+                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} disabled={form.formState.isSubmitting}/>
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
@@ -315,6 +338,7 @@ export default function EditInvoicePage() {
                         <Button
                           variant={'outline'}
                           className={cn('w-full pl-3 text-left font-normal',!field.value && 'text-muted-foreground')}
+                           disabled={form.formState.isSubmitting}
                         >
                           {field.value ? format(field.value, 'PPP', { locale: es }) : <span>Seleccionar fecha</span>}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50 text-muted-foreground" />
@@ -322,9 +346,29 @@ export default function EditInvoicePage() {
                       </FormControl>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} />
+                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus locale={es} disabled={form.formState.isSubmitting}/>
                     </PopoverContent>
                   </Popover>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="taxRate"
+              render={({ field }) => (
+                <FormItem className="md:col-span-2">
+                  <FormLabel>Tasa de Impuesto (%) (Opcional)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      placeholder="Ej: 16"
+                      {...field}
+                      onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
+                      value={field.value || 0}
+                      disabled={form.formState.isSubmitting}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -342,7 +386,7 @@ export default function EditInvoicePage() {
                     <FormItem className="md:col-span-5">
                       {index === 0 && <FormLabel>Descripción</FormLabel>}
                       <FormControl>
-                        <Input placeholder="Descripción del servicio/producto" {...field} />
+                        <Input placeholder="Descripción del servicio/producto" {...field} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -355,7 +399,7 @@ export default function EditInvoicePage() {
                     <FormItem className="md:col-span-2">
                        {index === 0 && <FormLabel>Cantidad</FormLabel>}
                       <FormControl>
-                        <Input type="number" placeholder="1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
+                        <Input type="number" placeholder="1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -368,14 +412,14 @@ export default function EditInvoicePage() {
                     <FormItem className="md:col-span-3">
                        {index === 0 && <FormLabel>Precio Unit.</FormLabel>}
                       <FormControl>
-                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} />
+                        <Input type="number" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} disabled={form.formState.isSubmitting}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9">
+                    <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9" disabled={form.formState.isSubmitting}>
                         <Trash2 className="h-4 w-4 text-destructive-foreground" />
                     </Button>
                  </div>
@@ -386,6 +430,7 @@ export default function EditInvoicePage() {
               variant="outline"
               size="sm"
               onClick={() => append({ id: `item-${itemIdCounter++}-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 })}
+              disabled={form.formState.isSubmitting}
             >
               <PlusCircle className="mr-2 h-4 w-4 text-green-600" /> Agregar Ítem
             </Button>
@@ -394,8 +439,22 @@ export default function EditInvoicePage() {
             )}
           </div>
 
-          <div className="text-right text-xl font-semibold">
-            Total: {totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}
+          <div className="mt-6 border-t pt-4">
+            <div className="space-y-1 text-right text-sm">
+              <div className="flex justify-end gap-4">
+                <span className="text-muted-foreground">Subtotal:</span>
+                <span className="w-32 text-right font-medium">{subtotal.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+              </div>
+              <div className="flex justify-end gap-4">
+                <span className="text-muted-foreground">Impuestos ({watchedTaxRate || 0}%):</span>
+                <span className="w-32 text-right font-medium">{calculatedTaxAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+              </div>
+              <Separator className="my-2"/>
+              <div className="flex justify-end gap-4 text-lg font-semibold text-primary">
+                <span>TOTAL:</span>
+                <span className="w-32 text-right">{totalAmountWithTax.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+              </div>
+            </div>
           </div>
 
           <FormField
@@ -405,15 +464,15 @@ export default function EditInvoicePage() {
               <FormItem>
                 <FormLabel>Notas Adicionales (Opcional)</FormLabel>
                 <FormControl>
-                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} value={field.value || ''} />
+                  <Textarea placeholder="Términos de pago, agradecimientos, etc." {...field} value={field.value || ''} disabled={form.formState.isSubmitting}/>
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
           <Button type="submit" disabled={form.formState.isSubmitting || isLoadingForm}>
-            {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {form.formState.isSubmitting ? 'Guardando Cambios...' : 'Guardar Cambios'}
+            {form.formState.isSubmitting || isLoadingForm ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {form.formState.isSubmitting || isLoadingForm ? 'Guardando Cambios...' : 'Guardar Cambios'}
           </Button>
         </form>
       </Form>

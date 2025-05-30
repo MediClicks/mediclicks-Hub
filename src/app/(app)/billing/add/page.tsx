@@ -25,10 +25,11 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import type { InvoiceStatus, InvoiceItem, Client, WithConvertedDates, ContractedServiceClient } from '@/types';
+import type { InvoiceStatus, Client, WithConvertedDates, ContractedServiceClient } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, Timestamp, doc, getDoc, deleteField } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 
 
 const invoiceStatuses: InvoiceStatus[] = ['No Pagada', 'Pagada', 'Vencida'];
@@ -46,6 +47,7 @@ const invoiceFormSchema = z.object({
   dueDate: z.date({ required_error: 'La fecha de vencimiento es obligatoria.' }),
   status: z.enum(invoiceStatuses, { required_error: 'El estado es obligatorio.' }),
   items: z.array(invoiceItemSchema).min(1, { message: 'Debe agregar al menos un ítem a la factura.' }),
+  taxRate: z.coerce.number().min(0, "La tasa no puede ser negativa.").optional().default(0),
   notes: z.string().optional(),
 });
 
@@ -53,20 +55,23 @@ type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 let itemIdCounter = 0;
 
+// Recursive timestamp converter
 function convertClientTimestampsToDates<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
   if (!docData) return undefined;
-  const data = { ...docData } as Partial<WithConvertedDates<T>>;
+  const data = { ...docData } as any; // Use 'any' for easier manipulation internally
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
-      const value = data[key as keyof T];
+      const value = data[key];
       if (value instanceof Timestamp) {
-        (data[key as keyof T] as any) = value.toDate();
+        data[key] = value.toDate();
       } else if (Array.isArray(value)) {
-        (data[key as keyof T] as any) = value.map(item =>
-          typeof item === 'object' && item !== null && !(item instanceof Date) ? convertClientTimestampsToDates(item as any) : item
+        data[key] = value.map((item: any) =>
+          typeof item === 'object' && item !== null && !(item instanceof Date)
+            ? convertClientTimestampsToDates(item) // Recursively convert objects in arrays
+            : item
         );
       } else if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
-        (data[key as keyof T] as any) = convertClientTimestampsToDates(value as any);
+        data[key] = convertClientTimestampsToDates(value); // Recursively convert nested objects
       }
     }
   }
@@ -76,8 +81,10 @@ function convertClientTimestampsToDates<T extends Record<string, any>>(docData: 
   } else if (!data.hasOwnProperty('contractedServices')) {
     (data['contractedServices' as keyof T] as any) = [];
   }
+
   return data as WithConvertedDates<T>;
 }
+
 
 export default function AddInvoicePage() {
   const router = useRouter();
@@ -95,6 +102,7 @@ export default function AddInvoicePage() {
       status: 'No Pagada',
       items: [{ id: `item-${itemIdCounter++}-${Date.now()}`, description: '', quantity: 1, unitPrice: 0 }],
       clientId: '',
+      taxRate: 0,
       notes: '',
     },
   });
@@ -165,15 +173,26 @@ export default function AddInvoicePage() {
         setSelectedClientDetails(null);
       }
     };
-    fetchSelectedClientDetails();
+
+    if (watchedClientId) {
+        fetchSelectedClientDetails();
+    } else {
+        setSelectedClientDetails(null); // Clear if no client is selected
+    }
   }, [watchedClientId, toast]);
 
 
-  const watchItems = form.watch('items');
-  const totalAmount = watchItems.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+  const watchedItems = form.watch('items');
+  const watchedTaxRate = form.watch('taxRate');
+
+  const subtotal = watchedItems.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+  const taxRateDecimal = (watchedTaxRate || 0) / 100;
+  const calculatedTaxAmount = subtotal * taxRateDecimal;
+  const totalAmountWithTax = subtotal + calculatedTaxAmount;
+
 
   const addClientServicesToInvoice = () => {
-    if (selectedClientDetails && selectedClientDetails.contractedServices && selectedClientDetails.contractedServices.length > 0) {
+    if (selectedClientDetails && Array.isArray(selectedClientDetails.contractedServices) && selectedClientDetails.contractedServices.length > 0) {
       const currentItemDescriptions = new Set(fields.map(item => item.description));
       let servicesAddedCount = 0;
 
@@ -197,7 +216,7 @@ export default function AddInvoicePage() {
       } else {
          toast({
           title: 'Servicios No Agregados',
-          description: `Todos los servicios contratados por ${selectedClientDetails.name} ya están en la factura o no tiene servicios contratados.`,
+          description: `Todos los servicios contratados por ${selectedClientDetails.name} ya están en la factura o no tiene servicios para agregar.`,
           variant: 'default',
         });
       }
@@ -216,13 +235,21 @@ export default function AddInvoicePage() {
     try {
       const clientName = clientsList.find(c => c.id === data.clientId)?.name;
 
+      const currentSubtotal = data.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0);
+      const currentTaxRateDecimal = (data.taxRate || 0) / 100;
+      const currentCalculatedTaxAmount = currentSubtotal * currentTaxRateDecimal;
+      const currentFinalTotalAmount = currentSubtotal + currentCalculatedTaxAmount;
+
+
       const invoiceData: Record<string, any> = {
         clientId: data.clientId,
         issuedDate: Timestamp.fromDate(data.issuedDate),
         dueDate: Timestamp.fromDate(data.dueDate),
         status: data.status,
         items: data.items.map(({ id, ...rest }) => rest), 
-        totalAmount: totalAmount,
+        taxRate: data.taxRate || 0,
+        taxAmount: currentCalculatedTaxAmount,
+        totalAmount: currentFinalTotalAmount,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -238,11 +265,10 @@ export default function AddInvoicePage() {
       }
       
       const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
-      // console.log('Nueva factura guardada en Firestore con ID: ', docRef.id); // Removed debug log
 
       toast({
         title: 'Factura Creada',
-        description: `La factura para ${clientName || 'el cliente seleccionado'} ha sido creada.`,
+        description: `La factura "${docRef.id.substring(0,8).toUpperCase()}" para ${clientName || 'el cliente seleccionado'} ha sido creada.`,
       });
       router.push('/billing');
 
@@ -365,9 +391,29 @@ export default function AddInvoicePage() {
                 </FormItem>
               )}
             />
+             <FormField
+                control={form.control}
+                name="taxRate"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2"> {/* Span across two columns if needed */}
+                    <FormLabel>Tasa de Impuesto (%) (Opcional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        placeholder="Ej: 16"
+                        {...field}
+                        onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
+                        value={field.value || 0}
+                        disabled={form.formState.isSubmitting}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
           </div>
 
-          {watchedClientId && selectedClientDetails && selectedClientDetails.contractedServices && selectedClientDetails.contractedServices.length > 0 && (
+          {watchedClientId && selectedClientDetails && Array.isArray(selectedClientDetails.contractedServices) && selectedClientDetails.contractedServices.length > 0 && (
             <Card className="mt-6 bg-secondary/30 border-primary/30">
               <CardHeader className="pb-2 pt-4 px-4">
                 <CardTitle className="text-md flex items-center">
@@ -443,7 +489,7 @@ export default function AddInvoicePage() {
                   )}
                 />
                  <div className="md:col-span-2 flex items-end justify-end">
-                    {fields.length > 0 && (
+                    {fields.length > 0 && ( // Only show remove button if there are items
                       <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)} className="h-9 w-9" disabled={form.formState.isSubmitting}>
                           <Trash2 className="h-4 w-4 text-destructive-foreground" />
                       </Button>
@@ -465,9 +511,24 @@ export default function AddInvoicePage() {
             )}
           </div>
 
-          <div className="text-right text-xl font-semibold">
-            Total: {totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}
+          <div className="mt-6 border-t pt-4">
+            <div className="space-y-1 text-right text-sm">
+              <div className="flex justify-end gap-4">
+                <span className="text-muted-foreground">Subtotal:</span>
+                <span className="w-32 text-right font-medium">{subtotal.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+              </div>
+              <div className="flex justify-end gap-4">
+                <span className="text-muted-foreground">Impuestos ({watchedTaxRate || 0}%):</span>
+                <span className="w-32 text-right font-medium">{calculatedTaxAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+              </div>
+              <Separator className="my-2"/>
+              <div className="flex justify-end gap-4 text-lg font-semibold text-primary">
+                <span>TOTAL:</span>
+                <span className="w-32 text-right">{totalAmountWithTax.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+              </div>
+            </div>
           </div>
+
 
           <FormField
             control={form.control}

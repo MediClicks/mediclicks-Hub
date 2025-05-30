@@ -42,9 +42,8 @@ export interface Client {
   contractedServices?: ContractedServiceClient[];
   socialMediaAccounts?: SocialMediaAccountClient[];
   
-  credencialesRedesUsuario?: string;
-  credencialesRedesContrasena?: string;
-
+  // credencialesRedesUsuario?: string; // Legacy, can be removed if socialMediaAccounts is fully adopted
+  // credencialesRedesContrasena?: string; // Legacy
 
   createdAt?: Date | Timestamp;
   updatedAt?: Date | Timestamp;
@@ -86,8 +85,10 @@ export interface Invoice {
   dueDate: Date;
   status: InvoiceStatus;
   items: InvoiceItem[];
+  taxRate?: number; // e.g., 16 for 16%
+  taxAmount?: number; // Calculated tax amount
   notes?: string;
-  totalAmount: number; 
+  totalAmount: number; // Grand total (subtotal + taxAmount)
 
   createdAt?: Date | Timestamp;
   updatedAt?: Date | Timestamp;
@@ -105,14 +106,14 @@ export interface Publication {
   updatedAt?: Date | Timestamp;
 }
 
-export type WithConvertedDates<T> = {
-  [K in keyof T]: T[K] extends Timestamp ? Date :
-    T[K] extends Timestamp | null ? Date | null :
-    T[K] extends Timestamp | undefined ? Date | undefined :
-    T[K] extends (Timestamp | undefined)[] ? (Date | undefined)[] :
-    T[K] extends Timestamp[] ? Date[] :
-    T[K];
-};
+// Utility type to convert Firestore Timestamps in nested objects/arrays to JS Date
+export type WithConvertedDates<T> = T extends Timestamp
+  ? Date
+  : T extends (infer U)[]
+  ? WithConvertedDates<U>[]
+  : T extends object
+  ? { [K in keyof T]: WithConvertedDates<T[K]> }
+  : T;
 
 
 export interface AgencyDetails {

@@ -1,36 +1,40 @@
 
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react'; // Added useCallback
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Invoice, Client, WithConvertedDates, AgencyDetails } from '@/types';
+import type { Invoice, Client, WithConvertedDates, AgencyDetails, InvoiceItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Printer, ArrowLeft, AlertTriangle, FileText, Building, UserCircle, Phone, Mail } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-// import { PDFDownloadLink } from '@react-pdf/renderer'; // Comentado para eliminar error
-// import InvoicePdfDocument from '@/components/billing/invoice-pdf-document'; // Comentado
+// PDFDownloadLink and InvoicePdfDocument are commented out due to persistent 'hasOwnProperty' errors.
+// import { PDFDownloadLink } from '@react-pdf/renderer';
+// import InvoicePdfDocument from '@/components/billing/invoice-pdf-document';
 
 type InvoiceWithConvertedDates = WithConvertedDates<Invoice>;
 type ClientWithConvertedDates = WithConvertedDates<Client>;
 
-// Function to convert Firestore Timestamps to JS Date objects
+// Function to convert Firestore Timestamps to JS Date objects recursively
 function convertTimestampsToDates<T extends Record<string, any>>(docData: T | undefined): WithConvertedDates<T> | undefined {
   if (!docData) return undefined;
   const data = { ...docData } as Partial<WithConvertedDates<T>>;
   for (const key in data) {
-    if (data[key as keyof T] instanceof Timestamp) {
-      data[key as keyof T] = (data[key as keyof T] as Timestamp).toDate() as any;
-    } else if (Array.isArray(data[key as keyof T])) {
-      (data[key as keyof T] as any) = (data[key as keyof T] as any[]).map(item =>
-        typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item) : item
-      );
-    } else if (typeof data[key as keyof T] === 'object' && data[key as keyof T] !== null && !((data[key as keyof T]) instanceof Date)) {
-      (data[key as keyof T] as any) = convertTimestampsToDates(data[key as keyof T] as any);
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const value = data[key as keyof T];
+      if (value instanceof Timestamp) {
+        (data[key as keyof T] as any) = value.toDate();
+      } else if (Array.isArray(value)) {
+        (data[key as keyof T] as any) = value.map(item =>
+          typeof item === 'object' && item !== null && !(item instanceof Date) ? convertTimestampsToDates(item as any) : item
+        );
+      } else if (typeof value === 'object' && value !== null && !((value) instanceof Date)) {
+        (data[key as keyof T] as any) = convertTimestampsToDates(value as any);
+      }
     }
   }
   return data as WithConvertedDates<T>;
@@ -48,10 +52,10 @@ export default function ViewInvoicePage() {
   const [agencyDetails, setAgencyDetails] = useState<AgencyDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // const [isClientSide, setIsClientSide] = useState(false); // Comentado
+  // const [isClient, setIsClient] = useState(false); // Commented out as PDFLink is disabled
 
-  // useEffect(() => { // Comentado
-  //   setIsClientSide(true);
+  // useEffect(() => { // Commented out
+  //   setIsClient(true);
   // }, []);
 
   const fetchInvoiceData = useCallback(async () => {
@@ -69,13 +73,13 @@ export default function ViewInvoicePage() {
 
       if (!invoiceSnap.exists()) {
         setError('Factura no encontrada.');
-        setInvoice(null); // Ensure invoice is null if not found
+        setInvoice(null);
         setIsLoading(false);
         return;
       }
       
-      const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>;
-      const invoiceDataWithCorrectId: Invoice = {
+      const firestoreData = invoiceSnap.data() as Omit<Invoice, 'id'>; // Data from Firestore
+      const invoiceDataWithCorrectId: Invoice = { // Ensure the object structure matches Invoice type
         ...firestoreData,
         id: invoiceSnap.id, 
       };
@@ -105,12 +109,13 @@ export default function ViewInvoicePage() {
       if (agencySnap.exists()) {
         setAgencyDetails(agencySnap.data() as AgencyDetails);
       } else {
+        // Fallback if agency details are not set in Firestore
         setAgencyDetails({ 
-          agencyName: "Tu Agencia S.L.",
-          address: "Calle Falsa 123, Ciudad, CP",
-          taxId: "NIF/CIF: X1234567Z",
+          agencyName: "MediClicks Hub",
+          address: "Tu Dirección Completa Aquí",
+          taxId: "Tu NIF/CIF Aquí",
           contactEmail: "contacto@tuagencia.com",
-          contactPhone: "+34 900 000 000",
+          contactPhone: "+XX XXX XXX XXX",
           website: "www.tuagencia.com"
         });
       }
@@ -146,7 +151,7 @@ export default function ViewInvoicePage() {
     );
   }
 
-  if (error && !invoice) { // Show general error if invoice couldn't be fetched for any reason
+  if (error && !invoice) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] text-center">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
@@ -159,7 +164,7 @@ export default function ViewInvoicePage() {
     );
   }
   
-  if (!invoice) { // Specific message if invoice is null after loading (e.g., not found)
+  if (!invoice) {
     return (
          <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] text-center">
             <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
@@ -175,8 +180,9 @@ export default function ViewInvoicePage() {
   const displayInvoiceId = invoice.id ? String(invoice.id).substring(0,10).toUpperCase() : 'ID N/A';
 
   const subtotal = Array.isArray(invoice.items) ? invoice.items.reduce((sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0), 0) : 0;
-  const taxAmount = 0; 
-  const total = invoice.totalAmount || 0;
+  const displayTaxRate = invoice.taxRate || 0;
+  const displayTaxAmount = invoice.taxAmount || 0;
+  const total = invoice.totalAmount || 0; // This should already include tax
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 bg-background">
@@ -265,8 +271,8 @@ export default function ViewInvoicePage() {
                 <span>{subtotal.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Impuestos (IVA 0%):</span> 
-                <span>{taxAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
+                <span className="text-muted-foreground">Impuestos ({displayTaxRate}%):</span> 
+                <span>{displayTaxAmount.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })}</span>
               </div>
               <Separator />
               <div className="flex justify-between text-lg font-bold text-primary">
@@ -291,34 +297,21 @@ export default function ViewInvoicePage() {
             <Button variant="outline" onClick={() => router.push('/billing')}>
               <ArrowLeft className="mr-2 h-4 w-4" /> Volver
             </Button>
-            <Button onClick={handlePrint} variant="outline" title="Imprimir Factura">
-                <Printer className="mr-2 h-4 w-4" /> Imprimir
-            </Button>
-            {/* 
-                PDFDownloadLink comentado para evitar errores.
-                {isClientSide && invoice && client && agencyDetails ? (
-                <PDFDownloadLink
-                  document={<InvoicePdfDocument invoice={invoice} client={client} agencyDetails={agencyDetails} />}
-                  fileName={`Factura-${displayInvoiceId}.pdf`}
-                >
-                  {({ loading }) => (
-                    <Button variant="outline" disabled={loading}>
-                      {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                      {loading ? 'Generando PDF...' : 'Descargar PDF'}
-                    </Button>
-                  )}
-                </PDFDownloadLink>
-              ) : (
-                 <Button variant="outline" disabled>
-                    <Download className="mr-2 h-4 w-4" />
-                    Descargar PDF (No disponible)
-                 </Button>
-              )} 
-            */}
+            <div className="flex gap-2">
+              <Button onClick={handlePrint} variant="outline" title="Imprimir Factura">
+                  <Printer className="mr-2 h-4 w-4" /> Imprimir
+              </Button>
+              {/* PDFDownloadLink is currently disabled due to persistent errors.
+                  Users can use the browser's print-to-PDF functionality.
+              <Button variant="outline" disabled title="Descarga PDF no disponible temporalmente">
+                <Download className="mr-2 h-4 w-4 opacity-50" />
+                Descargar PDF
+              </Button>
+              */}
+            </div>
           </div>
         </CardFooter>
       </Card>
     </div>
   );
 }
-
