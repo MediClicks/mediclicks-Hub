@@ -1,9 +1,16 @@
 
 // src/app/(app)/medi-clicks-dashboard/page.tsx
+"use client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AreaChart, Target, Users, BarChartHorizontal, DollarSign, Lightbulb } from "lucide-react";
+import { useEffect, useState } from "react";
+import { getBillingSummaryTool, getClientCountTool, getUpcomingTasksTool } from "@/ai/tools/agency-tools";
+import { format } from "date-fns";
 
 export default function MediClicksDashboardPage() {
+  const [annualIncome, setAnnualIncome] = useState<number | null>(null);
+  const [clientCount, setClientCount] = useState<number | null>(null);
+  const [upcomingTasksSummary, setUpcomingTasksSummary] = useState<string | null>(null);
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -28,11 +35,44 @@ export default function MediClicksDashboardPage() {
             </p>
           </div>
 
+          <useEffect(() => {
+            const fetchDashboardData = async () => {
+              // Fetch Annual Income
+              try {
+                const currentYear = new Date().getFullYear();
+                const incomeData = await getBillingSummaryTool({ year: currentYear });
+                setAnnualIncome(incomeData.totalIncome);
+              } catch (error) {
+                console.error("Error fetching annual income:", error);
+                setAnnualIncome(null); // Or set an error state
+              }
+
+              // Fetch Client Count
+              try {
+                const clientData = await getClientCountTool({});
+                setClientCount(clientData.count);
+              } catch (error) {
+                console.error("Error fetching client count:", error);
+                setClientCount(null); // Or set an error state
+              }
+
+              // Fetch Upcoming Tasks
+              try {
+                const tasksData = await getUpcomingTasksTool({});
+                setUpcomingTasksSummary(tasksData.summary);
+              } catch (error) {
+                console.error("Error fetching upcoming tasks:", error);
+                setUpcomingTasksSummary("Error al cargar tareas próximas."); // Or set an error state
+              }
+            };
+            fetchDashboardData();
+          }, []); // Empty dependency array means this effect runs once on mount
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium flex items-center">
-                   <Target className="mr-2 h-4 w-4 text-indigo-400" />
+ <Target className="mr-2 h-4 w-4 text-indigo-400" />
                    Visión General de KPIs
                 </CardTitle>
               </CardHeader>
@@ -45,7 +85,27 @@ export default function MediClicksDashboardPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium flex items-center">
-                   <Users className="mr-2 h-4 w-4 text-indigo-400" />
+                  <Users className="mr-2 h-4 w-4 text-indigo-400" />
+                  Total Clientes
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {clientCount !== null ? (
+                  <div className="text-2xl font-bold text-blue-600">
+                    {clientCount}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Cargando total de clientes...
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center">
+ <Users className="mr-2 h-4 w-4 text-indigo-400" />
                    Rendimiento de Adquisición
                 </CardTitle>
               </CardHeader>
@@ -58,7 +118,7 @@ export default function MediClicksDashboardPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium flex items-center">
-                   <BarChartHorizontal className="mr-2 h-4 w-4 text-indigo-400" />
+ <BarChartHorizontal className="mr-2 h-4 w-4 text-indigo-400" />
                    Efectividad de Campañas
                 </CardTitle>
               </CardHeader>
@@ -71,7 +131,7 @@ export default function MediClicksDashboardPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium flex items-center">
-                   <DollarSign className="mr-2 h-4 w-4 text-indigo-400" />
+ <DollarSign className="mr-2 h-4 w-4 text-indigo-400" />
                    Análisis de Rentabilidad
                 </CardTitle>
               </CardHeader>
@@ -81,10 +141,46 @@ export default function MediClicksDashboardPage() {
                 </p>
               </CardContent>
             </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center">
+                  <DollarSign className="mr-2 h-4 w-4 text-indigo-400" />
+                  Ingreso Bruto Anual
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {annualIncome !== null ? (
+                  <div className="text-2xl font-bold text-green-600">
+                    {annualIncome.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} {/* Format as currency */}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Cargando ingreso anual...
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center">
+                  <BarChartHorizontal className="mr-2 h-4 w-4 text-indigo-400" />
+                  Tareas Próximas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {upcomingTasksSummary !== null ? (
+                  <p className="text-sm text-muted-foreground">
+                    {upcomingTasksSummary}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Cargando resumen de tareas...</p>
+                )}
+              </CardContent>
+            </Card>
              <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium flex items-center">
-                   <Lightbulb className="mr-2 h-4 w-4 text-indigo-400" />
+ <Lightbulb className="mr-2 h-4 w-4 text-indigo-400" />
                    Proyecciones y Tendencias
                 </CardTitle>
               </CardHeader>

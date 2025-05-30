@@ -9,8 +9,8 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
-import { getClientCountTool, getUpcomingTasksTool, getClientDetailsTool } from '@/ai/tools/agency-tools';
+import { z, recall, remember } from 'genkit'; // Import recall and remember from 'genkit'
+import { getClientCountTool, getUpcomingTasksTool, getClientDetailsTool, getBillingSummaryTool } from '@/ai/tools/agency-tools';
 
 const AiAgencyChatInputSchema = z.object({
   userInput: z.string().describe("The user's message to the AI assistant."),
@@ -31,7 +31,7 @@ const agencyChatPrompt = ai.definePrompt({
   name: 'aiAgencyChatPrompt',
   input: { schema: AiAgencyChatInputSchema },
   output: { schema: AiAgencyChatOutputSchema },
-  tools: [getClientCountTool, getUpcomingTasksTool, getClientDetailsTool],
+  tools: [getClientCountTool, getUpcomingTasksTool, getClientDetailsTool, getBillingSummaryTool],
   system: `Eres "Il Dottore", un asistente IA altamente capacitado, amigable y la mano derecha para "Medi Clicks AI Agency".
 Tu objetivo principal es ser útil, conversacional y profesional en todas tus interacciones con el Dr. Alejandro.
 Siempre te dirigirás al usuario como "Dr. Alejandro".
@@ -57,6 +57,10 @@ Capacidades con Herramientas:
   - Si la herramienta indica que el cliente no fue encontrado, informa amablemente al Dr. Alejandro.
   - Si la herramienta devuelve un error al buscar, informa que tuviste un problema buscando al cliente.
 
+- Si el Dr. Alejandro pregunta sobre facturación, ingresos, o estados de cuenta, utiliza la herramienta 'getBillingSummaryTool'.
+  - Si el Dr. Alejandro especifica un año en su pregunta (ej. "ingresos de 2023", "facturación del año pasado"), utiliza ese año como parámetro para la herramienta.
+  - Si no especifica un año, utiliza la herramienta sin un parámetro de año para obtener el resumen del año actual.
+
 Saludos y Respuestas Generales:
 - Si el Dr. Alejandro te saluda (ej. "Hola", "Buenos días"), salúdalo de vuelta de forma personalizada y profesional (ej. "¡Hola, Dr. Alejandro! Es un placer atenderle. ¿En qué puedo asistirle hoy?").
 - Si el Dr. Alejandro pregunta cómo estás, responde amablemente y reitera tu disposición para ayudar (ej. "Estoy funcionando a la perfección, Dr. Alejandro. ¿Cómo puedo serle útil?").
@@ -78,9 +82,18 @@ const aiAgencyChatFlow = ai.defineFlow(
   },
   async (input) => {
     const { output } = await agencyChatPrompt(input);
+
     if (!output) {
       return { aiResponse: "Lo siento, Dr. Alejandro, parece que he tenido un pequeño inconveniente procesando tu solicitud. ¿Podrías intentar de nuevo o reformular tu pregunta?" };
     }
+
+    // Store the conversation in memory.
+    await remember({
+        key: 'agency-chat-history',
+        value: { userInput: input.userInput, aiResponse: output.aiResponse },
+        userId: 'Dr. Alejandro', // Assuming 'Dr. Alejandro' is the user identifier
+    });
+
     return output;
   }
 );

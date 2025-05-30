@@ -600,14 +600,6 @@ export default function DashboardPage() {
           className="border-amber-500"
           href="/tasks?status=Pendiente"
         />
-         <SummaryCard 
-          title="Tareas para Hoy" 
-          value={stats?.tasksForToday ?? 0} 
-          icon={ListChecks}
-          description="Tareas no completadas que vencen hoy"
-          className="border-teal-500"
-          href="/tasks?due=today&show=actionable"
-        />
         <SummaryCard 
           title="Ingresos Este Mes" 
           value={stats?.revenueThisMonth ?? 'Calculando...'} 

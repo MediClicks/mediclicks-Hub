@@ -10,7 +10,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
-import { db } from '@/lib/firebase';
+import { db, getInvoicesForYear } from '@/lib/firebase';
 import { collection, getCountFromServer, query, where, Timestamp, orderBy, limit, getDocs } from 'firebase/firestore';
 import { startOfDay, endOfDay, addDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -67,6 +67,34 @@ export const getClientCountTool = ai.defineTool(
     } catch (error) {
       console.error("Error en getClientCountTool:", error);
       return { count: -1 }; // Indicate an error or inability to fetch
+    }
+  }
+);
+
+export const getBillingSummaryTool = ai.defineTool(
+  {
+    name: 'getBillingSummaryTool',
+    description: 'Obtiene un resumen del ingreso bruto anual de la agencia para un año específico.',
+    inputSchema: z.object({
+      year: z.number().optional().describe('El año para el que se desea el resumen de ingresos. Por defecto es el año actual.'),
+    }),
+    outputSchema: z.object({
+      totalIncome: z.number().describe('El ingreso bruto total para el año especificado.'),
+      year: z.number().describe('El año del resumen de ingresos.'),
+      message: z.string().describe('Un mensaje sobre el resultado de la búsqueda, ej. "Resumen de ingresos encontrado".'),
+    }),
+  },
+  async (input) => {
+    try {
+      const currentYear = new Date().getFullYear();
+      const year = input.year || currentYear;
+      const invoices = await getInvoicesForYear(year);
+      const totalIncome = invoices.reduce((sum, invoice) => sum + (invoice.amount || 0), 0);
+
+      return { totalIncome, year, message: `Resumen de ingresos para el año ${year} obtenido exitosamente.` };
+    } catch (error: any) {
+      console.error("Error en getBillingSummaryTool:", error);
+      return { totalIncome: -1, year: input.year || new Date().getFullYear(), message: `Error al obtener resumen de ingresos: ${error.message || 'Error desconocido'}.` };
     }
   }
 );

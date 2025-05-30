@@ -1,8 +1,8 @@
 
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { getFirestore, collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
@@ -29,4 +29,23 @@ if (!getApps().length) {
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-export { app, db, auth };
+export async function getInvoicesForYear(year: number) {
+  try {
+    const startDate = new Date(year, 0, 1); // January 1st of the given year
+    const endDate = new Date(year + 1, 0, 1); // January 1st of the next year
+
+    const invoicesRef = collection(db, 'invoices');
+    const q = query(
+      invoicesRef,
+      where('date', '>=', Timestamp.fromDate(startDate)),
+      where('date', '<', Timestamp.fromDate(endDate))
+    );
+
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error("Error fetching invoices for year:", error);
+    return []; // Return empty array in case of error
+  }
+}
+export { app, db, auth, getInvoicesForYear };
