@@ -3,9 +3,9 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { useForm, useFieldArray, Controller, SubmitHandler } from 'react-hook-form';
 import { z } from 'zod';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/button'; 
 import {
   Form,
   FormControl,
@@ -26,12 +26,13 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast'; 
 import { db } from '@/lib/firebase'; 
 import { collection, addDoc, serverTimestamp, Timestamp, getDocs, query, orderBy, deleteField, FieldValue } from 'firebase/firestore';
 import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates, TaskPriority, TaskStatus } from '@/types';
 import { addCalendarEventForTaskAction } from '@/app/actions/calendarActions';
 
+import { addClient } from '@/app/actions/clientActions';
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
 let serviceItemIdCounter = 0;
@@ -162,41 +163,35 @@ export default function AddClientPage() {
     fetchServiceDefinitions();
   }, [fetchServiceDefinitions]);
 
-  async function onSubmit(data: ClientFormValues) {
-    form.clearErrors();
-    
+  const onSubmit: SubmitHandler<ClientFormValues> = async (values) => {
     const dataToSave: Record<string, any> = {
-      name: data.name,
-      email: data.email,
-      contractStartDate: Timestamp.fromDate(data.contractStartDate),
-      pagado: data.pagado || false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      name: values.name,
+      email: values.email,
+      contractStartDate: values.contractStartDate.toISOString(), 
+      pagado: values.pagado || false,
     };
 
-    // Handle optional string fields
     const optionalStringFields: (keyof ClientFormValues)[] = [
       'avatarUrl', 'clinica', 'telefono', 'profileSummary',
       'dominioWeb', 'tipoServicioWeb', 'credencialesRedesUsuario', 'credencialesRedesContrasena'
     ];
     optionalStringFields.forEach(key => {
-      const value = data[key as keyof ClientFormValues] as string | undefined;
+      const value = values[key as keyof ClientFormValues] as string | undefined;
       if (typeof value === 'string' && value.trim() !== '') {
         dataToSave[key] = value;
       }
-      // No usamos deleteField() para addDoc, simplemente no incluimos el campo si está vacío
     });
-    
-    if (data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime())) {
-      dataToSave.vencimientoWeb = Timestamp.fromDate(data.vencimientoWeb);
+
+    if (values.vencimientoWeb instanceof Date && !isNaN(values.vencimientoWeb.getTime())) {
+      dataToSave.vencimientoWeb = values.vencimientoWeb.toISOString();
     }
 
-    if (data.contractedServices && data.contractedServices.length > 0) {
-      dataToSave.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest); 
+    if (values.contractedServices && values.contractedServices.length > 0) {
+      dataToSave.contractedServices = values.contractedServices.map(({ id, ...rest }) => rest);
     }
 
-    if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
-      dataToSave.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
+    if (values.socialMediaAccounts && values.socialMediaAccounts.length > 0) {
+      dataToSave.socialMediaAccounts = values.socialMediaAccounts.map(({ id, password, ...rest }) => {
         const account: any = { ...rest };
         if (typeof password === 'string' && password.trim() !== '') {
           account.password = password;
@@ -204,59 +199,33 @@ export default function AddClientPage() {
         return account;
       });
     }
-        
-    try {
-      const docRef = await addDoc(collection(db, 'clients'), dataToSave);
 
+    const result = await addClient(dataToSave);
+
+    if (result.success) {
       toast({
         title: 'Cliente Creado',
-        description: `El cliente ${data.name} ha sido agregado exitosamente.`,
+        description: `El cliente ${values.name} ha sido agregado exitosamente.`,
       });
-
-      // Create automatic tasks for each contracted service
-      if (dataToSave.contractedServices && dataToSave.contractedServices.length > 0) {
-        const clientNameForTask = data.name;
-        for (const service of dataToSave.contractedServices as Omit<ContractedServiceClient, 'id'>[]) {
-          const newTaskData: Record<string, any> = {
-            name: `Configurar servicio: ${service.serviceName} para ${clientNameForTask}`,
-            description: `Iniciar configuración para "${service.serviceName}" (Precio: ${service.price.toLocaleString('es-ES', { style: 'currency', currency: 'USD' })} ${service.paymentModality}) contratado por ${clientNameForTask}. Incluir verificación de pago y bienvenida.`,
-            assignedTo: "Equipo de Cuentas",
-            clientId: docRef.id,
-            clientName: clientNameForTask,
-            dueDate: Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), 
-            priority: 'Media' as TaskPriority,
-            status: 'Pendiente' as TaskStatus,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          };
-          await addDoc(collection(db, 'tasks'), newTaskData);
-          toast({
-            title: "Tarea Automática Creada",
-            description: `Se creó una tarea para configurar el servicio "${service.serviceName}" para ${clientNameForTask}.`,
-            duration: 4000,
-          });
-        }
-      }
-
       router.push('/clients');
-    } catch (e: any) {
-      console.error('Error al agregar cliente a Firestore: ', e);
+    } else {
+      console.error('Error al agregar cliente a Firestore: ', result.error);
       toast({
         title: 'Error al Guardar',
-        description: `Hubo un problema al guardar el cliente: ${e.message || 'Por favor, intenta de nuevo.'}`,
+        description: `Hubo un problema al guardar el cliente: ${result.error || 'Por favor, intenta de nuevo.'}` ,
         variant: 'destructive',
       });
     }
-  }
+  };
 
   return (
     <div className="space-y-8">
       <h1 className="text-3xl font-bold tracking-tight">Agregar Nuevo Cliente</h1>
-      <Form {...form}>
+      <Form {...form}> 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          
+
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Información Básica</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <FormField
               control={form.control}
               name="name"
@@ -270,7 +239,7 @@ export default function AddClientPage() {
                 </FormItem>
               )}
             />
-            <FormField
+             <FormField
               control={form.control}
               name="email"
               render={({ field }) => (
@@ -366,7 +335,7 @@ export default function AddClientPage() {
               </FormItem>
             )}
           />
-          
+
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Servicios Contratados</h2>
           <div className="space-y-4">
             {serviceFields.map((item, index) => (
@@ -391,12 +360,12 @@ export default function AddClientPage() {
                       >
                         <FormControl>
                            <SelectTrigger>
-                             <SelectValue 
+                             <SelectValue
                                 placeholder={
-                                  isLoadingServices ? "Cargando servicios..." :  
-                                  (serviceError ? "Error al cargar servicios" : 
+                                  isLoadingServices ? "Cargando servicios..." :
+                                  (serviceError ? "Error al cargar servicios" :
                                   (serviceDefinitions.length === 0 ? "No hay servicios definidos. Crea uno en Configuración." : "Seleccionar servicio"))
-                                } 
+                                }
                               />
                           </SelectTrigger>
                         </FormControl>
@@ -588,7 +557,7 @@ export default function AddClientPage() {
               Por seguridad, considere usar un gestor de contraseñas seguro y no almacenar contraseñas sensibles directamente aquí si es posible.
             </FormDescription>
           </div>
-          
+
           <FormField
               control={form.control}
               name="credencialesRedesUsuario"
@@ -613,7 +582,7 @@ export default function AddClientPage() {
               </FormItem>
             )}
           />
-          
+
           <h2 className="text-xl font-semibold border-b pb-2 mt-6">Otros</h2>
           <FormField
             control={form.control}

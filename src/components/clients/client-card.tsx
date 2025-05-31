@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import type { Client, WithConvertedDates, ContractedServiceClient } from "@/types";
 import { CalendarDays, Mail, Phone, Building, Edit, Trash2, CheckCircle, XCircle, Loader2, UserCircle, Globe, Briefcase, Info } from 'lucide-react';
 import { Button, buttonVariants } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";import {
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -20,11 +21,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase';
-import { doc, deleteDoc } from 'firebase/firestore';
+// import { db } from '@/lib/firebase'; // db might not be needed if all client actions are server actions
+// import { doc, deleteDoc } from 'firebase/firestore'; // Replaced by deleteClient server action
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { updateUserProfileIcon } from '@/app/actions/clientActions';
+import { updateUserProfileIcon, deleteClient } from '@/app/actions/clientActions'; // Import deleteClient
 
 interface ClientCardProps {
   client: WithConvertedDates<Client>;
@@ -36,28 +37,29 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
+  // personIcons array remains the same...
   const personIcons = [
     <svg key="icon1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
       <circle cx="12" cy="8" r="5" />
       <path d="M20 21a8 8 0 0 0-16 0" />
-    </svg>, // Simple person
+    </svg>,
     <svg key="icon2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
       <circle cx="12" cy="7" r="4" />
       <path d="M19.25 17.25a7 7 0 0 0-14.5 0" />
       <path d="M15 11l1.5-1.5M9 11l-1.5-1.5" />
       <path d="M12 15v2" />
-    </svg>, // Person with styled hair
+    </svg>,
     <svg key="icon3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
       <circle cx="12" cy="7" r="4" />
       <path d="M17.5 16.5a7 7 0 0 0-11 0" />
       <rect x="8" y="9" width="8" height="3" rx="1" ry="1" />
-    </svg>, // Person with glasses
+    </svg>,
     <svg key="icon4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>, // Two people (simplified)
+    </svg>,
     <svg key="icon5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
       <circle cx="12" cy="6" r="4" />
       <path d="M12 11v5" />
@@ -65,12 +67,16 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
       <path d="M12 16v6" />
       <path d="M10 13l-2 8" />
       <path d="M14 13l2 8" />
-    </svg>, // Person with a hat
+    </svg>,
   ];
 
   const handleIconSelect = async (iconSvg: string) => {
     if (client && client.id) {
+      // Consider moving updateUserProfileIcon to a server action for consistency if not done already
+      // For now, it's directly called as per original structure.
       await updateUserProfileIcon(client.id, iconSvg);
+      toast({ title: "Icono Actualizado", description: "El icono del perfil del cliente ha sido actualizado." });
+      // Potentially refresh client data or specific part of UI if icon is displayed from a re-fetched state
     }
   };
 
@@ -87,26 +93,26 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
     }
   };
 
-  const handleDeleteClient = useCallback(async () => {
+  const handleDeleteConfirm = useCallback(async () => {
     if (!client || !client.id) return;
     setIsDeleting(true);
-    try {
-      await deleteDoc(doc(db, "clients", client.id));
+    const result = await deleteClient(client.id);
+    setIsDeleting(false);
+
+    if (result.success) {
       toast({
         title: "Cliente Eliminado",
-        description: `El cliente ${client.name} ha sido eliminado correctamente. Las tareas y facturas asociadas a este cliente no se eliminan automáticamente.`,
+        description: result.message || `El cliente ${client.name} ha sido eliminado correctamente.`,
       });
       onClientDeleted(client.id);
       setShowDeleteDialog(false);
-    } catch (error) {
-      console.error("Error eliminando cliente: ", error);
+    } else {
+      console.error("Error eliminando cliente: ", result.message);
       toast({
         title: "Error al Eliminar",
-        description: "No se pudo eliminar el cliente. Inténtalo de nuevo.",
+        description: result.message || "No se pudo eliminar el cliente. Inténtalo de nuevo.",
         variant: "destructive",
       });
-    } finally {
-      setIsDeleting(false);
     }
   }, [client, onClientDeleted, toast]);
 
@@ -136,7 +142,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
                   <div dangerouslySetInnerHTML={{ __html: client.profileIcon }} className="h-full w-full flex items-center justify-center text-primary" />
                 ) : (
                   <AvatarFallback className="bg-primary/20 text-primary font-semibold text-lg flex items-center justify-center">
-                    <UserCircle className="h-10 w-10" /> {/* Default random icon */}
+                    <UserCircle className="h-10 w-10" /> 
                   </AvatarFallback>
                 )}
               </Avatar>
@@ -251,7 +257,7 @@ export function ClientCard({ client, onClientDeleted }: ClientCardProps) {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting} onClick={() => setShowDeleteDialog(false)}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDeleteClient}
+              onClick={handleDeleteConfirm} // Changed from handleDeleteClient to handleDeleteConfirm
               disabled={isDeleting}
               className={cn(buttonVariants({ variant: "destructive" }))}
             >

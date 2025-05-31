@@ -27,9 +27,10 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, Timestamp, deleteField, collection, query, orderBy, getDocs, addDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase'; 
+import { doc, getDoc, Timestamp, collection, query, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore'; 
 import type { Client, ContractedServiceClient, SocialMediaAccountClient, PaymentModality, ServiceDefinition, WithConvertedDates, TaskPriority, TaskStatus } from '@/types';
+import { updateClient } from '@/app/actions/clientActions'; 
 
 const paymentModalities: PaymentModality[] = ['Único', 'Mensual', 'Trimestral', 'Anual'];
 
@@ -70,7 +71,6 @@ const clientFormSchema = z.object({
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
-// Recursive timestamp converter
 function convertTimestampsRecursively<T extends Record<string, any>>(data: T | undefined): WithConvertedDates<T> | undefined {
   if (!data) return undefined;
   const convertedData = { ...data } as any; 
@@ -159,14 +159,13 @@ export default function EditClientPage() {
       }
     };
 
-    // Fetch Service Definitions
     try {
       const servicesCollection = collection(db, "appServices");
       const q = query(servicesCollection, orderBy("name", "asc"));
       const querySnapshot = await getDocs(q);
       const fetchedServiceDefs = querySnapshot.docs.map(doc => {
         const data = doc.data() as ServiceDefinition;
-        return { id: doc.id, ...convertTimestampsRecursively(data) }; // Use recursive converter
+        return { id: doc.id, ...convertTimestampsRecursively(data) }; 
       });
       setServiceDefinitions(fetchedServiceDefs);
     } catch (err) {
@@ -177,7 +176,6 @@ export default function EditClientPage() {
       checkAllDataLoaded();
     }
 
-    // Fetch Client Data
     try {
       const clientDocRef = doc(db, 'clients', clientId);
       const docSnap = await getDoc(clientDocRef);
@@ -192,7 +190,6 @@ export default function EditClientPage() {
             ...service,
             id: `service-edit-${index}-${Date.now()}` 
         }));
-        
         const fetchedSocialAccounts = (data.socialMediaAccounts || []).map((account, index) => ({
             ...account,
             id: `social-edit-${index}-${Date.now()}`
@@ -241,53 +238,9 @@ export default function EditClientPage() {
   async function onSubmit(data: ClientFormValues) {
     form.clearErrors();
     
-    const dataToUpdate: Record<string, any> = {
-      name: data.name,
-      email: data.email,
-      contractStartDate: Timestamp.fromDate(data.contractStartDate),
-      pagado: data.pagado || false,
-      updatedAt: serverTimestamp(),
-    };
+    const result = await updateClient(clientId, data);
 
-    // Handle optional string fields
-    const optionalStringFields: (keyof ClientFormValues)[] = [
-      'avatarUrl', 'clinica', 'telefono', 'profileSummary',
-      'dominioWeb', 'tipoServicioWeb', 'credencialesRedesUsuario', 'credencialesRedesContrasena'
-    ];
-    optionalStringFields.forEach(key => {
-      const value = data[key as keyof ClientFormValues] as string | undefined;
-      if (typeof value === 'string' && value.trim() !== '') {
-        dataToUpdate[key] = value;
-      } else {
-        dataToUpdate[key] = deleteField();
-      }
-    });
-    
-    dataToUpdate.vencimientoWeb = data.vencimientoWeb instanceof Date && !isNaN(data.vencimientoWeb.getTime()) 
-      ? Timestamp.fromDate(data.vencimientoWeb) 
-      : deleteField();
-
-    if (data.contractedServices && data.contractedServices.length > 0) {
-      dataToUpdate.contractedServices = data.contractedServices.map(({ id, ...rest }) => rest);
-    } else {
-      dataToUpdate.contractedServices = deleteField();
-    }
-
-    if (data.socialMediaAccounts && data.socialMediaAccounts.length > 0) {
-      dataToUpdate.socialMediaAccounts = data.socialMediaAccounts.map(({ id, password, ...rest }) => {
-        const account: any = {...rest};
-        if(typeof password === 'string' && password.trim() !== '') account.password = password;
-        else account.password = deleteField(); // Ensure password is removed if empty
-        return account;
-      });
-    } else {
-      dataToUpdate.socialMediaAccounts = deleteField();
-    }
-    
-    try {
-      const clientDocRef = doc(db, 'clients', clientId);
-      await updateDoc(clientDocRef, dataToUpdate);
-
+    if (result.success) {
       toast({
         title: 'Cliente Actualizado',
         description: `El cliente ${data.name} ha sido actualizado exitosamente.`,
@@ -315,7 +268,7 @@ export default function EditClientPage() {
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           };
-          await addDoc(collection(db, 'tasks'), newTaskData);
+          await addDoc(collection(db, 'tasks'), newTaskData); 
           toast({
             title: "Tarea Automática Creada",
             description: `Se creó una tarea para configurar el servicio "${newService.serviceName}" para ${clientNameForTask}.`,
@@ -331,11 +284,11 @@ export default function EditClientPage() {
       }
 
       router.push('/clients');
-    } catch (e) {
-      console.error('Error al actualizar cliente en Firestore: ', e);
+    } else {
+      console.error('Error al actualizar cliente: ', result.message);
       toast({
         title: 'Error al Guardar',
-        description: 'Hubo un problema al actualizar el cliente. Por favor, intenta de nuevo.',
+        description: result.message || 'Hubo un problema al actualizar el cliente. Por favor, intenta de nuevo.',
         variant: 'destructive',
       });
     }

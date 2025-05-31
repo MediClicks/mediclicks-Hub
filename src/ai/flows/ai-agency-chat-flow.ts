@@ -88,11 +88,11 @@ const aiAgencyChatFlow = ai.defineFlow(
     }
 
     // Store the conversation in memory.
-    await remember({
-        key: 'agency-chat-history',
-        value: { userInput: input.userInput, aiResponse: output.aiResponse },
-        userId: 'Dr. Alejandro', // Assuming 'Dr. Alejandro' is the user identifier
-    });
+    // await remember({ // Comentado debido a TypeError: remember is not a function.
+    // key: 'agency-chat-history', // Esto sugiere una incompatibilidad de versión de Genkit o un problema de bundling.
+    // value: { userInput: input.userInput, aiResponse: output.aiResponse }, // La funcionalidad de recordar el historial del chat en memoria estará desactivada temporalmente.
+    // userId: 'Dr. Alejandro', // Assuming 'Dr. Alejandro' is the user identifier
+    // });
 
     return output;
   }
