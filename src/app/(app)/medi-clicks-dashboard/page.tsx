@@ -11,6 +11,40 @@ export default function MediClicksDashboardPage() {
   const [annualIncome, setAnnualIncome] = useState<number | null>(null);
   const [clientCount, setClientCount] = useState<number | null>(null);
   const [upcomingTasksSummary, setUpcomingTasksSummary] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      // Fetch Annual Income
+      try {
+        const currentYear = new Date().getFullYear();
+        const incomeData = await getBillingSummaryTool({ year: currentYear });
+        setAnnualIncome(incomeData.totalIncome);
+      } catch (error) {
+        console.error("Error fetching annual income:", error);
+        setAnnualIncome(null); // Or set an error state
+      }
+
+      // Fetch Client Count
+      try {
+        const clientData = await getClientCountTool({});
+        setClientCount(clientData.count);
+      } catch (error) {
+        console.error("Error fetching client count:", error);
+        setClientCount(null); // Or set an error state
+      }
+
+      // Fetch Upcoming Tasks
+      try {
+        const tasksData = await getUpcomingTasksTool({});
+        setUpcomingTasksSummary(tasksData.summary);
+      } catch (error) {
+        console.error("Error fetching upcoming tasks:", error);
+        setUpcomingTasksSummary("Error al cargar tareas próximas."); // Or set an error state
+      }
+    };
+    fetchDashboardData();
+  }, []); // Empty dependency array means this effect runs once on mount
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -34,39 +68,6 @@ export default function MediClicksDashboardPage() {
              Este panel presentará KPIs granulares y análisis de tendencias para optimizar las operaciones de la agencia.
             </p>
           </div>
-
-          <useEffect(() => {
-            const fetchDashboardData = async () => {
-              // Fetch Annual Income
-              try {
-                const currentYear = new Date().getFullYear();
-                const incomeData = await getBillingSummaryTool({ year: currentYear });
-                setAnnualIncome(incomeData.totalIncome);
-              } catch (error) {
-                console.error("Error fetching annual income:", error);
-                setAnnualIncome(null); // Or set an error state
-              }
-
-              // Fetch Client Count
-              try {
-                const clientData = await getClientCountTool({});
-                setClientCount(clientData.count);
-              } catch (error) {
-                console.error("Error fetching client count:", error);
-                setClientCount(null); // Or set an error state
-              }
-
-              // Fetch Upcoming Tasks
-              try {
-                const tasksData = await getUpcomingTasksTool({});
-                setUpcomingTasksSummary(tasksData.summary);
-              } catch (error) {
-                console.error("Error fetching upcoming tasks:", error);
-                setUpcomingTasksSummary("Error al cargar tareas próximas."); // Or set an error state
-              }
-            };
-            fetchDashboardData();
-          }, []); // Empty dependency array means this effect runs once on mount
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card>

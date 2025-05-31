@@ -48,4 +48,4 @@ export async function getInvoicesForYear(year: number) {
     return []; // Return empty array in case of error
   }
 }
-export { app, db, auth, getInvoicesForYear };
+export { app, db, auth };
